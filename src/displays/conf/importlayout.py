@@ -75,7 +75,7 @@ SECTION_COMMENTS = {
     'metaBGConf':     '/* BACKGROUNDS         {{ left, top, fontsize, align }, width, height, outlined } */',
     'bootstrConf':    '/* WIDGETS             { left, top, fontsize, align } */',
     'fullbitrateConf':'/* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */',
-    'bandsConf':      '/* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands, fadespeed } */',
+    'bandsConf':      '/* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */',
     'clockMove':      '/* MOVES               { left, top, width (-1 keeps Conf position) */',
 }
 
@@ -300,6 +300,23 @@ def _normalize(val):
     return val
 
 
+def _trim_bands_conf(val):
+    """VUBandsConfig no longer carries fadespeed (the fade rate is derived from the band
+    length and VU_FADE_MS). An older source conf still passes a sixth value, and emitting it
+    verbatim would produce a "too many initializers" error in the generated file, so drop it.
+
+    Only a plain integer sixth value is treated as the old fadespeed; anything else is left
+    alone so a real expression can never be silently discarded."""
+    s = val.strip()
+    if not (s.startswith('{') and s.endswith('}')):
+        return val
+    parts = s[1:-1].strip().split(',')
+    if len(parts) == 6 and parts[5].strip().isdigit():
+        print("NOTE: removing the obsolete fadespeed value from bandsConf")
+        return '{ ' + ','.join(parts[:5]).strip() + ' }'
+    return val
+
+
 def emit_layout_entry(name, configs, layout_fields, index, boombox_style=False, hidden_fields=None):
     if hidden_fields is None: hidden_fields = set()
     # Filter out boot fields — they're extracted separately into BootData block
@@ -330,6 +347,8 @@ def emit_layout_entry(name, configs, layout_fields, index, boombox_style=False, 
                 lines.append(f'        // ??? (Unused by ehRadio) {uname}{" " * pad} = {uval};')
         if fname in config_dict:
             val = config_dict[fname]
+            if fname == 'bandsConf':
+                val = _trim_bands_conf(val)
             if fname == 'boomboxStyle':
                 if boombox_style:
                     lines.append('        /* BOOMBOX STYLE: middle-out VU */')

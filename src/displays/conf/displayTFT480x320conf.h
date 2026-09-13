@@ -60,8 +60,8 @@ const LayoutData _layouts[] PROGMEM = {
         .vuConf              = { TFT_FRAMEWDT, 136, 1, WA_LEFT },
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = {{ DSP_WIDTH-TFT_FRAMEWDT-38, 59, 2, WA_LEFT }, 42 },
-        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands, fadespeed } */
-        .bandsConf           = { 32, 130, 4, 2, 10, 3 },
+        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
+        .bandsConf           = { 32, 130, 4, 2, 10 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 0, 0, -1 },
         .weatherMove         = { TFT_FRAMEWDT, 120, MAX_WIDTH },
@@ -90,8 +90,8 @@ const LayoutData _layouts[] PROGMEM = {
         .vuConf              = { TFT_FRAMEWDT, 161, 1, WA_LEFT },
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = {{ DSP_WIDTH-TFT_FRAMEWDT-38, 59, 2, WA_LEFT }, 42 },
-        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands, fadespeed } */
-        .bandsConf           = { 25, 130, 17, 3, 10, 3 },
+        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
+        .bandsConf           = { 25, 130, 17, 3, 10 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 0, 0, -1 },
         .weatherMove         = { TFT_FRAMEWDT, 120, MAX_WIDTH },
@@ -126,8 +126,8 @@ const LayoutData _layouts[] PROGMEM = {
         // ??? dateConf      = { TFT_FRAMEWDT, 226, 1, WA_LEFT };
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = {{ 10, 148, 2, WA_RIGHT }, 60 },
-        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands, fadespeed } */
-        .bandsConf           = { 200, 7, 4, 2, 20, 9 },
+        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
+        .bandsConf           = { 200, 7, 4, 2, 20 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 0, 0, -1 },
         .weatherMove         = { 10, 116, MAX_WIDTH },

@@ -46,7 +46,7 @@ ehRadio inherits a lot from ёRadio, but improvements have been made to many fun
   - easily changeable in WebUI
 
 - Mobile-first WebUI design
-  - many settings changeable
+  - many settings changeable (including themes, screen layout)
   - 50 Languages available (easily changeable in WebUI)
   - WebUI easily accessed using [ehDP](https://github.com/trip5/eh-Device-Scanner)
   - playlists can be edited, imported, exported to files
@@ -79,6 +79,7 @@ ehRadio inherits a lot from ёRadio, but improvements have been made to many fun
 - Display architecture based on ёRadio
   - simplified and expanded
   - multiple themes and layouts compiled-in
+  - tools in codebase to edit/import themes and layouts
 
 - SPI architecture supports non-standard pins
   - uses custom-named buses `SPIA` and `SPIB` defined in `myoptions.h`
@@ -314,7 +315,7 @@ For that and other major needed changes to the codebase, there is a `code-issues
 
 | Date       | Release Notes    |
 | ---------- | ---------------- |
-| 2026.09.11 `dev` | NV3007 added (work in progress), `ROTATE_90` for square displays, display resolutions, volume page, Firefox mobile |
+| 2026.09.13 `dev` | NV3007 added (work in progress), Fixes to: SSD1327, `ROTATE_90` for square displays, TFT display resolutions, volume page, VU meter (timing, orientation, peaks), Firefox mobile |
 | 2026.08.19 | Stability and bug fixes (SD Offline), documentation |
 | 2026.08.13 | Memory usage, stability, and bug fixes (especially to SD, VS1053) |
 | 2026.08.03 | Minor fixes (and whoops) fixed Search and Curated |

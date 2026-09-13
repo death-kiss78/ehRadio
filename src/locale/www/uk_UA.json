@@ -109,6 +109,7 @@
   "lbl_volume_page": "Сторінка гучності",
   "lbl_votes": "Голосування",
   "lbl_vu_meter": "VU-метр",
+  "lbl_vu_peaks": "Пікові значення на вольтметрі",
   "lbl_weather_api": "Постачальник погоди",
   "lbl_webui_layout": "Розташування елементів на екрані",
   "lbl_webui_locale": "Локаль WebUI",

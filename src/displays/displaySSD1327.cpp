@@ -89,8 +89,9 @@ static void initCommonTheme() {
   config.theme.digit      = TFT_LOGO;
   config.theme.div        = DARK_GRAY;
   config.theme.weather    = ORANGE;
-  config.theme.vumax      = TFT_LOGO;   // brightest available level
-  config.theme.vumin      = SILVER;     // dimmer level for the low end of the meter
+  config.theme.vupeak     = TFT_LOGO;
+  config.theme.vumax      = TFT_LOGO;
+  config.theme.vumin      = SILVER;
   config.theme.clock      = TFT_LOGO;
   config.theme.clockbg    = DARK_GRAY;
   config.theme.seconds    = SILVER;

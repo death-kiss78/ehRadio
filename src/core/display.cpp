@@ -208,7 +208,7 @@ void Display::_buildPager() {
     //_metabackground = new FillWidget(*metaBGConf_ptr, 1);
   #endif
   if (vuConf_ptr->textsize > 0) {
-    _vuwidget = new VuWidget(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.background);
+    _vuwidget = new VuWidget(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background);
   }
   if (volbarConf_ptr->height > 0) {
     _volbar = new SliderWidget(*volbarConf_ptr, config.theme.volbarin, config.theme.background, VOLUME_SCALE, config.theme.volbarout);
@@ -974,9 +974,9 @@ void Display::_reinitWidgets() {
   }
   if (vuConf_ptr->textsize > 0) {
     if (!_vuwidget) {
-      _vuwidget = new VuWidget(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.background);
+      _vuwidget = new VuWidget(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background);
       pages[PG_PLAYER]->addWidget(_vuwidget);
-    } else _vuwidget->init(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.background);
+    } else _vuwidget->init(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background);
   }
   if (weatherConf_ptr->buffsize > 0) {
     if (!_weather) {

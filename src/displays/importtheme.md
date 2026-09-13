@@ -56,6 +56,7 @@ py importtheme.py mytheme.h --name "My Theme"
 | `COLOR_DIGITS` | `.digit` |
 | `COLOR_DIVIDER` | `.div` |
 | `COLOR_WEATHER` | `.weather` |
+| `COLOR_VU_PEAK` | `.vupeak` |
 | `COLOR_VU_MAX` | `.vumax` |
 | `COLOR_VU_MIN` | `.vumin` |
 | `COLOR_CLOCK` | `.clock` |
@@ -87,8 +88,12 @@ If a color is missing from the old file, the script fills it in automatically:
 
 | Missing field | Falls back to |
 |---|---|
+| `.vupeak` | `.title1` (same color) |
 | `.dow` | `.date` (same color) |
 | `.battery` | `.rssi` (same color) |
+
+Any *other* missing field is filled with `.meta` and flagged with a `// needs fixing?` comment
+on the generated line, so the values that need a human eye are easy to spot.
 
 ## Screensaver colors — COMPUTED, CHECK MANUALLY!
 

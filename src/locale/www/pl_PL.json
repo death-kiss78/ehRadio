@@ -109,6 +109,7 @@
   "lbl_volume_page": "Strona głośności",
   "lbl_votes": "Głosy",
   "lbl_vu_meter": "Wskaźnik VU",
+  "lbl_vu_peaks": "Szczytowe wartości wskaźnika VU",
   "lbl_weather_api": "Dostawca pogody",
   "lbl_webui_layout": "Układ ekranu",
   "lbl_webui_locale": "Ustawienia regionalne WebUI",

@@ -401,6 +401,7 @@ void Config::defaultSettings(const char *val, uint8_t clientId) {
     saveValue(&store.clock12, (bool)CLOCK_TWELVE);
     saveValue(&store.bufferbar, (bool)SHOW_BUFFERBAR);
     saveValue(&store.vumeter, (bool)SHOW_VU_METER);
+    saveValue(&store.vupeak, (bool)SHOW_VU_PEAK);
     saveValue(&store.volumepage, (bool)VOLUME_PAGE);
     saveValue(&store.dspon, true);
     store.brightness = (uint8_t)SCREEN_BRIGHTNESS; setBrightness(false);
@@ -810,6 +811,7 @@ const configKeyMap Config::keyMap[] = {
   CONFIG_KEY_ENTRY(clock12, "clock12"),
   CONFIG_KEY_ENTRY(bufferbar, "audioinfo"),
   CONFIG_KEY_ENTRY(vumeter, "vumeter"),
+  CONFIG_KEY_ENTRY(vupeak, "vupeak"),
   CONFIG_KEY_ENTRY(volumepage, "volpage"),
   CONFIG_KEY_ENTRY(brightness, "bright"),
   CONFIG_KEY_ENTRY(contrast, "contrast"),

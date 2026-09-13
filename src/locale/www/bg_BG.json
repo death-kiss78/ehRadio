@@ -109,6 +109,7 @@
   "lbl_volume_page": "Страница за звука",
   "lbl_votes": "Гласове",
   "lbl_vu_meter": "VU метър",
+  "lbl_vu_peaks": "Върхови стойности на VU-метъра",
   "lbl_weather_api": "Доставчик на времето",
   "lbl_webui_layout": "Оформление на екрана",
   "lbl_webui_locale": "WebUI локал",

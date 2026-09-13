@@ -109,6 +109,7 @@
   "lbl_volume_page": "Lautstärke-Seite",
   "lbl_votes": "Votes",
   "lbl_vu_meter": "VU-Meter",
+  "lbl_vu_peaks": "Spitzenwerte des VU-Meters",
   "lbl_weather_api": "Wetteranbieter",
   "lbl_webui_layout": "Anzeige-Layout",
   "lbl_webui_locale": "WebUI-Lokalisierung",

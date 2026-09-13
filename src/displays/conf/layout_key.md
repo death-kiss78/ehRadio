@@ -163,7 +163,7 @@ only used if its own `height > 0`, otherwise `metaBGConf` is used instead.
 The "codec badge". `dimension > 0` is the test. If set, a `BitrateWidget` (codec name
 badge) replaces the plain `bitrateConf` text.
 
-### `VUBandsConfig` — `{ width, height, space, vspace, perheight, fadespeed }`
+### `VUBandsConfig` — `{ width, height, space, vspace, perheight }`
 
 | Field | Meaning |
 |---|---|
@@ -172,7 +172,6 @@ badge) replaces the plain `bitrateConf` text.
 | `space` | gap between the L and R bars |
 | `vspace` | gap between the segments that make up a bar |
 | `perheight` | segments per bar; segment step = `height / perheight` |
-| `fadespeed` | pixels advanced **per display tick** when the bar is fading. Not per second — see below. |
 
 Orientation: with `rotateVU = false` and `align = WA_LEFT` the bar runs vertically
 (`height` = length, `width*2+space` = footprint width). With `rotateVU = true`, or with a
@@ -180,9 +179,73 @@ non-zero `align`, the bar runs horizontally (`height` = length along x, `width*2
 footprint height). **Compute the footprint before choosing numbers** — it is the most
 common way to push a VU off the screen.
 
-`fadespeed` has no time base, so the same number looks different on every panel: a fast
-refreshing OLED (~100 ticks/s) fades roughly ten times quicker than a slow TFT. Tune it per
-conf; do not copy values between confs.
+**There is no fade speed here on purpose.** The decay rate is derived at runtime from the
+bar's own length, so every layout behaves the same without any per-conf arithmetic:
+
+```
+fadePxPerSec = len * 1000 / VU_FADE_MS          // len = height, or width when horizontal
+peakPxPerSec = fadePxPerSec / VU_PEAK_FADE_DIV
+```
+
+With `VU_FADE_MS = 1000` a bar falls from full to empty in one second whether it is 44 px
+long or 200 px. The old field counted pixels **per display tick**, which had no time base and
+no length normalisation, so the same number produced wildly different behaviour on each
+panel — and on the very short bars (5-12 px) it could not be tuned finely enough at all.
+Both constants live in [`options.h`](../../core/options.h). The animation is advanced by a
+millisecond delta with a sub-pixel carry, and `VuWidget` redraws at most once per
+`VU_REFRESH_MS` (33 ms, ~30 Hz) to stay in step with the audio core's 30-50 levels/s.
+
+### How the segments are computed
+
+Straight from `VuWidget::_draw()`. Take `len` as the bar's length in pixels
+(`bandsConf.height`, unless a non-zero `vuConf.align` or `rotateVU` swaps the axes):
+
+```c
+step = len / perheight;      // integer division -> truncates DOWN
+if (step < 1) step = 1;
+h = (step > vspace) ? step - vspace : 1;
+for (int i = 0; i < len; i += step) { /* draw a segment at i, h pixels long */ }
+```
+
+- `step` is the segment **pitch**, and it is already floored — so `perheight` is a *maximum*
+  segment count, not an exact one. The real count is `ceil(len / step)`.
+- `h` is the drawn extent, so the bar is a run of `h`-long segments separated by
+  `vspace`-long holes.
+- **The tail is left as background.** With `{ 32, 130, 4, 2, 10, 3 }`: `step = 13`, `h = 11`,
+  10 segments, and the last one starts at `i = 117` covering `117..127` — rows `128` and
+  `129` are never covered by a segment. The leftover is not redistributed: every segment is
+  identical and the remainder is simply wasted. (The `130 / (vspace + perheight) = 10.83`
+  arithmetic does not appear anywhere in the code.)
+- The tip is nonetheless **pixel-smooth**: all segments are drawn first and the background
+  clear rectangle is painted *over* them, so a segment straddling the level is cut partway.
+  `vspace` shows as holes inside the lit bar, not as a blocky growth step.
+- The level is mapped over the whole `len` (`get_VUlevel(len)`), so the unused tail is a
+  small dead zone at the very loudest end rather than a shortened scale.
+
+### Peak bar
+
+A thin themed marker that rests on the highest recent reading of each channel and creeps back
+down slower than the bar itself. It is on by default (`SHOW_VU_PEAK` in
+[`options.h`](../../core/options.h)) and can be switched off at runtime via the store flag
+`vupeak`. Its colour is the theme field `.vupeak`.
+
+- **Space:** the marker is drawn in the *cleared* strip just beyond the high-water mark, and
+  the outermost `len * 11/1000` pixels (minimum 1) are reserved for it, so it can never draw
+  outside the `.bandsConf` footprint. On the 128x64 OLED that is 1 px; on the 480x320 TFT
+  `len` is 130 so it is 2 px. The factor is `VU_PEAK_THICKNESS_MILLI` in `options.h`.
+- **Hold:** a new high parks the marker for `VU_PEAK_FREEZE_MS` (1 s) before it starts to move,
+  and every new high re-arms that hold. A sustained loud passage therefore pins the marker to the
+  bar tip — the hold only starts counting once the level falls away from it. Set `0` in
+  `options.h` to decay immediately instead.
+- **Speed:** once the hold has expired it releases at `fadePxPerSec / VU_PEAK_FADE_DIV` — half the
+  bar's speed by default. Set by `VU_PEAK_FADE_DIV` in `options.h`.
+- **Peak to empty** therefore takes `VU_PEAK_FREEZE_MS + VU_FADE_MS * VU_PEAK_FADE_DIV` = **3 s**
+  at the shipped defaults. If that feels sluggish, lower `VU_PEAK_FADE_DIV` rather than the hold —
+  the hold is what makes the marker readable in the first place.
+- Because it is measured in the same "cleared pixels from the loud end" space as the bar, the
+  orientation flags (`align`, `rotateVU`, `boomboxStyle`) carry it along with no per-conf work.
+- It needs **no extra room**: the reservation is inside `len`, which is why a very short bar
+  can look cramped but will not overflow.
 
 ### `MoveConfig` — `{ x, y, width }`
 
@@ -311,10 +374,13 @@ The VU as configured:
   affects SH1106/SH1107/SSD1305/SSD1306/SSD1327.
 - **Compute the VU footprint** (`width*2 + space` in the non-length axis) before picking
   numbers, and check it against `DSP_HEIGHT` and the row it shares.
+- **The peak bar adds no footprint** — it is clamped inside `len`, so its only per-conf
+  decision is its colour (`.vupeak`). Speed is derived from `len`.
 - **`fontsize` is a 6x8 cell multiplier**, not points.
 - **`TFT_FRAMEWDT` is a margin**, despite the name.
 - **`uppercase` does nothing** — use `PRETEXT_ALLCAPS`.
-- **`fadespeed` is per display tick**, not per second, so it is not portable between panels.
+- **The VU fade is derived, not configured** — `VU_FADE_MS` in `options.h` sets the fall time
+  and the rate follows the bar length, so layouts no longer carry a fade value at all.
 - **Designated initialisers must stay in declaration order.** Commenting a line out is
   fine; reordering is not.
 - **`{ }` and an omitted line are equivalent.**

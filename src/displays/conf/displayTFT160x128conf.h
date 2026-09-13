@@ -56,8 +56,8 @@ const LayoutData _layouts[] PROGMEM = {
         .vuConf              = { TFT_FRAMEWDT, 54, 1, WA_LEFT },
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = {{DSP_WIDTH-TFT_FRAMEWDT-19, 23, 1, WA_LEFT}, 22 },
-        /* BANDS               { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands, fadespeed } */
-        .bandsConf           = { 12, 50, 2, 1, 10, 1 },
+        /* BANDS               { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
+        .bandsConf           = { 12, 50, 2, 1, 10 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 14, 98, 0},
         .weatherMove         = {TFT_FRAMEWDT, 48, MAX_WIDTH},

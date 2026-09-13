@@ -153,23 +153,31 @@ class SliderWidget: public Widget {
 class VuWidget: public Widget {
   public:
     VuWidget() {}
-    VuWidget(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t bgcolor)
-            { init(wconf, bands, vumaxcolor, vumincolor, bgcolor); }
+    VuWidget(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t vupeakcolor, uint16_t bgcolor)
+            { init(wconf, bands, vumaxcolor, vumincolor, vupeakcolor, bgcolor); }
     ~VuWidget();
     using Widget::init;
-    void init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t bgcolor);
+    void init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t vupeakcolor, uint16_t bgcolor);
     void loop();
   protected:
     #if defined(DSP_TFT)
       Canvas *_canvas = nullptr;
     #endif
     VUBandsConfig _bands;
-    uint16_t _vumaxcolor, _vumincolor;
+    uint16_t _vumaxcolor, _vumincolor, _vupeakcolor;
+    // High-water marks, measured as cleared pixels from the loud end. 0xFFFF means
+    // "not set yet" and is adopted on the first _levels() call, once len is known.
+    uint16_t _peakL = 0xFFFF, _peakR = 0xFFFF;
+    uint32_t _lastMs = 0;                    // last redraw, for the VU_REFRESH_MS ceiling
+    uint32_t _accL = 0, _accR = 0;           // sub-pixel carry for the bar fade, in px*ms
+    uint32_t _accPL = 0, _accPR = 0;         // same for the peak markers
+    uint32_t _holdL = 0, _holdR = 0;         // when each peak marker was last re-armed (VU_PEAK_FREEZE_MS)
     bool _rotate = false;
     void _draw();
     void _levels(uint16_t len, uint16_t &measL, uint16_t &measR);
     void _drawBand(uint16_t pos, uint8_t ch, uint16_t h, uint16_t color);
     void _clear();
+    void _reset();
 };
 
 class NumWidget: public TextWidget {

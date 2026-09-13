@@ -57,6 +57,7 @@ struct theme_t {
   uint16_t digit;
   uint16_t div;
   uint16_t weather;
+  uint16_t vupeak;
   uint16_t vumax;
   uint16_t vumin;
   uint16_t clock;
@@ -120,6 +121,7 @@ struct config_t // specify defaults here (and macros in options.h) (defaults are
   bool      clock12 = CLOCK_TWELVE;
   bool      bufferbar = SHOW_BUFFERBAR;
   bool      vumeter = SHOW_VU_METER;
+  bool      vupeak = SHOW_VU_PEAK;
   bool      volumepage = VOLUME_PAGE;
   uint8_t   brightness = SCREEN_BRIGHTNESS;
   uint8_t   contrast = SCREEN_CONTRAST;

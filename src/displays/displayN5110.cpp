@@ -13,6 +13,7 @@ void DspCore::initDisplay() {
   config.theme.meta       = TFT_FG;
   config.theme.clock      = TFT_FG;
   config.theme.weather    = TFT_FG;
+  config.theme.vupeak     = TFT_FG;
   config.theme.vumax      = TFT_FG;
   config.theme.vumin      = TFT_FG;
   config.theme.metabg     = TFT_BG;

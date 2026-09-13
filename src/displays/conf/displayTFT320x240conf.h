@@ -54,8 +54,8 @@ const LayoutData _layouts[] PROGMEM = {
         .vuConf              = { TFT_FRAMEWDT, 100, 1, WA_LEFT },
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = {{ DSP_WIDTH-TFT_FRAMEWDT-34, 43, 2, WA_LEFT }, 42 },
-        /* BANDS               { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands, fadespeed } */
-        .bandsConf           = { 24, 100, 4, 2, 10, 2 },
+        /* BANDS               { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
+        .bandsConf           = { 24, 100, 4, 2, 10 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 8, 180, -1 },
         .weatherMove         = { TFT_FRAMEWDT, 97, MAX_WIDTH },
@@ -88,8 +88,8 @@ const LayoutData _layouts[] PROGMEM = {
         // ??? dateConf      = { TFT_FRAMEWDT *2, 169, 1, WA_LEFT };
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = {{ 8, 124, 2, WA_LEFT }, 41 },
-        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands, fadespeed } */
-        .bandsConf           = { 130, 5, 4, 2, 20, 5 },
+        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
+        .bandsConf           = { 130, 5, 4, 2, 20 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 0, 0, -1 },
         .weatherMove         = { 10, 95, MAX_WIDTH },

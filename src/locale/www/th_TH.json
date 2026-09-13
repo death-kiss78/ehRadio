@@ -109,6 +109,7 @@
   "lbl_volume_page": "หน้าระดับเสียง",
   "lbl_votes": "โหวต",
   "lbl_vu_meter": "มิเตอร์ VU",
+  "lbl_vu_peaks": "ค่าสูงสุดของ VU Meter",
   "lbl_weather_api": "ผู้ให้บริการข้อมูลสภาพอากาศ",
   "lbl_webui_layout": "การจัดวางหน้าจอ",
   "lbl_webui_locale": "ภาษา WebUI",

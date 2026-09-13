@@ -861,13 +861,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 //   I2S total:                   ~1014 KB  or ~774KB with .gz WebUI files
 // Note: WebUI cache is opportunistic so if PSRAM runs low, files stay in SPIFFS instead.
 
-// Since the audio buffer can never technically fill up (most streams prevent reading-ahead excessively),
-// the visual buffer bar should look "full" when the buffer is near to maximum potential (250KB is ~6 seconds at 320kbps)
-// there is no 
-#ifndef BUFFERBAR_VISUAL_FULL_KB
-  #define BUFFERBAR_VISUAL_FULL_KB 250
-#endif
-
 /* --- CPU CORES --- */
 /* ESP32 and ESP32-S3 have 2 cores (Main loop runs on Core 1). ESP32-C3 has 1 core (Main loop runs on Core 0) .*/
 /* Default VS1053 assignments: Core 0 Audio + Net + TCP / Core 1 Main + Display */
@@ -1021,7 +1014,30 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 
 
-/* ============================== SYSTEM DEFAULTS ============================== */
+/* --- VISUAL TWEAKS --- */
+// Since the audio buffer can never technically fill up (most streams prevent reading-ahead excessively),
+// the visual buffer bar should look "full" when the buffer is near to maximum potential (250KB is ~6 seconds at 320kbps)
+#ifndef BUFFERBAR_VISUAL_FULL_KB
+  #define BUFFERBAR_VISUAL_FULL_KB 250
+#endif
+// The next bits are all related to the VU meter... values have been chosen carefully but you may wish to change them
+#ifndef VU_REFRESH_MS
+  #define VU_REFRESH_MS 33 // Redraw ceiling for the VU widget, 33 is ~30 Hz - the audio core only produces 30-50 levels/s
+// Sane values: 10 (100Hz) to 100 (10Hz), only very fast OLEDs and TFTs can do 16-25 (this burns CPU cycles and display bandwidth) and 50-100 will look "steppy"
+#endif
+#ifndef VU_FADE_MS
+  #define VU_FADE_MS 1000 // ms for a VU bar to fall from full to empty
+#endif
+#ifndef VU_PEAK_FREEZE_MS
+  #define VU_PEAK_FREEZE_MS 1000 // ms the peak marker stays frozen after the level starts falling
+#endif
+#ifndef VU_PEAK_FADE_DIV
+  #define VU_PEAK_FADE_DIV 2 // peak marker takes this many times the bar's fall time
+#endif
+#ifndef VU_PEAK_THICKNESS_MILLI
+  #define VU_PEAK_THICKNESS_MILLI 11   // marker thickness = length * 11/1000, rounded up (never below 1 px)
+#endif
+
 
 /* --- SOURCE OF UPDATE FILES --- */
 /* only used if FIRMWARE is defined as it is in Trip5's automatic Github builds */
@@ -1314,7 +1330,10 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #define SHOW_BUFFERBAR false
 #endif
 #ifndef SHOW_VU_METER
-  #define SHOW_VU_METER false
+  #define SHOW_VU_METER true
+#endif
+#ifndef SHOW_VU_PEAK
+  #define SHOW_VU_PEAK true
 #endif
 #ifndef WIFI_SCAN_BEST_RSSI
   #define WIFI_SCAN_BEST_RSSI true

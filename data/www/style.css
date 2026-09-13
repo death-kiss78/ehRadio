@@ -49,10 +49,10 @@ input[type=range] {
   content: ''; display: inline-block; height: 18px; width: 18px; background: var(--accent-color); border-radius: 9px; 
   box-shadow: 0 0 6px #000; margin-top: 2px; margin-left: 2px; 
 }
-.checkbox .knob::after { content: var(--knob-off, 'OFF'); position: absolute; color: var(--main-text-color); font-size: 10px; font-weight: bold; text-transform: var(--tt-uppercase); line-height: 1; left: 22px; top: 50%; transform: translateY(-50%); }
+.checkbox .knob::after { content: var(--knob-off, 'Off'); position: absolute; color: var(--main-text-color); font-size: 10px; font-weight: bold; text-transform: var(--tt-uppercase); line-height: 1; left: 22px; top: 50%; transform: translateY(-50%); }
 .checkbox.checked .knob { background: var(--accent-dark); }
 .checkbox.checked .knob::before{ margin-left: 26px; }
-.checkbox.checked .knob::after{ content: var(--knob-on, 'ON'); color: var(--accent-text-color); left: 5px; font-size: 10px; text-transform: var(--tt-uppercase); line-height: 1; top: 50%; transform: translateY(-50%); }
+.checkbox.checked .knob::after{ content: var(--knob-on, 'On'); color: var(--accent-text-color); left: 5px; font-size: 10px; text-transform: var(--tt-uppercase); line-height: 1; top: 50%; transform: translateY(-50%); }
 
 /* PAGE */
 #content { height: 100%; margin: 0 auto; position: relative; max-width: 580px; display: flex; flex-direction: column; padding: 10px 20px 14px 20px; }

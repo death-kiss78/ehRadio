@@ -109,6 +109,7 @@
   "lbl_volume_page": "Äänenvoimakkuussivu",
   "lbl_votes": "Äänet",
   "lbl_vu_meter": "VU-mittari",
+  "lbl_vu_peaks": "VU-mittarin huippuarvot",
   "lbl_weather_api": "Sääpalvelu",
   "lbl_webui_layout": "Näytön asettelu",
   "lbl_webui_locale": "WebUI maa-asetus",

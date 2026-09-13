@@ -42,7 +42,9 @@ struct VUBandsConfig {
   uint8_t  space;
   uint8_t  vspace;
   uint8_t  perheight;
-  uint8_t  fadespeed;
+  // There is no fade speed here on purpose: the decay rate is derived from the band
+  // length and VU_FADE_MS in options.h, so every bar falls in the same time no matter
+  // how long it is or which panel it is on.
 };
 
 struct MoveConfig {

@@ -109,6 +109,7 @@
   "lbl_volume_page": "Volume Page",
   "lbl_votes": "Votes",
   "lbl_vu_meter": "VU Meter",
+  "lbl_vu_peaks": "Picos no medidor VU",
   "lbl_weather_api": "Provedor meteorológico",
   "lbl_webui_layout": "Layout da tela",
   "lbl_webui_locale": "WebUI Locale",

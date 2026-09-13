@@ -33,6 +33,7 @@ COLOR_TO_FIELD = {
     'COLOR_DIGITS':           'digit',
     'COLOR_DIVIDER':          'div',
     'COLOR_WEATHER':          'weather',
+    'COLOR_VU_PEAK':          'vupeak',
     'COLOR_VU_MAX':           'vumax',
     'COLOR_VU_MIN':           'vumin',
     'COLOR_CLOCK':            'clock',
@@ -66,7 +67,7 @@ COLOR_TO_FIELD = {
 FIELD_ORDER = [
     'background', 'meta', 'metabg', 'metafill',
     'title1', 'title2', 'digit', 'div', 'weather',
-    'vumax', 'vumin',
+    'vupeak', 'vumax', 'vumin',
     'clock', 'clockbg', 'seconds', 'dow', 'date',
     'clockss', 'clockbgss', 'secondsss', 'dowss', 'datess',
     'buffer', 'ip', 'vol', 'rssi', 'battery', 'bitrate',
@@ -76,6 +77,7 @@ FIELD_ORDER = [
 ]
 
 SMART_FALLBACK = [
+    ('vupeak',  'title1'),
     ('dow',     'date'),
     ('battery', 'rssi'),
 ]

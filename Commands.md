@@ -58,6 +58,7 @@ Order and sections match that file.
 | `smartstart` | Enable/disable smartstart. |
 | `bufferbar` | Enable/disable the buffer bar on the display. |
 | `vumeter` | Enable/disable VU meter and refresh display state. |
+| `vupeaks` | Enable/disable the VU meter peak markers. |
 | `wifiscan` | Enable/disable best-RSSI WiFi scan behavior. |
 | `autoupdate` | Enable/disable auto update checks. |
 | `ehdp` | Enable/disable eHDP service. |
