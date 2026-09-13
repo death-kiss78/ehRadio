@@ -783,6 +783,30 @@ Each config type has its own field that makes a widget meaningful, and that is w
 
 `_fullbitrate` and `_bitrate` are alternatives: an empty `.fullbitrateConf` falls back to `.bitrateConf`, and `_reinitWidgets` must tear down whichever one is no longer wanted even when the replacement config is itself empty.
 
+## VU Widget Rendering (TFT vs OLED)
+
+`VuWidget` is compiled for every graphics display (`#if !defined(DSP_LCD)` in `widgets.cpp`); character LCDs get inert stubs. Geometry, `_levels()` and the colour-ramp selection are shared, and only the pixel surface differs:
+
+| | TFT (`DSP_TFT`) | OLED (`DSP_OLED`) |
+|---|---|---|
+| Buffer | `Canvas *_canvas`, 16-bit (`GFXcanvas16`) | none — the driver owns the framebuffer |
+| `init()` | allocates the canvas | no allocation |
+| `_drawBand()` | `_canvas->fillRect` at widget-local coords | `dsp.fillRect` at `_config.left/top` + local coords |
+| `_draw()` fills | `fillLocal` lambda | same lambda, writing to `dsp` |
+| Transfer | one `startWrite`/`setAddrWindow`/`writePixels`/`endWrite` | none — `DspCore::loop()` calls `display()` |
+
+`fillLocal` is a lambda inside `_draw()` so the geometry and clear-rect logic are written once. Do not reintroduce `drawRGBBitmap` here — the manual blit is deliberate (see the memory-ownership notes above).
+
+### Colours on OLED
+
+`config.theme.vumax` / `vumin` are set per driver, not via `dspcolors.h`:
+
+- 1-bit panels (`tools/oledcolorfix.h`, `displayN5110.cpp`): both `TFT_FG`. A single bit cannot express two colours, so level reads from geometry alone.
+- `SSD1327` with `OLED_GREYSCALE true`: two distinct levels from its own 16-level table.
+- `OLED_GREYSCALE` (in `core/options.h`, default false) selects 1-bit mono vs the driver's grayscale palette, and is only valid for `SSD1322` / `SSD1327` — other models hit an `#error`.
+
+`dspcolors.h` is deliberately minimal: only `BOOT_PRG_COLOR`, `BOOT_TXT_COLOR`, `TFT_BG`, `TFT_FG`. Panel-specific palettes live with their own drivers.
+
 ## Screen Rendering Fixes (Session: SH1106 YO_MONO)
 
 ### ClockWidget colon blink (widgets.cpp)

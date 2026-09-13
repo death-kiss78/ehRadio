@@ -6,14 +6,12 @@
 #ifndef DEF_SPI_FREQ
   #define DEF_SPI_FREQ        16000000UL      /*  set it to 0 for system default */
 #endif
-#ifndef SSD1322_GRAYSCALE
-  #define SSD1322_GRAYSCALE   false
-#endif
+/* Grayscale selection comes from OLED_GREYSCALE in core/options.h */
 
   DspCore::DspCore(): Jamis_SSD1322(DSP_WIDTH, DSP_HEIGHT, &SPI, TFT_DC, TFT_RST, TFT_CS, DEF_SPI_FREQ) {}
 
 void DspCore::initDisplay() {
-#if !SSD1322_GRAYSCALE
+#if !OLED_GREYSCALE
   #include "tools/oledcolorfix.h"
 #else
     config.theme.background = TFT_BG;
@@ -37,7 +35,7 @@ void DspCore::initDisplay() {
     config.theme.plcurrentbg   = GRAY_7;
     config.theme.plcurrentfill = GRAY_7;
     for(byte i=0;i<5;i++) config.theme.playlist[i] = GRAY_1;
-#endif  //!SSD1322_GRAYSCALE
+#endif  //!OLED_GREYSCALE
 
   begin();
   cp437(true);

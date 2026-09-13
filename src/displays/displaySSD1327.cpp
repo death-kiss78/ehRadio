@@ -12,6 +12,13 @@
 #define CLR_ITEM2    0x8
 #define CLR_ITEM3    0x5
 
+// Panel-local grayscale palette (4-bit / 16 levels). These used to come from
+// dspcolors.h, which now only carries the four macros shared across panels.
+#define DARK_GRAY    0x01
+#define SILVER       0x07
+#define TFT_LOGO     0x3f
+#define ORANGE       0x05
+
 // --- Gray Scale Table (16 значений, от GS0 до GS15) ---
 // Стандартная линейная таблица:
 // {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x10, 0x18, 0x20, 0x2F, 0x38, 0x3F}
@@ -22,6 +29,15 @@ static const uint8_t gamma_table[16] = {
 };
 
 // --- Общие статические функции ---
+// Theme selection (see OLED_GREYSCALE in core/options.h):
+//   false -> drive the panel as 1-bit mono through the shared palette
+//   true  -> use this panel's own 16-level grayscale table
+// Both call sites below simply call initCommonTheme(), so the choice stays here.
+#if !OLED_GREYSCALE
+static void initCommonTheme() {
+  #include "tools/oledcolorfix.h"
+}
+#else
 static void initCommonTheme() {
   config.theme.background = TFT_BG;
   config.theme.meta       = TFT_BG;
@@ -33,6 +49,8 @@ static void initCommonTheme() {
   config.theme.clockbg    = DARK_GRAY;
   config.theme.rssi       = TFT_FG;
   config.theme.weather    = ORANGE;
+  config.theme.vumax      = TFT_LOGO;   // brightest available level
+  config.theme.vumin      = SILVER;     // dimmer level for the low end of the meter
   config.theme.ip         = SILVER;
   config.theme.vol        = SILVER;
   config.theme.bitrate    = TFT_LOGO;
@@ -46,6 +64,7 @@ static void initCommonTheme() {
   config.theme.playlist[3] = CLR_ITEM3;
   config.theme.playlist[4] = CLR_ITEM3;
 }
+#endif
 
 // Auto-detect interface from pins
 #if I2C_SDA!=255 && I2C_SCL!=255

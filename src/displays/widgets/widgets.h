@@ -160,7 +160,7 @@ class VuWidget: public Widget {
     void init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t bgcolor);
     void loop();
   protected:
-    #if !defined(DSP_LCD) && !defined(DSP_OLED)
+    #if defined(DSP_TFT)
       Canvas *_canvas = nullptr;
     #endif
     VUBandsConfig _bands;

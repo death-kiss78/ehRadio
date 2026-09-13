@@ -431,9 +431,11 @@ void SliderWidget::_reset() {
 /************************
       VU WIDGET
  ************************/
-#if !defined(DSP_LCD) && !defined(DSP_OLED)
+#if !defined(DSP_LCD)
 VuWidget::~VuWidget() {
-  if (_canvas) { delete _canvas; _canvas = nullptr; }
+  #if defined(DSP_TFT)
+    if (_canvas) { delete _canvas; _canvas = nullptr; }
+  #endif
 }
   
 void VuWidget::init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t bgcolor) {
@@ -442,9 +444,13 @@ void VuWidget::init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor
   _vumincolor = vumincolor;
   _bands = bands;
   _rotate = rotateVU_ptr ? *rotateVU_ptr : false;
-  if (_canvas) { delete _canvas; _canvas = nullptr; }
-  if (_rotate) _canvas = new Canvas(_bands.height, _bands.width * 2 + _bands.space);
-  else         _canvas = new Canvas(_bands.width * 2 + _bands.space, _bands.height);
+  #if defined(DSP_TFT)
+    /* TFT transfers the whole widget in one SPI burst, so it needs an intermediate
+       canvas.  OLED panels own their framebuffer and are drawn to directly. */
+    if (_canvas) { delete _canvas; _canvas = nullptr; }
+    if (_rotate) _canvas = new Canvas(_bands.height, _bands.width * 2 + _bands.space);
+    else         _canvas = new Canvas(_bands.width * 2 + _bands.space, _bands.height);
+  #endif
 }
 
 
@@ -466,7 +472,18 @@ void VuWidget::_draw(){
   uint16_t measL, measR;
   _levels(len, measL, measR);
 
-  _canvas->fillRect(0, 0, cw, ch, _bgcolor);
+  /* Fill a rect in widget-local coordinates.  TFT renders into the canvas that is
+     blitted at the end; OLED has no canvas, writes straight to the panel buffer,
+     and so needs the widget origin added. */
+  auto fillLocal = [&](uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
+    #if defined(DSP_TFT)
+      _canvas->fillRect(x, y, w, h, color);
+    #else
+      dsp.fillRect(_config.left + x, _config.top + y, w, h, color);
+    #endif
+  };
+
+  fillLocal(0, 0, cw, ch, _bgcolor);
 
   uint16_t step = len / _bands.perheight;
   if (step < 1) step = 1;
@@ -493,25 +510,28 @@ void VuWidget::_draw(){
   }
 
   if (_rotate) {
-    _canvas->fillRect(len - measL, 0, measL, thk, _bgcolor);
-    _canvas->fillRect(len - measR, thk + _bands.space, measR, thk, _bgcolor);
+    fillLocal(len - measL, 0, measL, thk, _bgcolor);
+    fillLocal(len - measR, thk + _bands.space, measR, thk, _bgcolor);
   } else if (_config.align) {
     if (!*boomboxStyle_ptr) {
-      _canvas->fillRect(len - measL, 0, measL, thk, _bgcolor);
-      _canvas->fillRect(cw - measR, 0, measR, thk, _bgcolor);
+      fillLocal(len - measL, 0, measL, thk, _bgcolor);
+      fillLocal(cw - measR, 0, measR, thk, _bgcolor);
     } else {
-      _canvas->fillRect(0, 0, measL, thk, _bgcolor);
-      _canvas->fillRect(cw - measR, 0, measR, thk, _bgcolor);
+      fillLocal(0, 0, measL, thk, _bgcolor);
+      fillLocal(cw - measR, 0, measR, thk, _bgcolor);
     }
   } else {
-    _canvas->fillRect(0, 0, thk, measL, _bgcolor);
-    _canvas->fillRect(thk + _bands.space, 0, thk, measR, _bgcolor);
+    fillLocal(0, 0, thk, measL, _bgcolor);
+    fillLocal(thk + _bands.space, 0, thk, measR, _bgcolor);
   }
 
-  dsp.startWrite();
-  dsp.setAddrWindow(_config.left, _config.top, cw, ch);
-  dsp.writePixels((uint16_t*)_canvas->getBuffer(), cw * ch);
-  dsp.endWrite();
+  #if defined(DSP_TFT)
+    dsp.startWrite();
+    dsp.setAddrWindow(_config.left, _config.top, cw, ch);
+    dsp.writePixels((uint16_t*)_canvas->getBuffer(), cw * ch);
+    dsp.endWrite();
+  #endif
+  /* OLED needs no blit here - DspCore::loop() flushes the panel buffer. */
 }
 
 void VuWidget::_levels(uint16_t len, uint16_t &measL, uint16_t &measR) {
@@ -522,8 +542,14 @@ void VuWidget::_levels(uint16_t len, uint16_t &measL, uint16_t &measR) {
 
   bool played = player.isRunning();
   if(played){
-    mL=(L>=mL)?mL + _bands.fadespeed:L;
-    mR=(R>=mR)?mR + _bands.fadespeed:R;
+    /* Fade only the rising (quieter) direction, and never step past the target:
+       overshooting made the next tick snap back, oscillating the bar tip by
+       fadespeed px every tick.  A louder peak still snaps instantly, and the
+       drain-while-stopped branch below is unchanged. */
+    if (L >= mL) { mL += _bands.fadespeed; if (mL > L) mL = L; }
+    else           mL = L;
+    if (R >= mR) { mR += _bands.fadespeed; if (mR > R) mR = R; }
+    else           mR = R;
   }else{
     if(mL<len) mL += _bands.fadespeed;
     if(mR<len) mR += _bands.fadespeed;
@@ -537,13 +563,23 @@ void VuWidget::_levels(uint16_t len, uint16_t &measL, uint16_t &measR) {
 void VuWidget::_drawBand(uint16_t pos, uint8_t ch, uint16_t h, uint16_t color) {
   uint16_t off = 0;
   if (ch) off = _bands.width + _bands.space;
-  if (_rotate) {
-    _canvas->fillRect(pos, off, h, _bands.width, color);
-  } else if (_config.align) {
-    _canvas->fillRect(off + pos, 0, h, _bands.height, color);
-  } else {
-    _canvas->fillRect(off, pos, _bands.width, h, color);
-  }
+  #if defined(DSP_TFT)
+    if (_rotate) {
+      _canvas->fillRect(pos, off, h, _bands.width, color);
+    } else if (_config.align) {
+      _canvas->fillRect(off + pos, 0, h, _bands.height, color);
+    } else {
+      _canvas->fillRect(off, pos, _bands.width, h, color);
+    }
+  #else
+    if (_rotate) {
+      dsp.fillRect(_config.left + pos, _config.top + off, h, _bands.width, color);
+    } else if (_config.align) {
+      dsp.fillRect(_config.left + off + pos, _config.top, h, _bands.height, color);
+    } else {
+      dsp.fillRect(_config.left + off, _config.top + pos, _bands.width, h, color);
+    }
+  #endif
 }
 
 void VuWidget::loop(){
@@ -556,7 +592,7 @@ void VuWidget::_clear(){
   else
     dsp.fillRect(_config.left, _config.top, _bands.width * 2 + _bands.space, _bands.height, _bgcolor);
 }
-#else // DSP_LCD
+#else // DSP_LCD - character LCDs have no pixel drawing, so the widget stays inert
 VuWidget::~VuWidget() { }
 void VuWidget::init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t bgcolor) {
   Widget::init(wconf, bgcolor, bgcolor);

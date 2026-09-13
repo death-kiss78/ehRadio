@@ -59,17 +59,21 @@ const LayoutData _layouts[] PROGMEM = {
         .iptxtConf           = { TFT_FRAMEWDT, 64-9, 1, WA_LEFT },
         .rssiConf            = { 0, 64-9, 1, WA_RIGHT },
         .numConf             = { 0, 28+FONTSHIFT, 0, WA_CENTER },
+        //.clockConf           = { TFT_FRAMEWDT, 38+FONTSHIFT, 0, WA_CENTER },
         .clockConf           = { TFT_FRAMEWDT, 38+FONTSHIFT, 0, WA_CENTER },
-        .vuConf              = { }, // unused
-        // .vuConf              = { 1, 28, 1, WA_LEFT },
+        //.vuConf              = { }, // unused
+        .vuConf              = { TFT_FRAMEWDT, 38, 1, WA_LEFT },
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = { }, // unused
         /* BANDS               { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands, fadespeed } */
-        .bandsConf           = { 12, 48, 2, 1, 8, 3 },
+        .bandsConf           = { 7, 44, 1, 1, 10, 3 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
-        .clockMove           = { 0, 0, -1 },
+        .clockMove           = { TFT_FRAMEWDT+(44/2)+2, 38+FONTSHIFT, 0 },
         .weatherMove         = { 0, 0, -1 },
         .weatherMoveVU       = { 0, 0, -1 },
+        /* Rotated so the bands run horizontally: ch = width*2+space = 15px tall and
+           cw = height = 44px long, fitting the y=38..54 line beside the clock */
+        .rotateVU            = true,
     },
 };
 

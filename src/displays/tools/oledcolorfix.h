@@ -15,6 +15,8 @@
   config.theme.dowss      = TFT_FG;
   config.theme.datess     = TFT_FG;
   config.theme.weather    = TFT_FG;
+  config.theme.vumax      = TFT_FG;
+  config.theme.vumin      = TFT_FG;
   config.theme.title1     = TFT_FG;
   config.theme.title2     = TFT_FG;
   config.theme.rssi       = TFT_FG;
