@@ -830,7 +830,8 @@ void ClockWidget::_getTimeBounds() {
     uint16_t secondsColor = config.isScreensaver ? config.theme.secondsss : config.theme.seconds;
     uint16_t dowColor = config.isScreensaver ? config.theme.dowss : config.theme.dow;
     uint16_t dateColor = config.isScreensaver ? config.theme.datess : config.theme.date;
-    bool showFullClockOnScreensaver = !config.isScreensaver || (_fb->ready() && config.store.screensaverFullDateTime);
+    // _fb only exists on framebuffer (TFT) builds - guard it as getRealDsp() does
+    bool showFullClockOnScreensaver = !config.isScreensaver || (_fb && _fb->ready() && config.store.screensaverFullDateTime);
     bool showSecondsOnScreensaver = !config.isScreensaver || config.store.screensaverFullDateTime;
     static bool wasScreensaver = false;
     if (wasScreensaver != config.isScreensaver) {

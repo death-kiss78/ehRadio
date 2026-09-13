@@ -81,17 +81,11 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #define ONE_CLICK_SWITCH true // need to force this on with no display
 #endif
 
-/* --- OLED GRAYSCALE --- */
-// SSD1322 and SSD1327 are 4-bit / 16-level grayscale panels, so each can either be
-// driven as plain 1-bit mono or with its own grayscale palette.
-//   false (default) = treat as 1-bit mono via tools/oledcolorfix.h
-//   true            = use the panel's own grayscale palette (in its display*.cpp)
-// Has no effect on other models - the #error below catches a mistaken setting.
-#ifndef OLED_GREYSCALE
-  #define OLED_GREYSCALE false
-#endif
-#if OLED_GREYSCALE && !(DSP_MODEL==DSP_SSD1322 || DSP_MODEL==DSP_SSD1327)
-  #error OLED_GREYSCALE is only supported by DSP_SSD1322 and DSP_SSD1327
+/* SSD1322 and SSD1327 are 4-bit / 16-level grayscale panels */
+// false uses the panel's own grayscale palette (in its display*.cpp)
+// true treats as 1-bit mono via tools/oledcolorfix.h
+#ifndef OLED_MONO
+  #define OLED_MONO false
 #endif
 
 /* --- DISPLAY RESOLUTION --- */
