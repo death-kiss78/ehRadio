@@ -343,8 +343,14 @@ of the widget's refresh rate — about **7.5 Hz**, against roughly **86 Hz** for
 throttle was written against an older display loop that ran much faster, so the VS1053's *audio*
 measurement rate was being set by the *display* refresh.
 
-**Fix**: `everyn` 4 → 1, reading the register on every widget refresh (~30 Hz). Confirmed by ear as
-a large improvement.
+**Fix**: `everyn` 4 → 1, reading the register on every widget refresh. Then, the same day, the `millis()`
+gate described in the amplitude-curve entry below replaced the throttle entirely. Confirmed by ear as a
+large improvement.
+
+**Correction (2026-09-14)**: ~30 Hz was the ceiling this was expected to reach, not what happened. The
+register read itself costs 17.4 ms (see the 2026-09-14 section), which slows the display loop until the
+gate starts skipping iterations, so the steady state was **~20 Hz**. The read is the limiter, not the
+gate — worth remembering when reading the rate figures below.
 
 **Files changed**: `src/libraries/VS1053_Audio/audioVS1053Ex.cpp` — the `everyn` constant.
 
@@ -411,12 +417,101 @@ default and lowering it to the loudest value a given source produces merely buys
 Removing the decay makes the reference the loudest reading since the last stop or title change, which
 is exactly the I2S behaviour; both of those events zero `config.vuThreshold` in shared code.
 
-**Also added**: `VU_VS1053_READ_MS` (a millis gate replacing the `everyn` throttle, so the VU sample
-rate is a constant ~30 Hz regardless of `VU_REFRESH_MS` or of the panel) and `VU_VS1053_LOG` (set to 1
-to print the raw dB range once a second, for calibrating `VU_VS1053_DB_FULL`). All three live in
-`options.h` under Visual Tweaks.
+**Also added**: `VU_VS1053_READ_MS`, a `millis()` gate replacing the `everyn` throttle, so the VU
+sample rate has a constant ceiling regardless of `VU_REFRESH_MS` or of the panel; and `VU_VS1053_LOG`
+(set to 1), which prints the raw dB range once a second for calibrating `VU_VS1053_DB_FULL` — and,
+since 2026-09-14, also how long the register read takes.
 
-**Status**: implemented; builds for both VS1053 targets. Needs an ear test on real material.
+All three are `#ifndef` defaults at the top of `audioVS1053Ex.cpp`. They were first added to
+`options.h` under Visual Tweaks and were moved into the library, because they are VS1053 internals
+rather than ehRadio tweaks — a `myoptions.h` override still works.
+
+**Status**: implemented and ear-tested — on the same station the VS1053 and I2S meters now read alike.
+Builds for both VS1053 targets.
+
+---
+
+## Post-Graft Patch Fixes (2026-09-14)
+
+### Every VU Read Was a 17.4 ms Busy-Wait on DREQ
+
+**Symptom**: no audio fault at all, but the core monitor showed the display task pinned at 38 loops/s
+(25.91 ms/loop) with `Max Main Loop Time` around 22 ms, where 100 loops/s (10.00 ms, its
+`DSP_TASK_DELAY` floor) had been seen at another time.
+
+**How it was found**: it could not be reasoned out, because the first A/B was worthless — with the
+widget already gating redraws at `VU_REFRESH_MS` 33, `VU_VS1053_READ_MS` 10 and 33 behave identically,
+so that experiment could not distinguish anything. The fix was to stop guessing and time the read
+itself: `VU_VS1053_LOG` was extended to wrap `read_register()` in `micros()`, and it answered
+immediately.
+
+| | value |
+|---|---|
+| `read_register(SCI_AICTRL3)` average | 17.3 – 17.9 ms |
+| worst | 18.5 ms |
+| reads per second | 20 |
+| raw dB observed | 66..83, both channels |
+
+**Root cause**: `await_data_request()` is a spin with no yield:
+
+```cpp
+inline void await_data_request() {while(!digitalRead(dreq_pin)) NOP();}    // Very short delay
+```
+
+`read_register()` calls it after the two-byte transfer, so the whole call blocks on the DREQ pin — and
+DREQ stays low for ~17 ms at a time, which is nothing like the "very short delay" that comment claims.
+`get_VUlevel()` has exactly one caller, `VuWidget::_levels()`, so this ran on the **display task** of all
+places. At 20 calls/s that is 348 ms of every second spent spinning, and because the spin never yields it
+also starves the Arduino main loop sharing that core — hence the 22 ms worst-case main loop.
+
+The display task's second, fully accounted for:
+
+| per second (display task, core 1) | cost |
+|---|---|
+| 38 × `vTaskDelay(DSP_TASK_DELAY)` | 380 ms |
+| 20 × 17.4 ms DREQ spin | 348 ms |
+| drawing | ~270 ms |
+
+This also disposed of the 100 loops/s reading: 100 iterations × the 10 ms delay is the entire second, so
+that figure can only describe a display task doing no work at all — a static screen with no VU reads. It
+was never a state to get back to.
+
+**Fix**: `Audio::read_register_nowait()` — the same sequence as `read_register()` minus the trailing
+`await_data_request()`. Only the VU poll uses it.
+
+Safe because:
+
+- the wait exists so the next **data** write does not start before the chip is ready, and every data path
+  already waits itself — `sdi_send_buffer()` and `sdi_send_fillers()` both call `await_data_request()`
+  inside their loop **before** the first chunk;
+- DREQ gates writes, not reads, so a control-mode read is legal at any time;
+- the 16 bits are transferred before the wait would have happened, so the value cannot change.
+
+`control_mode_on()`/`control_mode_off()` still wrap the read, so `beginTransaction`/`endTransaction` still
+hold the SPI bus — this does not widen the mutex-less window noted in Open Items.
+
+**Measured effect** (SH1106 build, same station):
+
+| | before | after |
+|---|---|---|
+| Display task | 38 loops/s (25.91 ms) | 54 – 58 loops/s (17.1 – 18.3 ms) |
+| `Max Main Loop Time` | 22.5 ms | 3.7 – 7.4 ms |
+| Forced to redraw continuously (scrolling the playlist) | ~1 loop/s | 8 – 11 loops/s |
+| Flash size | — | +84 bytes (sh1106), +28 bytes (ili9488) |
+
+The residual ~7 ms per display iteration is drawing, not waiting: the display task now sits just above
+its `DSP_TASK_DELAY` floor, which is where it belongs. Under the forced-redraw stress the main loop still
+peaks at 115 ms, but that is sustained screen work, not a spin — and the audio core no longer needs to
+be nursed to survive it.
+
+**Files changed**: `src/libraries/VS1053_Audio/audioVS1053Ex.cpp` (new `read_register_nowait()`;
+`computeVUlevel()` calls it) and `audioVS1053Ex.h` (its declaration).
+
+**Kept deliberately**: the read timing stays in the `VU_VS1053_LOG` diagnostic as a regression check.
+Anything in the hundreds of microseconds there means the DREQ wait has crept back into the VU path.
+
+The full analysis, including the arithmetic behind every number above, is in
+`plans/vu-vs1053-attack.md` §7.
 
 ---
 
@@ -432,6 +527,15 @@ to print the raw dB range once a second, for calibrating `VU_VS1053_DB_FULL`). A
    - New upstream vs `VS1053_Audio (ehRadio nsteplanets yoRadio PR226)` — what changed in the audio core?
    - New upstream vs `VS1053_Audio (yoRadio Maleksm v0.9.434m(04.04.25))` — what Maleksm changes need re-grafting?
    - Then re-apply the graft steps documented here, adapting for any API changes.
+
+5. **Mutex-less register reads**: `read_register()` and the new `read_register_nowait()` take no mutex,
+   and `mutex_playAudioData` is created and destroyed but never taken anywhere. The display task can
+   therefore interleave a VU register read with the audio task's `sendBytes()` on the shared SPI bus. In
+   practice `beginTransaction()`/`endTransaction()` hold the bus itself, so the exposure is the
+   control-mode window rather than a torn transfer, and no artefacts have appeared at a 20 Hz read rate.
+   Fixing it properly means having both tasks take `mutex_playAudioData`, which is a real change to the
+   audio path with deadlock and priority-inversion risk — poor value against a hazard that is currently
+   theoretical.
 
 ---
 

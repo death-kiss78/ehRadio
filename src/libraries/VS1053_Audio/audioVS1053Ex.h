@@ -341,6 +341,7 @@ protected:
     void     data_mode_on();
     void     data_mode_off();
     uint16_t read_register ( uint8_t _reg ) ;
+    uint16_t read_register_nowait ( uint8_t _reg ) ;     // same, minus the DREQ wait - VU poll only
     void     write_register ( uint8_t _reg, uint16_t _value );
     void     sdi_send_buffer ( uint8_t* data, size_t len ) ;
     size_t   sendBytes(uint8_t* data, size_t len);

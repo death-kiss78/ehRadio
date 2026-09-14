@@ -30,7 +30,8 @@
                                  // Lower it to the loudest value a source produces for finer steps
 #endif
 #ifndef VU_VS1053_LOG
-  #define VU_VS1053_LOG 0        // 1 = print the raw dB range once a second, to calibrate VU_VS1053_DB_FULL
+  #define VU_VS1053_LOG 0        // 1 = VU diagnostics once a second: the raw dB range (for choosing
+                                 // VU_VS1053_DB_FULL) and how long read_register() actually takes
 #endif
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -264,6 +265,30 @@ uint16_t Audio::read_register(uint8_t _reg)
     // Note: transfer16 does not seem to work
     result=(spi_VS1053->transfer(0xFF) << 8) | (spi_VS1053->transfer(0xFF));  // Read 16 bits data
     await_data_request();                                   // Wait for DREQ to be HIGH again
+    control_mode_off();
+    return result;
+}
+//---------------------------------------------------------------------------------------------------------------------
+/* Same as read_register() but WITHOUT the trailing await_data_request().
+
+   That wait is a busy-wait (see audioVS1053Ex.h) and DREQ stays low for ~17.4 ms per call while the
+   decoder is fed, so read_register() costs a measured 17.3-17.9 ms (max 18.5) - not the "very short
+   delay" the header comment claims.  Dropping it is safe: the wait exists only so the next DATA
+   write does not start before the chip is ready, and sdi_send_buffer() already awaits DREQ itself
+   before every chunk (and once more before entering data mode).  A control-mode read is always
+   legal - DREQ gates writes, not reads - and the 16 bits are transferred before the wait would have
+   happened, so the returned value cannot change.
+
+   Only the VU poll uses this: it runs ~20x/s from the display task, where 17.4 ms a call was 350 ms
+   of every second burned spinning on the display core (see plans/vu-vs1053-attack.md). */
+uint16_t Audio::read_register_nowait(uint8_t _reg)
+{
+    uint16_t result=0;
+    control_mode_on();
+    spi_VS1053->write(3);                                           // Read operation
+    spi_VS1053->write(_reg);                                        // Register to read (0..0xF)
+    // Note: transfer16 does not seem to work
+    result=(spi_VS1053->transfer(0xFF) << 8) | (spi_VS1053->transfer(0xFF));  // Read 16 bits data
     control_mode_off();
     return result;
 }
@@ -2665,7 +2690,13 @@ void Audio::computeVUlevel() {
   if(lastReadMs && (now - lastReadMs) < VU_VS1053_READ_MS) return;
   lastReadMs = now ? now : 1;
 
-  int16_t reg = read_register(SCI_AICTRL3);  // 0..95 dB per channel, 1 dB resolution
+#if VU_VS1053_LOG
+  uint32_t t0 = micros();
+#endif
+  int16_t reg = read_register_nowait(SCI_AICTRL3);  // 0..95 dB per channel, 1 dB resolution
+#if VU_VS1053_LOG
+  uint32_t readUs = micros() - t0;
+#endif
   vuLeft  = vuDbToAmp((uint8_t)(reg & 0x00FF));
   vuRight = vuDbToAmp((uint8_t)(reg >> 8));
 
@@ -2674,18 +2705,31 @@ void Audio::computeVUlevel() {
   if(vuRight > config.vuThreshold) config.vuThreshold = vuRight;
 
 #if VU_VS1053_LOG
-  /* Calibration aid: the range of raw dB values seen over each second.  Set VU_VS1053_DB_FULL to
-     the observed maximum so the amplitude conversion gets the most resolution it can. */
-  static uint8_t minDbL = 255, maxDbL = 0, minDbR = 255, maxDbR = 0;
+  /* VU diagnostics, once a second.  Two questions:
+       - the raw dB range, for choosing VU_VS1053_DB_FULL;
+       - how long the read really takes.  This is the measurement that found the 17.4 ms DREQ
+         busy-wait inside read_register() and led to read_register_nowait(); it stays on as a
+         regression check, because anything in the hundreds of microseconds here means that wait
+         has crept back in.
+         The count per second also confirms the VU_VS1053_READ_MS gate is behaving as expected. */
+  static uint8_t  minDbL = 255, maxDbL = 0, minDbR = 255, maxDbR = 0;
+  static uint32_t maxReadUs = 0, sumReadUs = 0, readCount = 0;
   static uint32_t lastLogMs = 0;
   uint8_t dbL = (uint8_t)(reg & 0x00FF), dbR = (uint8_t)(reg >> 8);
   if(dbL < minDbL) minDbL = dbL;
   if(dbL > maxDbL) maxDbL = dbL;
   if(dbR < minDbR) minDbR = dbR;
   if(dbR > maxDbR) maxDbR = dbR;
+  if(readUs > maxReadUs) maxReadUs = readUs;
+  sumReadUs += readUs;
+  readCount++;
   if(now - lastLogMs >= 1000) {
+    FUNCTIONLOG("VS1053.VU", "raw dB L %u..%u R %u..%u | read us avg %u max %u in %u reads",
+             (unsigned)minDbL, (unsigned)maxDbL, (unsigned)minDbR, (unsigned)maxDbR,
+             (unsigned)(readCount ? sumReadUs / readCount : 0), (unsigned)maxReadUs, (unsigned)readCount);
     lastLogMs = now;
-    ERRORLOG("[VU] AICTRL3 raw dB L %u..%u R %u..%u", (unsigned)minDbL, (unsigned)maxDbL, (unsigned)minDbR, (unsigned)maxDbR);
+    minDbL = minDbR = 255; maxDbL = maxDbR = 0;
+    maxReadUs = sumReadUs = readCount = 0;
   }
 #endif
 }
