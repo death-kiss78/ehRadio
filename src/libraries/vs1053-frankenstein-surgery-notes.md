@@ -30,7 +30,7 @@ When in doubt during grafting: prefer the Active library's patterns, then Maleks
 |---------|--------|----------|
 | VS1053 patches cause silence | Maleksm library audio core | Use PR226's init sequence + audio code |
 | Audio skipping during display updates | PR226 has no FreeRTOS task | Graft Maleksm's anti-skip task |
-| VU meter stuck at 99-100% | PR226 narrow 85-92 mapping | Graft Maleksm's 0-95 range + peak-hold decay |
+| VU meter stuck at 99-100% | PR226 narrow 85-92 mapping | Graft Maleksm's peak-hold decay. The 0-95 range was grafted, found to make it worse, and reverted — see Bug Fix 2 below. |
 | SM_CANCEL stuck after redirects | Both libraries | Graft Maleksm's SM_CANCEL clearing fix |
 
 ---
@@ -327,6 +327,96 @@ Online streams didn't pop because `processWebStream()` was correctly fill-only.
 **Files changed**: `src/libraries/VS1053_Audio/audioVS1053Ex.cpp` — `processLocalFile()`.
 
 **Note**: The EOF tail-flush relied on the removed inline `sendBytes()`. The task's `lastFrame` logic in `playAudioData()` is intended to send the final partial block, but `processLocalFile()` now calls `stopSong()` immediately on EOF without waiting for the task to drain the tail. Watch for truncated end-of-file audio during testing.
+
+---
+
+## Post-Graft Patch Fixes (2026-09-13)
+
+### VU Meter Attack — `everyn` 4 → 1
+
+**Symptom**: on VS1053 builds the VU attack was abrupt and visibly stepped; the same music looked
+smooth on I2S builds.
+
+**Root cause**: `computeVUlevel()` has no caller other than `get_VUlevel()`, which the VU widget
+calls once per display refresh. `everyn = 4` therefore made the `SCI_AICTRL3` read rate a quarter
+of the widget's refresh rate — about **7.5 Hz**, against roughly **86 Hz** for the I2S path. The
+throttle was written against an older display loop that ran much faster, so the VS1053's *audio*
+measurement rate was being set by the *display* refresh.
+
+**Fix**: `everyn` 4 → 1, reading the register on every widget refresh (~30 Hz). Confirmed by ear as
+a large improvement.
+
+**Files changed**: `src/libraries/VS1053_Audio/audioVS1053Ex.cpp` — the `everyn` constant.
+
+**Note**: this widens the window in which a display-task `read_register()` can interleave with the
+audio task's `sendBytes()` on the shared SPI bus. No artefacts observed so far, but see Open Items.
+
+### VU Meter — Integer Division by Zero on a Zeroed Threshold
+
+**Symptom**: none reported — found by inspection while investigating the attack.
+
+**Root cause**: `get_VUlevel()` calls `map(vuLeft, config.vuThreshold, 0, 0, dimension)`, so `map()`
+divides by `in_max - in_min` = `0 - vuThreshold`. `config.vuThreshold` is a `volatile uint16_t` that
+is deliberately zeroed by `player.cpp` (on stop), by `config.cpp` (on every title change) and by the
+threshold decay below. The widget keeps calling `get_VUlevel()` while stopped, because that is how
+the bar drains. A zero reference is therefore reachable, and it is an integer division by zero.
+
+**Fix**: clamp the reference — `uint16_t ref = config.vuThreshold ? config.vuThreshold : 1;`. This
+also maps silence to `dimension`, the correct *empty* bar. Reinstating the old
+`vuThreshold == 0` early return would have been the wrong repair: in the widget's convention a
+returned 0 means a *fully lit* bar, which is presumably what the "chicken-and-egg deadlock" comment
+was describing.
+
+**Files changed**: `src/libraries/VS1053_Audio/audioVS1053Ex.cpp` — `get_VUlevel()`.
+
+### VU Reads Too High on Wide-Dynamic-Range Sources — Fixed with an Amplitude Curve
+
+**Symptom**: on classical music the VS1053 build sits in the upper half of the bar and pins at the
+top, while the same station on an I2S build sits around a quarter of the bar.
+
+**Analysis**: `get_VUlevel()` maps the dB register linearly — `lit = len * vuLeft / vuThreshold` —
+so the bar shows the current reading as a fraction of the peak reference. Of the three inputs, two
+are ours:
+
+1. The **window** is linear in dB (`map(reg, 85, 92, 0, 255)`). dB compresses dynamic range by
+   construction, so a musically large change moves the bar very little, and anything at or above
+   92 dB saturates.
+2. The **reference** is a *decaying* peak in this path (`VU_THRESHOLD_DECAY` every
+   `VU_DECAY_INTERVAL`), whereas the I2S path raises `vuThreshold` and never decays it during
+   playback. A decaying reference chases the signal downward, so the fraction stays near 1 and the
+   bar never falls back — at steady volume it even creeps up toward full.
+3. The plugin's dB scale is not ours to change.
+
+This is the same defect Bug Fix 2 met from the other direction: a wider linear window compresses
+the bar, and a narrower one fixes that but sets a hard floor and saturates. Re-tuning the endpoints
+cannot fix it, because the *curve* is the problem.
+
+**Fix (implemented)**: the dB reading is converted to a **linear amplitude** before use, and the peak
+hold no longer decays:
+
+```cpp
+static uint8_t vuDbToAmp(uint8_t db) {
+  if(db > VU_VS1053_DB_FULL) db = VU_VS1053_DB_FULL;
+  float a = 255.0f * powf(10.0f, (float)((int)db - (int)VU_VS1053_DB_FULL) / 20.0f);
+  return (uint8_t)(a + 0.5f);
+}
+```
+
+`vuLeft`/`vuRight`/`vuThreshold` are therefore amplitudes, and `get_VUlevel()` is now structurally
+the same map the I2S path uses. Worth knowing: `VU_VS1053_DB_FULL` **cancels out** of the bar length,
+because the bar is `vuLeft / vuThreshold`. The constant therefore affects only the *resolution* of the
+`uint8_t` values, never the shape of the response — so 95 (the scale's documented maximum) is a safe
+default and lowering it to the loudest value a given source produces merely buys finer steps.
+
+Removing the decay makes the reference the loudest reading since the last stop or title change, which
+is exactly the I2S behaviour; both of those events zero `config.vuThreshold` in shared code.
+
+**Also added**: `VU_VS1053_READ_MS` (a millis gate replacing the `everyn` throttle, so the VU sample
+rate is a constant ~30 Hz regardless of `VU_REFRESH_MS` or of the panel) and `VU_VS1053_LOG` (set to 1
+to print the raw dB range once a second, for calibrating `VU_VS1053_DB_FULL`). All three live in
+`options.h` under Visual Tweaks.
+
+**Status**: implemented; builds for both VS1053 targets. Needs an ear test on real material.
 
 ---
 

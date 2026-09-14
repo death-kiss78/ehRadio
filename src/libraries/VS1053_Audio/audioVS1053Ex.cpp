@@ -8,6 +8,7 @@
  *      Author: Wolle
  *  From yoRadio PR226 by nsteplanets Nov 28, 2025
  *  To ehRadio 2026.06.29 with minimal changes
+ *  2026.09.13 Changes to VU Meter
  * 
  */
 #ifndef VS_PATCH_ENABLE
@@ -16,6 +17,21 @@
 #include "../../core/config.h"
 #include "../../core/logging.h"
 #include "audioVS1053Ex.h"
+
+/* The next three only affect VS1053 builds: the addon reports its level in dB through SCI_AICTRL3,
+   where every other source reports a linear amplitude.  See plans/vu-vs1053-attack.md */
+#ifndef VU_VS1053_READ_MS
+  #define VU_VS1053_READ_MS 33   // ceiling on SCI_AICTRL3 reads, ms. Keeps the VU sample rate constant
+                                 // (~30 Hz) and independent of VU_REFRESH_MS and of the panel
+#endif
+#ifndef VU_VS1053_DB_FULL
+  #define VU_VS1053_DB_FULL 95   // the dB reading that counts as full scale. Only affects resolution,
+                                 // not the bar itself (the reference cancels in vuLeft/vuThreshold).
+                                 // Lower it to the loudest value a source produces for finer steps
+#endif
+#ifndef VU_VS1053_LOG
+  #define VU_VS1053_LOG 0        // 1 = print the raw dB range once a second, to calibrate VU_VS1053_DB_FULL
+#endif
 
 //---------------------------------------------------------------------------------------------------------------------
 AudioBuffer::AudioBuffer(size_t maxBlockSize) {
@@ -2617,55 +2633,75 @@ void Audio::setVUmeter() {
   write_register(SCI_STATUS, VSstatus | _BV(9));
 }
 
-// VU meter thresholds and decay — [Maleksm graft]
-const uint8_t everyn = 4;            // SCI_AICTRL3 read throttling: 1 of every N computeVUlevel() calls reads the register
-const uint8_t VU_THRESHOLD_DECAY = 1; // vuThreshold decrement per decay interval
-const uint8_t VU_DECAY_INTERVAL = 20; // number of computeVUlevel() calls between threshold decays
+// VU meter — VS1053 path.  The addon reports a level in dB per channel via SCI_AICTRL3; everything
+// else here is ours.  History and measurements: plans/vu-vs1053-attack.md, plus the "Post-Graft
+// Patch Fixes" section of vs1053-frankenstein-surgery-notes.md.
+//
+// Two deliberate differences from the I2S path, both to make the two read alike:
+//   1. The dB reading is converted to a LINEAR AMPLITUDE before use.  The bar shows
+//      vuLeft/vuThreshold, so feeding it dB compresses the display - loud and quiet passages end up
+//      looking similar, and no choice of dB window fixes that because the curve is the problem.
+//      Amplitude is what the I2S path already produces.
+//   2. The peak hold no longer decays.  Decaying it made the reference chase the signal downward,
+//      so the bar never came back down and crept toward full at a steady volume.  It is now the
+//      loudest reading since the last stop or title change - the same behaviour as I2S, and those
+//      two events zero config.vuThreshold in shared code.
+static uint8_t vuDbToAmp(uint8_t db) {
+  if(db > VU_VS1053_DB_FULL) db = VU_VS1053_DB_FULL;
+  float a = 255.0f * powf(10.0f, (float)((int)db - (int)VU_VS1053_DB_FULL) / 20.0f);
+  return (uint8_t)(a + 0.5f);
+}
 
 void Audio::computeVUlevel() {
-  // Returns peak sample values from both channels in 1 dB increments.
-  // Values from 0 to 95 are valid for both channels (0 dB = silent, 95 dB = max).
-  // The vuThreshold peak-hold decays slowly so the VU display tracks dynamic range.
   if(!VS_PATCH_ENABLE) return;
-  static uint8_t cc = 0;
-  cc++;
-  if(!_vuInitalized || !config.store.vumeter || cc!=everyn) return;
-  if(cc==everyn) cc=0;
-  int16_t reg = read_register(SCI_AICTRL3);  // returns 0..95 dB per channel (1 dB resolution)
+  if(!_vuInitalized || !config.store.vumeter) return;
 
-  // Map the typical MP3 range 85..95 dB to 0..255 so compressed audio produces visible VU movement
-  // [fix] PR226 used 85..92, Maleksm used 0..95 — PR226 range confirmed correct for real-world MP3 streams
-  vuLeft  = map((uint8_t)(reg & 0x00FF), 85, 92, 0, 255);
-  vuRight = map((uint8_t)(reg >> 8),     85, 92, 0, 255);
+  /* Read ceiling.  This is only ever called from get_VUlevel(), i.e. from the display task, so
+     without a gate the VU sample rate would be whatever the panel refresh happens to be - which is
+     how it once ended up at 7.5 Hz.  A millis gate makes it a constant ~30 Hz whatever
+     VU_REFRESH_MS is set to, and independent of the panel. */
+  static uint32_t lastReadMs = 0;
+  uint32_t now = millis();
+  if(lastReadMs && (now - lastReadMs) < VU_VS1053_READ_MS) return;
+  lastReadMs = now ? now : 1;
 
-  // Clamp to valid range (safeguard against out-of-range register values)
-  if(vuLeft  > 255) vuLeft  = 255;
-  if(vuRight > 255) vuRight = 255;
+  int16_t reg = read_register(SCI_AICTRL3);  // 0..95 dB per channel, 1 dB resolution
+  vuLeft  = vuDbToAmp((uint8_t)(reg & 0x00FF));
+  vuRight = vuDbToAmp((uint8_t)(reg >> 8));
 
-  // Peak-hold detector with slow decay
-  if(vuLeft > config.vuThreshold) {
-    config.vuThreshold = vuLeft;
-  } else if(vuRight > config.vuThreshold) {
-    config.vuThreshold = vuRight;
-  } else if(config.vuThreshold > 0) {
-    static uint8_t decayCnt = 0;
-    if(++decayCnt >= VU_DECAY_INTERVAL) {
-      decayCnt = 0;
-      if(config.vuThreshold >= VU_THRESHOLD_DECAY)
-        config.vuThreshold -= VU_THRESHOLD_DECAY;
-      else
-        config.vuThreshold = 0;
-    }
+  // Peak hold, rising only - see the note above for why it no longer decays
+  if(vuLeft  > config.vuThreshold) config.vuThreshold = vuLeft;
+  if(vuRight > config.vuThreshold) config.vuThreshold = vuRight;
+
+#if VU_VS1053_LOG
+  /* Calibration aid: the range of raw dB values seen over each second.  Set VU_VS1053_DB_FULL to
+     the observed maximum so the amplitude conversion gets the most resolution it can. */
+  static uint8_t minDbL = 255, maxDbL = 0, minDbR = 255, maxDbR = 0;
+  static uint32_t lastLogMs = 0;
+  uint8_t dbL = (uint8_t)(reg & 0x00FF), dbR = (uint8_t)(reg >> 8);
+  if(dbL < minDbL) minDbL = dbL;
+  if(dbL > maxDbL) maxDbL = dbL;
+  if(dbR < minDbR) minDbR = dbR;
+  if(dbR > maxDbR) maxDbR = dbR;
+  if(now - lastLogMs >= 1000) {
+    lastLogMs = now;
+    ERRORLOG("[VU] AICTRL3 raw dB L %u..%u R %u..%u", (unsigned)minDbL, (unsigned)maxDbL, (unsigned)minDbR, (unsigned)maxDbR);
   }
+#endif
 }
 
 uint16_t Audio::get_VUlevel(uint16_t dimension){
   if(!VS_PATCH_ENABLE) return 0;
-  if(!_vuInitalized || !config.store.vumeter) return 0; // [fix] removed vuThreshold==0 chicken-and-egg deadlock
+  if(!_vuInitalized || !config.store.vumeter) return 0;
   computeVUlevel();
-  uint8_t L = map(vuLeft, config.vuThreshold, 0, 0, dimension);
-  uint8_t R = map(vuRight, config.vuThreshold, 0, 0, dimension);
-  return (L << 8) | R;
+  /* vuLeft/vuRight are amplitudes, so this is the same map the I2S path uses.  The reference is
+     clamped to 1 because config.vuThreshold is zeroed on stop and on title change while map()
+     divides by (0 - vuThreshold): a zero reference would be an integer division by zero.  With
+     silence both sides are 0, which maps to `dimension` - the correct EMPTY bar. */
+  uint16_t ref = config.vuThreshold ? config.vuThreshold : 1;
+  long lL = map(vuLeft,  ref, 0, 0, dimension); if(lL < 0) lL = 0;
+  long lR = map(vuRight, ref, 0, 0, dimension); if(lR < 0) lR = 0;
+  return ((uint8_t)lL << 8) | (uint8_t)lR;
 }
 //---------------------------------------------------------------------------------------------------------------------
 void Audio::setConnectionTimeout(uint16_t timeout_ms, uint16_t timeout_ms_ssl){
