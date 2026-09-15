@@ -265,7 +265,19 @@ function onMessage(event) {
           websocket.send('getindex=1');
           return;
         }
-      if(typeof data.act !== 'undefined'){ data.act.forEach(showclass=> { classEach(showclass, function(el) { el.classList.remove("hidden"); }); }); return; }
+      /* The server reports the settings groups in BOTH directions: "group_x" offers a group and
+         "hide_group_x" withdraws it.  The conditions for the layout-driven groups (VU, buffer bar,
+         weather) come from the active layout, so they can flip while this page is open - the withdrawal
+         is what stops a row for a widget the new layout dropped from lingering until a reload.
+         The token has to be INTERPRETED, not applied: classEach() does querySelectorAll('.'+name), so
+         passing "hide_group_x" through as a class name would silently match nothing. */
+      if(typeof data.act !== 'undefined'){
+        data.act.forEach(showclass=> {
+          if (showclass.startsWith('hide_')) classEach(showclass.slice(5), function(el) { el.classList.add("hidden"); });
+          else classEach(showclass, function(el) { el.classList.remove("hidden"); });
+        });
+        return;
+      }
       // Apply maxVol to volume slider if present in flat config data
       if (typeof data.maxVol !== 'undefined') {
         var volSlider = getId('volume');

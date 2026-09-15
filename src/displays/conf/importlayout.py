@@ -26,6 +26,8 @@ WHAT IT DOES:
     - Detects `#define BOOMBOX_STYLE` standalone (mandatory BoomBox)
     - Detects `#define HIDE_X` -> zeros out the corresponding config (`{ }`)
       and preserves the original value as a comment
+    - Detects `#define HIDE_IP_ONLY_MAIN_SCREEN` and `#define RSSI_DIGIT` -> sets the matching
+      ehRadio boolean (shareWeatherIP / rssiDigit) TRUE, since they are switches, not hides
     - Detects `#if BITRATE_FULL` blocks -> extracts TITLE_FIX value, strips
       the block, and substitutes TITLE_FIX in config expressions
     - Preserves `#define` lines, format strings, and MoveConfig declarations
@@ -47,7 +49,8 @@ LAYOUT_FIELDS = [
     ('fullbitrateConf','BitrateConfig'),
     ('bandsConf','VUBandsConfig'),
     ('clockMove','MoveConfig'),('weatherMove','MoveConfig'),('weatherMoveVU','MoveConfig'),
-    ('boomboxStyle','bool'),
+    ('boomboxVU','bool'),
+    ('shareWeatherIP','bool'),('shareBattRSSI','bool'),('rssiDigit','bool'),
 ]
 
 # Boot/AP fields — extracted from first layout, output as global BootData block
@@ -87,6 +90,17 @@ HIDE_TO_FIELD = {
     'HIDE_RSSI': 'rssiConf', 'HIDE_BATTERY': 'batteryConf', 'HIDE_WEATHER': 'weatherConf',
     'HIDE_HEAPBAR': 'bufferbarConf',
 }
+
+# Plain old-format defines that map to an ehRadio boolean set TRUE (not zeroed).
+# HIDE_IP_ONLY_MAIN_SCREEN are ancestors (in some yoRadio mods) of .shareWeatherIP (the IP is hidden on the
+# main screen because the weather shares its row); RSSI_DIGIT is the number-versus-bars switch.
+TRUE_DEFINES = {
+    'HIDE_IP_ONLY_MAIN_SCREEN': 'shareWeatherIP',
+    'RSSI_DIGIT':               'rssiDigit',
+}
+# Emit order must match LayoutData declaration order: boomboxVU, rotateVU, then these three.
+TRUE_BOOL_ORDER  = ['shareWeatherIP', 'shareBattRSSI', 'rssiDigit']
+TRUE_BOOL_FIELDS = set(TRUE_BOOL_ORDER)
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -226,6 +240,15 @@ def parse_conf(path):
         if hide_name in HIDE_TO_FIELD:
             hidden_fields.add(HIDE_TO_FIELD[hide_name])
 
+    # Plain defines that map to an ehRadio boolean set TRUE.  RSSI_DIGIT may be bare, `true` or
+    # `1`; HIDE_IP_ONLY_MAIN_SCREEN is always bare.  An explicit false/0 is not a request.
+    true_map = {}
+    for m in re.finditer(r'^#define\s+(\w+)(?:\s+(\S+))?', text, re.MULTILINE):
+        def_name, def_val = m.group(1), m.group(2)
+        if def_name in TRUE_DEFINES and (def_val is None or def_val.lower() not in ('false', '0')):
+            true_map[TRUE_DEFINES[def_name]] = True
+    true_configs = [(f, 'true') for f in TRUE_BOOL_ORDER if f in true_map]
+
     # BOOMBOX_STYLE detection
     has_boombox = bool(re.search(
         r'#if(def\s+BOOMBOX_STYLE|ndef\s+BOOMBOX_STYLE|\s+defined\s*\(\s*BOOMBOX_STYLE\s*\))', text))
@@ -239,6 +262,12 @@ def parse_conf(path):
     # Two-pass config parsing
     configs_normal = _parse_configs(text, boombox_active=False)
     configs_boombox = _parse_configs(text, boombox_active=True) if has_boombox else None
+
+    # Inject the boolean-true fields.  They are appended, because LayoutData declares them after
+    # boomboxVU/rotateVU and designated initialisers must ascend.
+    for cfgs in (configs_normal, configs_boombox):
+        if cfgs is not None:
+            cfgs.extend(true_configs)
 
     # TITLE_FIX substitution
     if title_fix is not None:
@@ -349,9 +378,13 @@ def emit_layout_entry(name, configs, layout_fields, index, boombox_style=False, 
             val = config_dict[fname]
             if fname == 'bandsConf':
                 val = _trim_bands_conf(val)
-            if fname == 'boomboxStyle':
+            if fname in TRUE_BOOL_FIELDS:
+                # Present only because parse_conf injected it, i.e. the define was in the source.
+                lines.append(f'        .{fname:19s} = true,')
+                continue
+            if fname == 'boomboxVU':
                 if boombox_style:
-                    lines.append('        /* BOOMBOX STYLE: middle-out VU */')
+                    lines.append('        /* BOOMBOX VU: middle-out */')
                     lines.append(f'        .{fname:19s} = true,')
                 continue
             if fname in hidden_fields:
@@ -360,9 +393,13 @@ def emit_layout_entry(name, configs, layout_fields, index, boombox_style=False, 
             else:
                 lines.append(f'        .{fname:19s} = {_normalize(val)},')
             converted += 1
-        elif fname == 'boomboxStyle':
+        elif fname in TRUE_BOOL_FIELDS:
+            # Define absent -> omit the line entirely.  Absent means false, which is what the
+            # old-format default was.
+            continue
+        elif fname == 'boomboxVU':
             if boombox_style:
-                lines.append('        /* BOOMBOX STYLE: middle-out VU */')
+                lines.append('        /* BOOMBOX VU: middle-out */')
                 lines.append(f'        .{fname:19s} = true,')
             continue
         elif fname in hidden_fields:

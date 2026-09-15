@@ -8,7 +8,6 @@
 #define TFT_FRAMEWDT    4
 #define MAX_WIDTH       DSP_WIDTH-TFT_FRAMEWDT*2
 #define BOOTLOGOTOP     16
-#define RSSI_BATT_SHARED true // these widgets share the same space
 
 const BootData _bootConfig PROGMEM = {
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
@@ -62,6 +61,9 @@ const LayoutData _layouts[] PROGMEM = {
         .clockMove           = { 14, 98, 0},
         .weatherMove         = {TFT_FRAMEWDT, 48, MAX_WIDTH},
         .weatherMoveVU       = { 34, 48, MAX_WIDTH-34+TFT_FRAMEWDT },
+        /* batteryConf, iptxtConf and rssiConf are all on top 108, so RSSI and battery share a
+           row and are drawn alternately rather than over each other. */
+        .shareBattRSSI       = true,
     },
 };
 

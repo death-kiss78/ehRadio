@@ -99,8 +99,8 @@ const LayoutData _layouts[] PROGMEM = {
         .clockMove           = { 0, 176, -1 },
         .weatherMove         = { 0, 0, -1 },
         .weatherMoveVU       = { 0, 0, -1 },
-        /* BOOMBOX STYLE: middle-out VU */
-        .boomboxStyle        = true,
+        /* BOOMBOX VU: middle-out */
+        .boomboxVU           = true,
     },
 };
 

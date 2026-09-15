@@ -30,10 +30,21 @@ class Widget{
     void setAlign(WidgetAlign align){
       _config.align = align;
     }
-    void setActive(bool act, bool clr=false) { _active = act; if(_active && !_locked) _draw(); if(clr && !_locked) _clear(); }
-    void lock(bool lck=true) { _locked = lck; if(_locked) _reset(); if(_locked && _active) _clear();  }
-    void unlock() { _locked = false; }
+    /* _present is the layout's answer to "does the active layout provide this widget"; it is set only
+       by hideByLayout()/showByLayout() in display.cpp.
+       It is deliberately authoritative over _active, because Pager::setPage() -> Page::setActive()
+       re-activates EVERY widget on a page (recursing into child pages, so the footer too) on each
+       mode change.  A hide that relied on _active alone would therefore be undone the first time the
+       user left the player page and came back.  _present is not touched by setActive(), so it holds. */
+    void setActive(bool act, bool clr=false) { if(act && !_present) return; _active = act; if(_active && !_locked) _draw(); if(clr && !_locked) _clear(); }
+    /* Locking is always allowed; UNLOCKING a widget the layout has dropped is not.  Together with the
+       guards in setActive() and unlock() this closes the invariant: once the layout marks a widget
+       absent, no public method can make it draw again except showByLayout(). */
+    void lock(bool lck=true) { if(!lck && !_present) return; _locked = lck; if(_locked) _reset(); if(_locked && _active) _clear();  }
+    void unlock() { if(_present) _locked = false; }
     bool locked() { return _locked; }
+    void setPresent(bool p) { _present = p; }
+    bool present() { return _present; }
     void moveTo(MoveConfig mv){
       if(mv.width<0) return;
       _moved = true;
@@ -56,6 +67,7 @@ class Widget{
     }
   protected:
     bool _active, _moved, _locked;
+    bool _present = true;   // false when the active layout does not provide this widget
     uint16_t _fgcolor, _bgcolor, _width;
     WidgetConfig _config;
     MoveConfig _backMove;
@@ -79,8 +91,9 @@ class TextWidget: public Widget {
     char *_text = nullptr;
     char *_oldtext = nullptr;
     bool _uppercase;
-    uint16_t  _buffsize, _textwidth, _oldtextwidth, _oldleft, _textheight;
-    uint8_t _charWidth;
+    /* Initialised, so a widget that has never been init()'d is inert rather than full of stack garbage. */
+    uint8_t _charWidth = 0;
+    uint16_t  _buffsize = 0, _textwidth = 0, _oldtextwidth = 0, _oldleft = 0, _textheight = 0;
   protected:
     void _draw();
     uint16_t _realLeft(bool w_fb=false);

@@ -54,6 +54,10 @@ If the old conf has BoomBox variants, the script creates **two layout entries**:
 - One standard layout
 - One BoomBox layout (with `" (BoomBox)"` appended to the name)
 
+The BoomBox entry is emitted as `.boomboxVU = true`. That field was called `boomboxStyle`
+before it was renamed; the `BOOMBOX_STYLE` *detection* and the `" (BoomBox)"` layout **names**
+are unchanged, because those describe the old file format and the layout's display name.
+
 ### `#define HIDE_*` directives
 
 Old-style hide macros are converted to empty configs (`{ }`). The original
@@ -62,6 +66,26 @@ value is preserved as a comment so you can restore it later:
 ```c
 .batteryConf = { },  // was HIDE_BATTERY: { 320, 282, 2, WA_LEFT }
 ```
+
+### Switches that become `true`: `HIDE_IP_ONLY_MAIN_SCREEN` and `RSSI_DIGIT`
+
+Two old-format defines are not hides at all — they select a behaviour, so instead of zeroing a
+config they set an ehRadio boolean **true**:
+
+| Define | Becomes | Why |
+|---|---|---|
+| `HIDE_IP_ONLY_MAIN_SCREEN` | `.shareWeatherIP = true` | yoRadio's ancestor of `shareWeatherIP`: the IP is hidden on the main screen *because the weather shares its row*. |
+| `RSSI_DIGIT` | `.rssiDigit = true` | Draw the signal as a number instead of bars. It may be bare, `true` or `1`; an explicit `false`/`0` is not a request. |
+
+Both are emitted after `.boomboxVU`, which is where they sit in `LayoutData` — designated
+initialisers must ascend, so the order is fixed rather than taken from set iteration. A layout
+whose source has neither define simply omits the lines, and an absent boolean means `false`,
+exactly as the old default did.
+
+`HIDE_VOL_FOOTER` is **deliberately not mapped**. Its yoRadio intent was to blank the volume
+footer, which ehRadio already expresses as `voltxtConf = { }` — and `HIDE_VOL` is already in the
+hide table for that. Leaving it unmapped makes it an inert define, which is harmless. Do not
+change this without first deciding what it should blank.
 
 ### `#if BITRATE_FULL` blocks
 

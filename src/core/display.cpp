@@ -23,12 +23,7 @@
 
 extern const char batterytxtFmt[] PROGMEM;
 
-#ifndef IP_WEATHER_SHARED
-  #define IP_WEATHER_SHARED false
-#endif
-#ifndef RSSI_BATT_SHARED
-  #define RSSI_BATT_SHARED false
-#endif
+/* These three flags are per-layout booleans in LayoutData now, not per-model macros. */
 
 Display display;
 
@@ -58,9 +53,81 @@ const VUBandsConfig*  bandsConf_ptr       = &_layouts[0].bandsConf;
 const MoveConfig*     clockMove_ptr       = &_layouts[0].clockMove;
 const MoveConfig*     weatherMove_ptr     = &_layouts[0].weatherMove;
 const MoveConfig*     weatherMoveVU_ptr   = &_layouts[0].weatherMoveVU;
-const bool*           boomboxStyle_ptr    = &activeLayout.boomboxStyle;
+const bool*           boomboxVU_ptr       = &activeLayout.boomboxVU;
 const bool*           rotateVU_ptr        = &activeLayout.rotateVU;
+/* Point into activeLayout (the memcpy_P target), so no re-pointing on a layout switch. */
+const bool*           shareWeatherIP_ptr  = &activeLayout.shareWeatherIP;
+const bool*           shareBattRSSI_ptr   = &activeLayout.shareBattRSSI;
+const bool*           rssiDigit_ptr       = &activeLayout.rssiDigit;
 uint8_t layoutCount = (sizeof(_layoutNames) / sizeof(_layoutNames[0]));
+
+/* ---- Layout owns widget existence -----------------------------------------------------------------
+   A widget is only part of the display when the ACTIVE LAYOUT provides it.  A layout switch re-runs
+   _reinitWidgets(), which HIDES a widget the new layout omits rather than freeing it: the display task
+   on the other core may be inside that widget's _draw() at this moment, so a delete here would be a
+   use-after-free.  Keeping the object alive costs a bounded amount of RAM - one instance per widget
+   type, reused on every switch - and a hidden widget does nothing at all.
+
+   Both flags are needed because the _draw() guards are not uniform: Text/Fill/Num bail on !_active
+   only, Slider bails on _locked only, and Scroll/Vu/Clock check both.  Neither flag alone is an off
+   switch for every widget type.
+
+   They are also not persistent enough by themselves: Pager::setPage() re-activates every widget on a
+   page on each mode change, so the base class carries a third flag, _present, which setActive() and
+   unlock() refuse to override.  _present is the authoritative answer; the other two still have to be
+   set because each widget type's _draw() consults a different subset.
+   See plans/layout-widget-lifecycle.md */
+static void hideByLayout(Widget* w) { if (w) { w->setPresent(false); w->lock(true); w->setActive(false, true); } }
+static void showByLayout(Widget* w) { if (w) { w->setPresent(true); w->unlock(); w->setActive(true); } }
+
+/* ---- Does the active layout provide this widget? --------------------------------------------------
+   "Absent" is spelled differently by each config type, so define it once per TYPE and then name the
+   per-widget questions in terms of it.  Everything here inlines to a single comparison.
+
+   This rule has to be consulted from two kinds of place, and missing either kind reintroduces the bug
+   the whole hide/show mechanism exists to fix:
+     - the hide/show decision in _reinitWidgets();
+     - every RE-SHOW site, i.e. setActive(true), unlock() and lock(false).  There are three separate
+       revival paths in this file, and the _draw() guards are not uniform - TextWidget draws on
+       _active alone while SliderWidget draws on _locked alone - so a guard on one flag at one site is
+       not enough.  See plans/layout-widget-lifecycle.md */
+static inline bool present(const WidgetConfig&  c) { return c.textsize  > 0; }
+/* Presence for a ScrollWidget needs BOTH fields: init() computes the scroll window as
+   _width / _charWidth, and _charWidth comes from textsize with no clamp in _charSize() - so a layout
+   with buffsize set and textsize zeroed would pass a buffsize-only test and then divide by zero.
+   A hand-authored layout doing that is a crash, not a widget. */
+static inline bool present(const ScrollConfig&  c) { return c.buffsize > 0 && c.widget.textsize > 0; }
+static inline bool present(const FillConfig&    c) { return c.height    > 0; }
+static inline bool present(const BitrateConfig& c) { return c.dimension > 0; }
+/* A VU needs its geometry as well as its position: VuWidget::_draw() divides by bands.perheight, so a
+   layout that zeroes bandsConf while leaving vuConf filled would be an integer division by zero. */
+static inline bool present(const VUBandsConfig& c) { return c.width > 0 && c.height > 0 && c.perheight > 0; }
+
+static inline bool metaInLayout()        { return present(*metaConf_ptr); }
+static inline bool title1InLayout()      { return present(*title1Conf_ptr); }
+static inline bool title2InLayout()      { return present(*title2Conf_ptr); }
+static inline bool playlistInLayout()    { return present(*playlistConf_ptr); }
+static inline bool weatherInLayout()     { return present(*weatherConf_ptr); }
+static inline bool vuInLayout()          { return present(*vuConf_ptr) && present(*bandsConf_ptr); }
+static inline bool bitrateInLayout()     { return present(*bitrateConf_ptr); }
+static inline bool fullbitrateInLayout() { return present(*fullbitrateConf_ptr); }
+static inline bool volbarInLayout()      { return present(*volbarConf_ptr); }
+static inline bool bufferbarInLayout()   { return present(*bufferbarConf_ptr); }
+static inline bool voltxtInLayout()      { return present(*voltxtConf_ptr); }
+static inline bool ipInLayout()          { return present(*iptxtConf_ptr); }
+static inline bool rssiInLayout()        { return present(*rssiConf_ptr); }
+static inline bool batteryInLayout()     { return present(*batteryConf_ptr); }
+/* The clock and the digits are the two widgets whose conf does NOT encode presence through textsize:
+   both draw with a GFX font at TIME_SIZE, so their confs carry textsize == 0 even when present.  They
+   therefore use the "zeroed means absent" convention that every other widget's { } already relies on -
+   all four fields zero means the layout does not want this widget.
+   The one thing this makes unexpressible is a clock or digits block at left 0 / top 0 / WA_LEFT, i.e.
+   hard against the top-left corner.  Accepted: top 0 would clip the glyphs anyway.
+   A textsize-based test here reports "absent" for a widget that is present, which is what skipped the
+   init() and caused the boot loop - see plans/layout-widget-lifecycle.md section 9. */
+static inline bool zeroed(const WidgetConfig& c) { return c.left || c.top || c.textsize || c.align; }
+static inline bool clockInLayout()       { return zeroed(*clockConf_ptr); }
+static inline bool numInLayout()         { return zeroed(*numConf_ptr); }
 #else
 const ScrollConfig*   metaConf_ptr        = nullptr;
 const ScrollConfig*   title1Conf_ptr      = nullptr;
@@ -85,10 +152,23 @@ const VUBandsConfig*  bandsConf_ptr       = nullptr;
 const MoveConfig*     clockMove_ptr       = nullptr;
 const MoveConfig*     weatherMove_ptr     = nullptr;
 const MoveConfig*     weatherMoveVU_ptr   = nullptr;
-const bool*           boomboxStyle_ptr    = nullptr;
+const bool*           boomboxVU_ptr       = nullptr;
 const bool*           rotateVU_ptr        = nullptr;
+const bool*           shareWeatherIP_ptr  = nullptr;
+const bool*           shareBattRSSI_ptr   = nullptr;
+const bool*           rssiDigit_ptr       = nullptr;
 uint8_t layoutCount = 0;
 #endif
+
+/* Defined here, above every user, because _start() needs them as well as _layoutChange(). */
+
+/* Widget::lock() is not idempotent - it re-clears even when already locked, wiping anything that shares
+   the area (this erased the IP address).  Always change lock state through this. */
+static void lockIfChanged(Widget* w, bool hide) { if (w && w->locked() != hide) w->lock(hide); }
+
+/* Coming back from hidden needs an explicit redraw: unlock() does not draw, and the clock only repaints
+   its seconds.  A widget that yielded to the VU has no move path to supply this. */
+static void redrawIfVisible(Widget* w) { if (w && !w->locked()) w->setActive(true); }
 
 QueueHandle_t displayQueue;
 
@@ -372,48 +452,45 @@ void Display::_start() {
     config.setTitle(l10n(L10N_MSG_READY));
   #endif
   
-  if (_bufferbar)  _bufferbar->lock(!config.store.bufferbar);
+  if (_bufferbar)  _bufferbar->lock(!bufferbarInLayout() || !config.store.bufferbar);
   
-  if (_weather)  _weather->lock(!config.store.showweather);
+  lockIfChanged(_weather, _weatherHidden());
   if (_weather && config.store.showweather && network.status != SDOFFLINE) network.buildWeatherString();
 
-  if (_clock && network.status == SDOFFLINE && !config.isRTCFound()) {
-    _clock->lock(true);   // prevent redraws from CLOCK → _time()
-    _clock->clear();       // erase current display
+  /* lockIfChanged, then clear() so an already-inactive clock is erased too. */
+  if (_clock) {
+    lockIfChanged(_clock, _clockHidden());
+    if (_clock->locked()) _clock->clear();
   }
 
   if (_vuwidget) _vuwidget->lock();
   if (_rssi) { if (network.status == SDOFFLINE) _setRSSI(0); else _setRSSI(WiFi.RSSI()); }
-  #if RSSI_BATT_SHARED
-    if (_battery && _rssi) {
-      bool haveBattery = battery.isInitialized();
-      #ifdef BATTERY_FORCE_DISPLAY
-        haveBattery = true;
-      #endif
-      if (haveBattery) {
-        _rssi->setText(""); _rssi->setActive(false);
-        _battery->setActive(true); _updateBattery();
-      } else {
-        _battery->setText(""); _battery->setActive(false);
-        _rssi->setActive(true);
-      }
+  /* shareBattRSSI: toggle _active to pick between RSSI and battery.  A RE-SHOW site - a widget the
+     layout omitted would come back, hence the predicate on setActive. */
+  if (*shareBattRSSI_ptr && _battery && _rssi) {
+    bool haveBattery = battery.isInitialized();
+    #ifdef BATTERY_FORCE_DISPLAY
+      haveBattery = true;
+    #endif
+    if (haveBattery) {
+      _rssi->setText(""); _rssi->setActive(false);
+      _battery->setActive(batteryInLayout()); _updateBattery();
+    } else {
+      _battery->setText(""); _battery->setActive(false);
+      _rssi->setActive(rssiInLayout());
     }
-  #endif
-  if (iptxtConf_ptr->textsize > 0) {
+  }
+  if (ipInLayout()) {
     if (_volip) {
       if (network.status == SDOFFLINE) {
         _volip->setText(utf8_trim15(l10n(L10N_MSG_OFFLINE_15CHAR)), "\030\031%s");
       } else {
-        #if IP_WEATHER_SHARED
-          if (config.store.showweather) _volip->setText("");
-          else _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
-        #else
-          _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
-        #endif
+        if (*shareWeatherIP_ptr && config.store.showweather) _volip->setText("");
+        else _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
       }
     }
   }
-  if (batteryConf_ptr->textsize > 0) {
+  if (batteryInLayout()) {
     if(_battery) _updateBattery();
   }
   _pager->setPage(pages[PG_PLAYER]);
@@ -426,8 +503,9 @@ void Display::_start() {
 void Display::_showDialog(const char *title) {
   dsp.setScrollId(NULL);
   _pager->setPage(pages[PG_DIALOG]);
-  #ifdef META_MOVE
-    _meta->moveTo(metaMove);
+  /* Character LCDs re-lay the meta line for dialogs; non-LCD confs leave the macro undefined. */
+  #ifdef LCD_META_MOVE
+    _meta->moveTo(LCD_META_MOVE);
   #endif
   _meta->setAlign(WA_CENTER);
   _meta->setText(title);
@@ -446,7 +524,7 @@ void Display::_swichMode(displayMode_e newmode) {
   dsp.setScrollId(NULL);
   if (newmode == PLAYER) {
     if (player.isRunning()){
-      if (config.store.vumeter && _vuwidget) {
+      if (config.store.vumeter && _vuwidget && vuInLayout()) {
         if (clockMove_ptr->width<0) _clock->moveBack(); else _clock->moveTo(*clockMove_ptr);
         if (_weather) _weather->moveTo(*weatherMoveVU_ptr);
       } else {
@@ -461,7 +539,8 @@ void Display::_swichMode(displayMode_e newmode) {
       dsp.clearDsp();
     #endif
     numOfNextStation = 0;
-    #ifdef META_MOVE
+    /* Put the meta line back.  Must match the macro name in _showDialog(), or the move is never undone. */
+    #ifdef LCD_META_MOVE
       _meta->moveBack();
     #endif
     _meta->setAlign(metaConf_ptr->widget.align);
@@ -473,37 +552,31 @@ void Display::_swichMode(displayMode_e newmode) {
         if (network.status == SDOFFLINE) {
           _volip->setText(utf8_trim15(l10n(L10N_MSG_OFFLINE_15CHAR)), "\030\031%s");
         } else {
-          #if IP_WEATHER_SHARED // weather and IP share the same bottom row; hide IP when weather is active
-            if (config.store.showweather) _volip->setText("");
-            else _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
-          #else
-            _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
-          #endif
+          // weather and IP share the same bottom row; hide IP when weather is active
+          if (*shareWeatherIP_ptr && config.store.showweather) _volip->setText("");
+          else _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
         }
       }
-    #if IP_WEATHER_SHARED // force weather repaint on return to PLAYER; larger displays repaint naturally
-      if (config.store.showweather && _weather) {
-        _weather->lock(false);
-        // Force a clean repaint of the shared weather/IP row after overlays like VOL/SCREENSAVER.
-        _weather->setText("");
-        if (network.weatherBuf) _weather->setText(network.weatherBuf);
+    // force weather repaint on return to PLAYER; larger displays repaint naturally
+    if (*shareWeatherIP_ptr && config.store.showweather && _weather) {
+      _weather->lock(_weatherHidden());
+      // Force a clean repaint of the shared weather/IP row after overlays like VOL/SCREENSAVER.
+      _weather->setText("");
+      if (network.weatherBuf) _weather->setText(network.weatherBuf);
+    }
+    if (*shareBattRSSI_ptr && _battery && _rssi) {
+      bool haveBattery = battery.isInitialized();
+      #ifdef BATTERY_FORCE_DISPLAY
+        haveBattery = true;
+      #endif
+      if (haveBattery) {
+        _rssi->setText(""); _rssi->setActive(false);
+        _battery->setActive(batteryInLayout()); _updateBattery();
+      } else {
+        _battery->setText(""); _battery->setActive(false);
+        _rssi->setActive(rssiInLayout());
       }
-    #endif
-    #if RSSI_BATT_SHARED
-      if (_battery && _rssi) {
-        bool haveBattery = battery.isInitialized();
-        #ifdef BATTERY_FORCE_DISPLAY
-          haveBattery = true;
-        #endif
-        if (haveBattery) {
-          _rssi->setText(""); _rssi->setActive(false);
-          _battery->setActive(true); _updateBattery();
-        } else {
-          _battery->setText(""); _battery->setActive(false);
-          _rssi->setActive(true);
-        }
-      }
-    #endif
+    }
     config.setDspOn(config.store.dspon, false);
     display.putRequest(DBITRATE);  // refresh bitrate badge when returning to player (may have been cleared while on playlist page)
   }
@@ -521,19 +594,16 @@ void Display::_swichMode(displayMode_e newmode) {
     config.isScreensaver = false;
   }
   if (newmode == VOL) {
-    #if IP_WEATHER_SHARED // weather and IP share the same bottom row; pause weather so VOL can show IP
-      if (config.store.showweather && _weather) {
-        // Pause weather updates while volume UI is active to avoid shared-line collisions.
-        _weather->lock(true);
-        _weather->setText("");
-      }
-    #endif
-    #if RSSI_BATT_SHARED
-      if (_battery && _rssi) {
-        _battery->setText(""); _battery->setActive(false);
-        _rssi->setActive(true);
-      }
-    #endif
+    // weather and IP share the same bottom row; pause weather so VOL can show IP
+    if (*shareWeatherIP_ptr && config.store.showweather && _weather) {
+      // Pause weather updates while volume UI is active to avoid shared-line collisions.
+      _weather->lock(true);
+      _weather->setText("");
+    }
+    if (*shareBattRSSI_ptr && _battery && _rssi) {
+      _battery->setText(""); _battery->setActive(false);
+      _rssi->setActive(rssiInLayout());
+    }
     if (config.store.volumepage) {
       _showDialog(l10n(L10N_LBL_VOLUME));
     }
@@ -613,13 +683,36 @@ void Display::updateProgress(const char* label, float progress) {
   #endif
 }
 
+/* An all-zero MOVE (`{ }`) means "yield to the VU": hidden while the meter is up, back when it stops.
+   Distinct from `width < 0` (leave the position alone) and a non-zero x/y (move there). */
+static inline bool moveZeroed(const MoveConfig& m) { return m.x == 0 && m.y == 0 && m.width == 0; }
+
+/* The clock hides with no time source, when the layout omits it, or when it yields to the VU.  One
+   definition, so _start() and _layoutChange() cannot lock what the other just unlocked. */
+bool Display::_clockHidden() {
+  const bool noTimeSource = (network.status == SDOFFLINE && !config.isRTCFound());
+  const bool yieldsToVU   = (config.store.vumeter && vuInLayout() && player.isRunning() && moveZeroed(*clockMove_ptr));
+  return noTimeSource || yieldsToVU || !clockInLayout();
+}
+
+/* Same shape for the weather, plus shared-row suppression during the volume overlay. */
+bool Display::_weatherHidden() {
+  const bool featureOff = !config.store.showweather;
+  const bool yieldsToVU = (config.store.vumeter && vuInLayout() && player.isRunning() && moveZeroed(*weatherMoveVU_ptr));
+  bool volOverlay = false;
+  volOverlay = *shareWeatherIP_ptr && (_mode == VOL);
+  return featureOff || yieldsToVU || volOverlay || !weatherInLayout();
+}
+
 void Display::_layoutChange(bool played) {
-  if (config.store.vumeter && _vuwidget) {
+  if (config.store.vumeter && _vuwidget && vuInLayout()) {
     if (played) {
       if (_vuwidget) _vuwidget->unlock();
-      //_clock->moveTo(*clockMove_ptr);
-      if (clockMove_ptr->width<0) _clock->moveBack(); else _clock->moveTo(*clockMove_ptr);
-      if (_weather) _weather->moveTo(*weatherMoveVU_ptr);
+      /* Zeroed move = yield, so leave the position alone; the locks below erase it instead. */
+      if (!moveZeroed(*clockMove_ptr)) {
+        if (clockMove_ptr->width<0) _clock->moveBack(); else _clock->moveTo(*clockMove_ptr);
+      }
+      if (_weather && !moveZeroed(*weatherMoveVU_ptr)) _weather->moveTo(*weatherMoveVU_ptr);
     } else {
       if (_vuwidget) if (!_vuwidget->locked()) _vuwidget->lock();
       _clock->moveBack();
@@ -635,6 +728,13 @@ void Display::_layoutChange(bool played) {
       _clock->moveBack();
     }
   }
+  /* Lock state last, from one definition.  lock() erases, so a yielded widget really disappears. */
+  const bool clockWasHidden = (_clock && _clock->locked());
+  const bool weatherWasHidden = (_weather && _weather->locked());
+  lockIfChanged(_clock, _clockHidden());
+  lockIfChanged(_weather, _weatherHidden());
+  if (clockWasHidden)   redrawIfVisible(_clock);     // full _printClock(true), not just the seconds
+  if (weatherWasHidden) redrawIfVisible(_weather);
 }
 
 void Display::loop() {
@@ -679,46 +779,41 @@ void Display::loop() {
           }
           break;
         case SHOWBUFFERBAR: if (_bufferbar)  {
-            _bufferbar->lock(!config.store.bufferbar);
+            _bufferbar->lock(!bufferbarInLayout() || !config.store.bufferbar);
             _bufferbar->setValue(normalizeBufferbarValue(player.inBufferFilled(), _bufferbarMax));
           }
           break;
         case SHOWVUMETER: {
           if (_vuwidget) {
-            _vuwidget->lock(!config.store.vumeter); 
+            _vuwidget->lock(!vuInLayout() || !config.store.vumeter);
             _layoutChange(player.isRunning());
           }
           break;
         }
         case SHOWWEATHER: {
-          #if IP_WEATHER_SHARED // also lock weather during VOL to prevent shared-row collision with IP
-            if (_weather) _weather->lock(!config.store.showweather || _mode == VOL);
-          #else
-            if (_weather) _weather->lock(!config.store.showweather);
-          #endif
+          lockIfChanged(_weather, _weatherHidden());
           if (!config.store.showweather) {
             if (_weather) _weather->setText("");
             if (_volip) _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
           } else {
-            #if IP_WEATHER_SHARED // weather and IP share a row; suppress weather text and IP together based on mode
+            // weather and IP share a row; suppress weather text and IP together based on mode
+            if (*shareWeatherIP_ptr) {
               if (_mode == VOL) {
                 if (_weather) _weather->setText("");
               } else {
                 if (_volip) _volip->setText("");
                 network.buildWeatherString();
               }
-	          #else // larger displays have separate rows; just update weather, leave IP alone
+            } else { // larger displays have separate rows; just update weather, leave IP alone
               network.buildWeatherString();
-            #endif
+            }
           }
           break;
         }
         case NEWWEATHER: {
-          #if IP_WEATHER_SHARED // skip weather repaint during VOL to avoid overwriting the IP shown there
-            if (_mode != VOL && _weather && network.weatherBuf) _weather->setText(network.weatherBuf);
-          #else
-            if (_weather && network.weatherBuf) _weather->setText(network.weatherBuf);
-          #endif
+          // skip weather repaint during VOL to avoid overwriting the IP shown there
+          if ((!*shareWeatherIP_ptr || _mode != VOL) && _weather && network.weatherBuf)
+            _weather->setText(network.weatherBuf);
           break;
         }
         case BOOTSTRING: {
@@ -751,10 +846,9 @@ void Display::loop() {
               if (network.status == SDOFFLINE) {
                 _volip->setText(utf8_trim15(l10n(L10N_MSG_OFFLINE_15CHAR)), "\030\031%s");
               } else {
-                #if IP_WEATHER_SHARED // skip IP repaint in PLAYER when weather owns the shared row
-                  if (!(_mode == PLAYER && config.store.showweather))
-                #endif
-                _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
+                // skip IP repaint in PLAYER when weather owns the shared row
+                if (!*shareWeatherIP_ptr || !(_mode == PLAYER && config.store.showweather))
+                  _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
               }
             }
           break;
@@ -784,10 +878,10 @@ void Display::_setRSSI(int rssi) {
     }
   #endif
   if (!_rssi) return;
-  #if RSSI_DIGIT
+  if (*rssiDigit_ptr) {
     _rssi->setText(rssi, rssiFmt);
     return;
-  #endif
+  }
   char rssiG[3];
   int rssi_steps[] = {RSSI_STEPS};
   if (rssi >= rssi_steps[0]) strlcpy(rssiG, "\004\006", 3);
@@ -954,8 +1048,16 @@ void Display::_reinitWidgets() {
     #endif
       _meta->init("*", *metaConf_ptr, mfg, mbg);
   }
-  _title1->init("*", *title1Conf_ptr, config.theme.title1, config.theme.background);
-  _clock->init(*clockConf_ptr, 0, 0);
+  /* Title1 is optional like the rest: nothing else depends on it, and it has no other lock site. */
+  if (title1InLayout()) { _title1->init("*", *title1Conf_ptr, config.theme.title1, config.theme.background); showByLayout(_title1); }
+  else hideByLayout(_title1);
+  /* Conditional again, but now on the zeroed-conf rule rather than on textsize.  This is only safe
+     because ClockWidget's entry points are inert for a widget whose init() never ran: _reset() and
+     _clearClock() bail on !_present, and every _fb deref is null-guarded.  Without those, _swichMode's
+     screen-blank clear(), lock() and the lock/unlock cycle all reach uninitialised geometry - which is
+     exactly how the previous, textsize-based attempt boot-looped. */
+  if (clockInLayout()) { _clock->init(*clockConf_ptr, 0, 0); showByLayout(_clock); }
+  else hideByLayout(_clock);
   #if DSP_MODEL==DSP_NOKIA5110
     _plcurrent->init("*", *playlistConf_ptr, 0, 1);
   #else
@@ -966,25 +1068,34 @@ void Display::_reinitWidgets() {
     _plcurrent->moveTo({TFT_FRAMEWDT, (uint16_t)(_plwidget->currentTop()), (int16_t)playlistConf_ptr->width});
   #endif
   // --- Player-page optional widgets (lazy-create if newly enabled) ---
-  if (title2Conf_ptr->buffsize > 0) {
+  if (title2InLayout()) {
     if (!_title2) {
       _title2 = new ScrollWidget("*", *title2Conf_ptr, config.theme.title2, config.theme.background);
       pages[PG_PLAYER]->addWidget(_title2);
-    } else _title2->init("*", *title2Conf_ptr, config.theme.title2, config.theme.background);
-  }
-  if (vuConf_ptr->textsize > 0) {
+    } else {
+      _title2->init("*", *title2Conf_ptr, config.theme.title2, config.theme.background);
+      showByLayout(_title2);
+    }
+  } else hideByLayout(_title2);
+  if (vuInLayout()) {
     if (!_vuwidget) {
       _vuwidget = new VuWidget(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background);
       pages[PG_PLAYER]->addWidget(_vuwidget);
-    } else _vuwidget->init(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background);
-  }
-  if (weatherConf_ptr->buffsize > 0) {
+    } else {
+      _vuwidget->init(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background);
+      showByLayout(_vuwidget);
+    }
+  } else hideByLayout(_vuwidget);
+  if (weatherInLayout()) {
     if (!_weather) {
       _weather = new ScrollWidget("~", *weatherConf_ptr, config.theme.weather, config.theme.background);
       pages[PG_PLAYER]->addWidget(_weather);
-    } else _weather->init("~", *weatherConf_ptr, config.theme.weather, config.theme.background);
-  }
-  if (fullbitrateConf_ptr->dimension > 0) {
+    } else {
+      _weather->init("~", *weatherConf_ptr, config.theme.weather, config.theme.background);
+      showByLayout(_weather);
+    }
+  } else hideByLayout(_weather);
+  if (fullbitrateInLayout()) {
     if (!_fullbitrate) {
       if (_bitrate) { pages[PG_PLAYER]->removeWidget(_bitrate); delete _bitrate; _bitrate = nullptr; }
       _fullbitrate = new BitrateWidget(*fullbitrateConf_ptr, config.theme.bitrate, config.theme.background);
@@ -992,53 +1103,78 @@ void Display::_reinitWidgets() {
     } else _fullbitrate->init(*fullbitrateConf_ptr, config.theme.bitrate, config.theme.background);
   } else {
     if (_fullbitrate) { pages[PG_PLAYER]->removeWidget(_fullbitrate); delete _fullbitrate; _fullbitrate = nullptr; }
-    if (bitrateConf_ptr->textsize > 0) {
+    if (bitrateInLayout()) {
       if (!_bitrate) {
         _bitrate = new TextWidget(*bitrateConf_ptr, 30, false, config.theme.bitrate, config.theme.background);
         pages[PG_PLAYER]->addWidget(_bitrate);
-      } else _bitrate->init(*bitrateConf_ptr, 30, false, config.theme.bitrate, config.theme.background);
-    }
+      } else {
+        _bitrate->init(*bitrateConf_ptr, 30, false, config.theme.bitrate, config.theme.background);
+        showByLayout(_bitrate);
+      }
+    } else hideByLayout(_bitrate);
   }
 
   // --- Footer widgets (lazy-create if newly enabled) ---
-  if (volbarConf_ptr->height > 0) {
+  if (volbarInLayout()) {
     if (!_volbar) {
       _volbar = new SliderWidget(*volbarConf_ptr, config.theme.volbarin, config.theme.background, VOLUME_SCALE, config.theme.volbarout);
       _footer->addWidget(_volbar);
-    } else _volbar->init(*volbarConf_ptr, config.theme.volbarin, config.theme.background, VOLUME_SCALE, config.theme.volbarout);
-  }
-  if (bufferbarConf_ptr->height > 0) {
+    } else {
+      _volbar->init(*volbarConf_ptr, config.theme.volbarin, config.theme.background, VOLUME_SCALE, config.theme.volbarout);
+      showByLayout(_volbar);
+    }
+  } else hideByLayout(_volbar);
+  if (bufferbarInLayout()) {
     _bufferbarMax = 1024 * BUFFERBAR_VISUAL_FULL_KB;
     if (!_bufferbar) {
       _bufferbar = new SliderWidget(*bufferbarConf_ptr, config.theme.buffer, config.theme.background, _bufferbarMax);
       _footer->addWidget(_bufferbar);
-    } else _bufferbar->init(*bufferbarConf_ptr, config.theme.buffer, config.theme.background, _bufferbarMax);
-  }
-  if (voltxtConf_ptr->textsize > 0) {
+    } else {
+      _bufferbar->init(*bufferbarConf_ptr, config.theme.buffer, config.theme.background, _bufferbarMax);
+      showByLayout(_bufferbar);
+    }
+  } else hideByLayout(_bufferbar);
+  if (voltxtInLayout()) {
     if (!_voltxt) {
       _voltxt = new TextWidget(*voltxtConf_ptr, 10, false, config.theme.vol, config.theme.background);
       _footer->addWidget(_voltxt);
-    } else _voltxt->init(*voltxtConf_ptr, 10, false, config.theme.vol, config.theme.background);
-  }
-  if (iptxtConf_ptr->textsize > 0) {
+    } else {
+      _voltxt->init(*voltxtConf_ptr, 10, false, config.theme.vol, config.theme.background);
+      showByLayout(_voltxt);
+    }
+  } else hideByLayout(_voltxt);
+  if (ipInLayout()) {
     if (!_volip) {
       _volip = new TextWidget(*iptxtConf_ptr, 48, false, config.theme.ip, config.theme.background);
       _footer->addWidget(_volip);
-    } else _volip->init(*iptxtConf_ptr, 48, false, config.theme.ip, config.theme.background);
-  }
-  if (rssiConf_ptr->textsize > 0) {
+    } else {
+      _volip->init(*iptxtConf_ptr, 48, false, config.theme.ip, config.theme.background);
+      showByLayout(_volip);
+    }
+  } else hideByLayout(_volip);
+  if (rssiInLayout()) {
     if (!_rssi) {
       _rssi = new TextWidget(*rssiConf_ptr, 20, false, config.theme.rssi, config.theme.background);
       _footer->addWidget(_rssi);
-    } else _rssi->init(*rssiConf_ptr, 20, false, config.theme.rssi, config.theme.background);
-  }
-  if (batteryConf_ptr->textsize > 0) {
+    } else {
+      _rssi->init(*rssiConf_ptr, 20, false, config.theme.rssi, config.theme.background);
+      showByLayout(_rssi);
+    }
+  } else hideByLayout(_rssi);
+  if (batteryInLayout()) {
     if (!_battery) {
       _battery = new TextWidget(*batteryConf_ptr, 10, false, config.theme.battery, config.theme.background);
       _footer->addWidget(_battery);
-    } else _battery->init(*batteryConf_ptr, 10, false, config.theme.battery, config.theme.background);
-  }
-  _nums->init(*numConf_ptr, 10, false, config.theme.digit, config.theme.background);
+    } else {
+      _battery->init(*batteryConf_ptr, 10, false, config.theme.battery, config.theme.background);
+      showByLayout(_battery);
+    }
+  } else hideByLayout(_battery);
+  /* Conditional on the zeroed-conf rule, like the clock.  Safe because NumWidget::setText() bails on null
+     buffers, which is the insurance added after the boot loop - _swichMode calls _nums->setText()
+     unconditionally, and that was the call that reached strcmp(null, null). */
+  if (numInLayout()) { _nums->init(*numConf_ptr, 10, false, config.theme.digit, config.theme.background); showByLayout(_nums); }
+  else hideByLayout(_nums);
   // Background fills
   #if !defined(DSP_LCD) && DSP_MODEL!=DSP_NOKIA5110
     if (_plbackground) _plbackground->init(*playlBGConf_ptr, config.theme.plcurrentfill);
@@ -1102,7 +1238,15 @@ void Display::_applyState() {
     }
   #endif
   _reinitWidgets();
-  if (_vuwidget && !config.store.vumeter) _vuwidget->lock();  // keep VU off when disabled
+  /* Re-apply every feature lock, because _reinitWidgets() may just have shown a widget that came back
+     with the new layout.  A widget is live only when the layout provides it AND its feature is on -
+     and the VU only while something is playing, which is the state _layoutChange() maintains.
+     See plans/layout-widget-lifecycle.md */
+  if (_vuwidget)  _vuwidget->lock(!vuInLayout() || !config.store.vumeter || !player.isRunning());
+  /* The weather rule mirrors SHOWWEATHER exactly, including the shared-row suppression during the
+     volume overlay, so a layout switch cannot drop the weather back onto the IP row mid-overlay. */
+  lockIfChanged(_weather, _weatherHidden());
+  if (_bufferbar) _bufferbar->lock(!bufferbarInLayout() || !config.store.bufferbar);
   _volume();
   if (_battery) _updateBattery();
   if (_weather && config.store.showweather && network.weatherBuf) _weather->setText(network.weatherBuf);

@@ -1,389 +1,314 @@
-# Layout Key — `src/displays/conf/display*conf.h`
+# Layout Key — how to build a layout
 
-Reference for the `display*conf.h` files: what each macro does, what every field in the
-configuration structs means, and the conventions and traps that are not visible from the
-inline comments. Read this before writing or editing a layout.
+A **layout** is one entry in the `_layouts[]` array of a `display*conf.h` file. It decides
+where each widget sits, which ones exist at all, and how the VU meter is drawn.
 
-Everything here is verified against the current tree; where a value is empirical (rather
-than derived) it is called out.
+This guide lists the fields, explains the numbers in plain language, and points out the quirks
+that are not obvious from the conf file itself.
 
-Related documents:
-
-- [`.github/code-summary.md`](../../../.github/code-summary.md) — how the display layer works overall
-- [`.github/code-issues.md`](../../../.github/code-issues.md) — known open issues
-- [`plans/oled-vu-meter.md`](../../../plans/oled-vu-meter.md) — OLED VU work
+If you are converting a layout from another firmware instead of writing one, see
+[`importlayout.md`](importlayout.md).
 
 ---
 
-## 1. How a conf file is chosen
+## 1. Which file do I edit?
 
-**By resolution, not by display model.** [`dspconf.h`](../dspconf.h) selects the file from
-`DSP_WIDTH`/`DSP_HEIGHT`, after first deciding the category:
+The conf file is chosen by **resolution**, not by panel model. A 128x64 OLED picks
+[`displayOLED128x64conf.h`](displayOLED128x64conf.h), a 480x320 TFT picks
+[`displayTFT480x320conf.h`](displayTFT480x320conf.h), and so on.
 
-| Category | Test | `SCROLLDELAY` | `SCROLLTIME` |
-|---|---|---|---|
-| Character LCD | `DSP_LCD` | 2000 | 300 (20x4) / 400 (16x2) |
-| Mono OLED | `DSP_OLED` | 5000 | 180 (Nokia) / 250 (ST7920) / **20 (others)** |
-| TFT | default | 5000 | 20 |
+**One file serves every panel of that size.** Editing the 128x64 OLED file changes SH1106,
+SH1107, SSD1305, SSD1306 and SSD1327 displays alike, so check your layout on the screen you
+actually have.
 
-Then the resolution picks the file. For `DSP_OLED` at 128x64 that is
-[`displayOLED128x64conf.h`](displayOLED128x64conf.h) — which is shared by **SH1106,
-SH1107, SSD1305, SSD1306 and SSD1327**, both 1-bit and 4-bit grayscale panels. Any edit
-there affects all of them.
-
-Consequence: layout work is a **build-and-flash** loop, not a runtime setting. Only the
-*layout index* and *theme index* are user-switchable at runtime.
+Only the **layout index** and the **theme** can be changed at runtime, from the WebUI. Anything
+in the conf file needs a **rebuild and flash**.
 
 ---
 
-## 2. The five parts of a conf file
+## 2. Quick start
 
-1. **Geometry macros** — `TFT_FRAMEWDT`, `MAX_WIDTH`, `BOOTLOGOTOP`, `FONTSHIFT`, and the
-   `*_SHARED` flags.
-2. **`_bootConfig`** (`BootData`) — the AP/boot screen layout.
-3. **`_layoutNames[]`** — display names for the layout list in the WebUI.
-4. **`_layouts[]`** (`LayoutData`) — one entry per layout; the actual work.
-5. **`*Fmt` strings** — `printf` formats used by the text widgets.
-
-All of it is `const ... PROGMEM`, so it costs flash, not RAM.
-
----
-
-## 3. Geometry macros
-
-| Macro | Meaning |
-|---|---|
-| `DSP_WIDTH`, `DSP_HEIGHT` | Panel resolution. Set per model in [`options.h`](../../core/options.h) (OLED 128x64 by default); overridable in `myoptions.h`. Conf selection depends on these. |
-| `TFT_FRAMEWDT` | **A border margin, not a width.** Despite the name it is the left/right inset in pixels, used as the default `left` for full-width widgets. `1` on this OLED = keep text off the very first/last pixel column. It is used on OLED and LCD confs too, so the `TFT_` prefix is historical and misleading. |
-| `MAX_WIDTH` | `DSP_WIDTH - TFT_FRAMEWDT*2` — usable width inside the margin. Defined per conf because the margin differs (1 on this OLED, 10 on the 480x320 TFT). |
-| `BOOTLOGOTOP` | `y` position for the boot logo. The logo image itself is chosen by resolution in [`dspfont.h`](../dspfont.h); for 128x64 it is `bootlogo/110x32mono.h`. |
-| `FONTSHIFT` | Vertical offset compensating for the **clock font**'s metrics. `0` when `CLOCKFONT == YO_MONO`, otherwise `15`. Applied to `numConf.top`, `clockConf.top` and `vuConf.top` only. See §7 for why it matters. |
-| `IP_WEATHER_SHARED` | `true` = the IP text and the weather share one bottom row: the IP is blanked while weather is showing, weather is paused in the volume page, and repaints are forced on return. Defaults to `false` in [`display.cpp`](../../core/display.cpp). |
-| `RSSI_BATT_SHARED` | `true` = RSSI and battery share one row and are drawn alternately rather than over each other. Defaults to `false`. |
-
-### `FONTSHIFT` in detail
-
-[`options.h`](../../core/options.h) sets `CLOCKFONT` to `CHUNKY6` on the 128x64-class OLEDs
-and `CHUNKY6_PX` elsewhere, unless `myoptions.h` overrides it. [`dspfont.h`](../dspfont.h)
-then picks `TIME_SIZE` (15 for a 128x64 OLED), and **redefines it to 2** if
-`CLOCKFONT == YO_MONO` on such a panel — meaning `YO_MONO` falls back to the ordinary
-display font at textsize 2 rather than using the 15 px clock font.
-
-So in practice on this file:
-
-| `CLOCKFONT` | `FONTSHIFT` | `numConf.top` | `clockConf.top` / `vuConf.top` |
-|---|---|---|---|
-| `YO_MONO` | 0 | 28 | 38 |
-| `CHUNKY6` / `CHUNKY6_PX` | 15 | 43 | 53 |
-
-The `+FONTSHIFT` terms exist so widgets near the clock move down when the tall clock font is
-in use. With the default `CHUNKY6` the clock and VU tops land at **53** on a 64 px panel, so
-they sit in the last 11 rows — check anything you place there against the hardware. Whether
-a given `FONTSHIFT` is exactly right is empirical: the clock font's baseline offset decides
-it, and only a flash proves it.
-
----
-
-## 4. Text metrics — what `fontsize` means
-
-`fontsize` is a **multiplier of a 6x8 character cell**, not a point size. From
-[`widgets.h`](../widgets/widgets.h) and `Widget::_charSize()`:
-
-```
-cell width  = fontsize * CHARWIDTH   // CHARWIDTH  = 6
-cell height = fontsize * CHARHEIGHT  // CHARHEIGHT = 8
-```
-
-So `fontsize: 1` = a 6x8 cell, `fontsize: 2` = 12x16. This is used for `left`/`top`
-arithmetic all over the confs (`FONTSHIFT`-style offsets, `TFT_FRAMEWDT*2`, etc.) and is
-why odd numbers show up in positions.
-
-Two derived heights worth knowing:
-
-- Playlist row height: `textsize*(CHARHEIGHT-1) + textsize*4` = **11 x textsize**. With
-  `playlistConf` textsize 1 that is 11 px.
-- `NumWidget` uses `TIME_SIZE`, not its `fontsize`, for its text height.
-
----
-
-## 5. Alignment
-
-`WidgetAlign` is defined in [`widgetsconfig.h`](../widgets/widgetsconfig.h) — **not** by
-Adafruit, despite the familiar names:
-
-| Name | Value | Effect |
-|---|---|---|
-| `WA_LEFT` | 0 | `left` is the exact x of the text |
-| `WA_CENTER` | 1 | centred within the widget's `width` |
-| `WA_RIGHT` | 2 | right edge at `width - left` |
-
-**Trap:** some widgets overload `align`. `VuWidget` treats *any non-zero* `align` as
-"horizontal VU" and `WA_LEFT` as "vertical VU" — so on the VU, `align` is an orientation
-selector, not just text alignment. When `rotateVU = true` this is bypassed and `align`
-becomes irrelevant for the VU.
-
----
-
-## 6. Configuration structs
-
-Field order matters: these are aggregate-initialised positionally, and the `{ }` in the
-confs map 1:1 to the declaration order in
-[`widgetsconfig.h`](../displays/widgets/widgetsconfig.h).
-
-### `WidgetConfig` — `{ left, top, fontsize, align }`
-
-Plain text/positioned widget. Used directly by `bitrateConf`, `voltxtConf`,
-`batteryConf`, `iptxtConf`, `rssiConf`, `numConf`, `clockConf`, `vuConf`.
-
-### `ScrollConfig` — `{ widget, buffsize, uppercase, width, startscrolldelay, scrolldelta, scrolltime }`
-
-| Field | Meaning |
-|---|---|
-| `widget` | the nested `WidgetConfig` |
-| `buffsize` | text buffer size in bytes. Also the widget's "is configured" test (`> 0`). Must be large enough for long titles; CJK needs 3 bytes/char. |
-| `uppercase` | **Currently has no effect.** The value is stored and `TextWidget::uppercase()` exposes it, but nothing reads it. Use `PRETEXT_ALLCAPS` in `myoptions.h` instead. |
-| `width` | scrolling window width in pixels, used to decide whether scrolling is needed and to size the window buffer. Clamped to `MAX_WIDTH` by the widget. |
-| `startscrolldelay` | ms held at the start position before scrolling begins. Confs pass `SCROLLDELAY` (or `SCROLLDELAY/5` for the playlist). |
-| `scrolldelta` | pixels moved per step |
-| `scrolltime` | ms per step after the initial hold |
-
-Scroll speed in px/s = `scrolldelta * 1000 / scrolltime`. This file: title scrolls at
-`1*1000/20 = 50 px/s`, the playlist at `3*1000/20 = 150 px/s`.
-
-### `FillConfig` — `{ widget, width, height, outlined }`
-
-Solid rectangle. `height > 0` is the "is configured" test. `outlined` draws a 1 px frame.
-Used by `metaBGConf`, `metaBGConfInv`, `volbarConf`, `playlBGConf`, `bufferbarConf`.
-
-`metaBGConfInv` is the band drawn behind the title when *invert title* is enabled; it is
-only used if its own `height > 0`, otherwise `metaBGConf` is used instead.
-
-### `BitrateConfig` — `{ widget, dimension }`
-
-The "codec badge". `dimension > 0` is the test. If set, a `BitrateWidget` (codec name
-badge) replaces the plain `bitrateConf` text.
-
-### `VUBandsConfig` — `{ width, height, space, vspace, perheight }`
-
-| Field | Meaning |
-|---|---|
-| `width` | thickness of **one** channel bar (L and R are drawn side by side, so total thickness = `width*2 + space`) |
-| `height` | length of the bar |
-| `space` | gap between the L and R bars |
-| `vspace` | gap between the segments that make up a bar |
-| `perheight` | segments per bar; segment step = `height / perheight` |
-
-Orientation: with `rotateVU = false` and `align = WA_LEFT` the bar runs vertically
-(`height` = length, `width*2+space` = footprint width). With `rotateVU = true`, or with a
-non-zero `align`, the bar runs horizontally (`height` = length along x, `width*2+space` =
-footprint height). **Compute the footprint before choosing numbers** — it is the most
-common way to push a VU off the screen.
-
-**There is no fade speed here on purpose.** The decay rate is derived at runtime from the
-bar's own length, so every layout behaves the same without any per-conf arithmetic:
-
-```
-fadePxPerSec = len * 1000 / VU_FADE_MS          // len = height, or width when horizontal
-peakPxPerSec = fadePxPerSec / VU_PEAK_FADE_DIV
-```
-
-With `VU_FADE_MS = 1000` a bar falls from full to empty in one second whether it is 44 px
-long or 200 px. The old field counted pixels **per display tick**, which had no time base and
-no length normalisation, so the same number produced wildly different behaviour on each
-panel — and on the very short bars (5-12 px) it could not be tuned finely enough at all.
-Both constants live in [`options.h`](../../core/options.h). The animation is advanced by a
-millisecond delta with a sub-pixel carry, and `VuWidget` redraws at most once per
-`VU_REFRESH_MS` (33 ms, ~30 Hz) to stay in step with the audio core's 30-50 levels/s.
-
-### How the segments are computed
-
-Straight from `VuWidget::_draw()`. Take `len` as the bar's length in pixels
-(`bandsConf.height`, unless a non-zero `vuConf.align` or `rotateVU` swaps the axes):
+Every conf file has these parts. `_layoutNames[]` is the list the WebUI shows; `_layouts[]` holds
+the actual layouts, one entry each:
 
 ```c
-step = len / perheight;      // integer division -> truncates DOWN
-if (step < 1) step = 1;
-h = (step > vspace) ? step - vspace : 1;
-for (int i = 0; i < len; i += step) { /* draw a segment at i, h pixels long */ }
+const char _layoutNames[][64] PROGMEM = {
+    "Default",          // shown in the WebUI layout list
+    "Big VU",
+};
+
+const LayoutData _layouts[] PROGMEM = {
+    {   // Default
+        /* SCROLLS   {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
+        .metaConf      = {{ TFT_FRAMEWDT, TFT_FRAMEWDT, 2, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY, 2, SCROLLTIME },
+        .title1Conf    = {{ TFT_FRAMEWDT, 19, 1, WA_LEFT }, 140, true, MAX_WIDTH-24, SCROLLDELAY, 1, SCROLLTIME },
+        .playlistConf  = {{ TFT_FRAMEWDT, 30, 1, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY/5, 1, SCROLLTIME },
+        /* WIDGETS   { left, top, fontsize, align } */
+        .bitrateConf   = { 0, 19, 1, WA_RIGHT },
+        .clockConf     = { TFT_FRAMEWDT, 38+FONTSHIFT, 0, WA_CENTER },
+        /* BACKGROUNDS {{ left, top, fontsize, align }, width, height, outlined } */
+        .volbarConf    = {{ 0, 64-1, 0, WA_LEFT }, DSP_WIDTH, 1, false },
+        .rotateVU      = true,
+    },
+};
 ```
 
-- `step` is the segment **pitch**, and it is already floored — so `perheight` is a *maximum*
-  segment count, not an exact one. The real count is `ceil(len / step)`.
-- `h` is the drawn extent, so the bar is a run of `h`-long segments separated by
-  `vspace`-long holes.
-- **The tail is left as background.** With `{ 32, 130, 4, 2, 10, 3 }`: `step = 13`, `h = 11`,
-  10 segments, and the last one starts at `i = 117` covering `117..127` — rows `128` and
-  `129` are never covered by a segment. The leftover is not redistributed: every segment is
-  identical and the remainder is simply wasted. (The `130 / (vspace + perheight) = 10.83`
-  arithmetic does not appear anywhere in the code.)
-- The tip is nonetheless **pixel-smooth**: all segments are drawn first and the background
-  clear rectangle is painted *over* them, so a segment straddling the level is cut partway.
-  `vspace` shows as holes inside the lit bar, not as a blocky growth step.
-- The level is mapped over the whole `len` (`get_VUlevel(len)`), so the unused tail is a
-  small dead zone at the very loudest end rather than a shortened scale.
+Two rules that break the build if you ignore them:
 
-### Peak bar
-
-A thin themed marker that rests on the highest recent reading of each channel and creeps back
-down slower than the bar itself. It is on by default (`SHOW_VU_PEAK` in
-[`options.h`](../../core/options.h)) and can be switched off at runtime via the store flag
-`vupeak`. Its colour is the theme field `.vupeak`.
-
-- **Space:** the marker is drawn in the *cleared* strip just beyond the high-water mark, and
-  the outermost `len * 11/1000` pixels (minimum 1) are reserved for it, so it can never draw
-  outside the `.bandsConf` footprint. On the 128x64 OLED that is 1 px; on the 480x320 TFT
-  `len` is 130 so it is 2 px. The factor is `VU_PEAK_THICKNESS_MILLI` in `options.h`.
-- **Hold:** a new high parks the marker for `VU_PEAK_FREEZE_MS` (1 s) before it starts to move,
-  and every new high re-arms that hold. A sustained loud passage therefore pins the marker to the
-  bar tip — the hold only starts counting once the level falls away from it. Set `0` in
-  `options.h` to decay immediately instead.
-- **Speed:** once the hold has expired it releases at `fadePxPerSec / VU_PEAK_FADE_DIV` — half the
-  bar's speed by default. Set by `VU_PEAK_FADE_DIV` in `options.h`.
-- **Peak to empty** therefore takes `VU_PEAK_FREEZE_MS + VU_FADE_MS * VU_PEAK_FADE_DIV` = **3 s**
-  at the shipped defaults. If that feels sluggish, lower `VU_PEAK_FADE_DIV` rather than the hold —
-  the hold is what makes the marker readable in the first place.
-- Because it is measured in the same "cleared pixels from the loud end" space as the bar, the
-  orientation flags (`align`, `rotateVU`, `boomboxStyle`) carry it along with no per-conf work.
-- It needs **no extra room**: the reservation is inside `len`, which is why a very short bar
-  can look cramped but will not overflow.
-
-### `MoveConfig` — `{ x, y, width }`
-
-Movement rectangle for the screensaver. Every shipped conf uses `{ 0, 0, -1 }`, and
-`width = -1` is the documented "keep the conf position" (no movement).
-
-### `ProgressConfig` — `{ speed, width, barwidth }`
-
-Boot/update progress bar: `speed` = ms per step, `width` = total bar columns,
-`barwidth` = thickness in px.
+- **`_layoutNames[]` and `_layouts[]` must stay the same length**, in the same order. The
+  layout's index is its position in both arrays.
+- **Write the fields in the order listed in §3.** These are designated initialisers, so a field
+  that comes earlier in the struct must be written earlier in the entry. Commenting a line out
+  is fine; swapping two lines is not.
 
 ---
 
-## 7. The two top-level tables
+## 3. The fields, in the order they appear
 
-### `_bootConfig` (`BootData`)
+`WidgetConfig` — a simple positioned widget. All four numbers: `{ left, top, fontsize, align }`.
 
-The AP-mode / boot screen. Positions here are independent of `_layouts[]`, and its
-`apSettConf` / `apPassConf` values are also reused by the update dialog on the volume page,
-so changing them moves the "Updating files" text too.
+`ScrollConfig` — a line of text that can scroll. `{ { left, top, fontsize, align }, buffsize,
+uppercase, width, scrolldelay, scrolldelta, scrolltime }`.
 
-- `apTitleConf`, `apSettConf` — `ScrollConfig` (title line, settings line)
-- `bootstrConf`, `apNameConf`, `apName2Conf`, `apPassConf`, `apPass2Conf`, `bootWdtConf` — `WidgetConfig`
-- `bootPrgConf` — `ProgressConfig`
+`FillConfig` — a solid rectangle. `{ { left, top, fontsize, align }, width, height, outlined }`.
 
-### `_layoutNames[]` and `_layouts[]`
+`VUBandsConfig` — the VU bar's geometry, five numbers (see §6).
 
-`_layoutNames` is the list shown in the WebUI layout selector; `_layouts` holds one
-`LayoutData` per entry. Keep the two lists the same length and the same order — the layout
-id is the array index.
+`MoveConfig` — where a widget travels while the screensaver runs (see §7).
 
-`LayoutData` members, in declaration order (this is the order they must appear in the
-designated initialiser):
+`BitrateConfig` — `{ { left, top, fontsize, align }, dimension }`, the codec badge.
 
-| Member | Type | Purpose |
+| Field | Type | What it is |
 |---|---|---|
-| `metaConf` | ScrollConfig | station/status line |
-| `title1Conf` | ScrollConfig | title line 1 |
-| `title2Conf` | ScrollConfig | title line 2 (optional) |
-| `playlistConf` | ScrollConfig | playlist text |
-| `weatherConf` | ScrollConfig | weather (optional) |
-| `metaBGConf` | FillConfig | title band |
-| `metaBGConfInv` | FillConfig | title band when *invert title* is on |
-| `volbarConf` | FillConfig | volume slider (optional) |
-| `playlBGConf` | FillConfig | playlist highlight fill |
-| `bufferbarConf` | FillConfig | buffer bar (optional) |
-| `bitrateConf` | WidgetConfig | bitrate text (or codec badge, see `fullbitrateConf`) |
-| `voltxtConf` | WidgetConfig | volume number (optional) |
-| `batteryConf` | WidgetConfig | battery (optional) |
-| `iptxtConf` | WidgetConfig | IP address (optional) |
-| `rssiConf` | WidgetConfig | WiFi signal (optional) |
-| `numConf` | WidgetConfig | large volume/station number |
-| `clockConf` | WidgetConfig | clock |
-| `vuConf` | WidgetConfig | VU meter position |
-| `fullbitrateConf` | BitrateConfig | codec badge; empty falls back to `bitrateConf` |
-| `bandsConf` | VUBandsConfig | VU band geometry |
-| `clockMove` | MoveConfig | clock movement (no VU position) |
-| `weatherMove` | MoveConfig | weather movement (no VU position) |
-| `weatherMoveVU` | MoveConfig | weather movement while the VU is shown |
-| `boomboxStyle` | bool | VU drawn as a "boombox" horizontal meter |
-| `rotateVU` | bool | VU rotated 90 degrees |
+| `metaConf` | Scroll | Station name / status line. **Required** — dialogs write into it. |
+| `title1Conf` | Scroll | Title line 1 |
+| `title2Conf` | Scroll | Title line 2 |
+| `playlistConf` | Scroll | The playlist text. **Required** |
+| `weatherConf` | Scroll | Weather line |
+| `metaBGConf` | Fill | The band behind the title |
+| `metaBGConfInv` | Fill | Title band used when *invert title* is on; if empty, `metaBGConf` is used |
+| `volbarConf` | Fill | Volume slider |
+| `playlBGConf` | Fill | Highlight behind the current playlist row |
+| `bufferbarConf` | Fill | Stream buffer bar |
+| `bitrateConf` | Widget | Bitrate text (replaced by a codec badge if `fullbitrateConf` is set) |
+| `voltxtConf` | Widget | Volume number |
+| `batteryConf` | Widget | Battery |
+| `iptxtConf` | Widget | IP address |
+| `rssiConf` | Widget | WiFi signal |
+| `numConf` | Widget | The large volume/station number |
+| `clockConf` | Widget | The clock |
+| `vuConf` | Widget | Where the VU meter sits |
+| `fullbitrateConf` | Bitrate | Codec name badge |
+| `bandsConf` | VUBands | The VU bar's shape |
+| `clockMove` | Move | Clock travel while the screensaver runs |
+| `weatherMove` | Move | Weather travel, when no VU is shown |
+| `weatherMoveVU` | Move | Weather travel, while the VU is shown |
+| `boomboxVU` | bool | Draw the VU as a "boombox" meter, lit from the middle out |
+| `rotateVU` | bool | Turn the VU 90 degrees (a vertical bar becomes horizontal) |
+| `shareWeatherIP` | bool | The IP and the weather share one row |
+| `shareBattRSSI` | bool | The RSSI and battery share one row |
+| `rssiDigit` | bool | Show the signal as a number instead of bars |
 
-Booleans default to `false` when omitted, which is why most confs do not mention them.
+The three shared-row/format switches are off when you leave them out, and they are **per
+layout**, so one conf can have a cramped layout that shares a row and a roomy one that does not.
 
 ---
 
-## 8. The empty-config convention and the guard rule
+## 4. What the numbers mean
 
-`{ }` means "unused", e.g. `.fullbitrateConf = { }, // unused`. It is identical to omitting
-the line: both leave every field zero, because these structs have no default member
-initialisers. Commenting a line out is safe **as long as the remaining designated
-initialisers stay in declaration order** — C++ requires that.
+- **`left` / `top`** are pixels from the top-left corner of the screen.
+- **`fontsize` is a multiplier of a 6x8 character cell**, not a point size. So `1` gives a 6x8
+  cell, `2` gives 12x16. That is why the confs are full of odd-looking positions.
+- **`MAX_WIDTH`** is the usable width inside the border margin, and **`TFT_FRAMEWDT`** is that
+  margin — left/right inset in pixels, despite the name. On the 128x64 OLED the margin is 1 px,
+  which keeps text off the very first and last pixel column.
+- **`width`** in a scroll config is the width of the scrolling window.
+- **Scroll speed** is `scrolldelta * 1000 / scrolltime` pixels per second. The shipped confs for
+  the 128x64 OLED scroll the title at 50 px/s and the playlist at 150 px/s.
 
-Each optional widget is created only when its own "is configured" field is set. Test the
-meaningful field, never a coordinate (`{0,0}` is a legal position):
+### `FONTSHIFT` and the clock font
 
-| Config type | Guard |
+`FONTSHIFT` nudges things down to make room for the tall clock font. It is `15` with the default
+`CHUNKY6` clock font and `0` when `CLOCKFONT` is `YO_MONO`, and the shipped confs apply it to
+`numConf.top`, `clockConf.top` and `vuConf.top` only.
+
+With the default font the clock and the VU sit at `y = 38 + 15 = 53` on a 64 px panel — the last
+11 rows. That is worth knowing before you place anything else down there. Whether a given
+`FONTSHIFT` looks right is empirical: only a flash proves it.
+
+---
+
+## 5. Turning a widget off
+
+`{ }` means "not used", and it is exactly the same as leaving the line out. Both leave every
+field at zero, so the widget is not created.
+
+```c
+.title2Conf    = { }, // unused
+```
+
+What that looks like per type:
+
+| Type | Off when… |
 |---|---|
-| `WidgetConfig` | `textsize > 0` |
-| `ScrollConfig` | `buffsize > 0` |
-| `FillConfig` | `height > 0` |
-| `BitrateConfig` | `dimension > 0` |
+| `WidgetConfig` | `fontsize` is 0 — **except the clock and the digits**, see below |
+| `ScrollConfig` | `buffsize` is 0 (and `fontsize` is 0) |
+| `FillConfig` | `height` is 0 |
+| `BitrateConfig` | `dimension` is 0 |
 
-An empty `vuConf` therefore means "no VU", and an empty `bandsConf` means nothing only
-because the VU is not created in the first place.
+Never use a position to decide this: `{ 0, 0 }` is a perfectly valid place to put something.
+
+### The clock and the digits are the exception
+
+`clockConf` and `numConf` ignore `fontsize` completely — they draw with a special clock font, so
+a valid clock can have `fontsize = 0`. They count as "present" when **any** of their four fields
+is non-zero. Two consequences:
+
+- `{ }` still means "no clock", as you would expect.
+- To put a clock at the very top-left corner you must set a fourth field, for example
+  `.clockConf = { 0, 0, 0, WA_LEFT }` — otherwise it is indistinguishable from "absent".
+
+### What you cannot leave out
+
+`metaConf` and `playlistConf` are load-bearing: dialogs write into the station line, and the
+playlist page is built on the playlist line. Everything else may be omitted.
 
 ---
 
-## 9. Annotated walkthrough: `displayOLED128x64conf.h`
+## 6. The VU meter
 
-Screen: 128x64, margin `TFT_FRAMEWDT` = 1, so `MAX_WIDTH` = 126.
+Three things decide the VU: `vuConf` (where), `bandsConf` (what it looks like) and the two
+switches `rotateVU` and `boomboxVU`.
 
-| `y` | Occupant | Source |
+```c
+.vuConf    = { TFT_FRAMEWDT, 38+FONTSHIFT, 1, WA_LEFT },
+.bandsConf = { 7, 44, 1, 1, 10 },
+.rotateVU  = true,
+```
+
+`bandsConf` is `{ width, height, space, vspace, perheight }`:
+
+| Number | Meaning |
+|---|---|
+| `width` | thickness of **one** channel. Both channels sit side by side, so the real thickness is `width*2 + space`. |
+| `height` | length of the bar |
+| `space` | gap between the left and right bars |
+| `vspace` | gap between the lit segments that make up a bar |
+| `perheight` | how many segments you would like the bar to have |
+
+**Work out the footprint before choosing numbers**, because this is the usual way to push a VU
+off the screen. With `rotateVU = true` (or any non-zero `align`) the bar runs horizontally:
+`height` is its length along x and `width*2 + space` is its height. With `rotateVU = false` and
+`align = WA_LEFT` it runs vertically, the other way round.
+
+For the example above the footprint is 15 px tall and 44 px long, placed at `x = 1`,
+`y = 38 + FONTSHIFT`.
+
+### Segments: `perheight` is a maximum, not a promise
+
+The segment pitch is `height / perheight`, rounded **down**. So `perheight` is the number of
+segments you are asking for, and you usually get slightly fewer: with `height = 44` and
+`perheight = 10` the pitch is 4 px, giving 11 segments. The leftover pixels at the loud end are
+simply not covered — every segment is the same size and the remainder is wasted.
+
+That is harmless, and there is nothing to work around. If the bar looks more "blocky" than you
+wanted, lower `perheight`.
+
+The **speed of the fall is not configurable per layout** — it is worked out from the bar's own
+length, so a long bar and a short bar both fall from full to empty in the same time
+(`VU_FADE_MS` in `options.h`, one second by default).
+
+### The peak marker
+
+A thin marker that holds the highest recent reading of each channel and then creeps back down.
+It is on by default, its colour comes from the theme's `.vupeak`, and it needs **no extra room**
+— it is drawn inside the bar's own footprint, at the expense of a pixel or two at the loud end.
+A very short bar can therefore look cramped, but it will not overflow.
+
+It also carries over to every orientation for free: turning the bar or switching to the boombox
+style moves the marker with it.
+
+---
+
+## 7. Movement, dialogs and `MoveConfig`
+
+`MoveConfig` is `{ x, y, width }` and it means different things depending on `width`:
+
+| `width` | What happens |
+|---|---|
+| `-1` | **Do not move.** The widget stays where the conf put it. This is what most confs use: `{ 0, 0, -1 }`. |
+| `0` or more | The widget travels inside the rectangle while the screensaver is active; `x`/`y` are where it goes and `width` is the width it uses. |
+| the whole entry is `{ }` | **"Yield to the VU."** The widget disappears while the VU meter is on screen and comes back when playback stops — see below. |
+
+`weatherMove` is used when no VU is shown and `weatherMoveVU` when one is, so a weather line can
+behave differently in the two cases.
+
+### Yielding to the VU
+
+If you want the meter to have the row to itself while it is showing, but still want the clock (or
+the weather) when the meter is off, write the move as an empty `{ }`:
+
+```c
+.clockMove = { }, // clock disappears while the VU meter is showing
+```
+
+That is a real behaviour, not "unused". It is why an empty `MoveConfig` is worth reading twice.
+
+---
+
+## 8. Quirks worth knowing
+
+- **`fontsize` is a 6x8 cell multiplier**, not points.
+- **`TFT_FRAMEWDT` is a margin**, not a width, despite the name.
+- **`uppercase` does nothing.** Use `PRETEXT_ALLCAPS` in `myoptions.h` instead.
+- **On the VU, `align` is an orientation switch**, not text alignment: `WA_LEFT` means vertical,
+  anything else means horizontal. If `rotateVU` is set, `align` is ignored for the VU.
+- **`clockConf` and `numConf` ignore `fontsize`** and count as present if *any* field is set
+  (§5). That is the one place where `{ }` and `{ 0, 0, 0, WA_LEFT }` mean different things.
+- **`playlBGConf.height` is only a fallback** — the live playlist row height overrides it
+  (11 px per fontsize step).
+- **The clock and the VU usually share a band.** Check them against each other before moving
+  one of them.
+- **Two widgets on one row must be told about it.** If you put the IP and the weather on the same
+  `top` line, set `shareWeatherIP`; same idea for `shareBattRSSI` with RSSI and battery. Without
+  it they will simply draw over each other.
+- **A layout switch does not blank the screen.** Widgets the new layout drops are hidden
+  properly, but anything you draw *outside* a widget's own footprint is your responsibility —
+  the confs rely on this and it is worth keeping in mind when you place two things very close.
+
+---
+
+## 9. Annotated example: `displayOLED128x64conf.h`
+
+A 128x64 OLED, margin 1, so `MAX_WIDTH` is 126. Top to bottom:
+
+| `y` | What is there | Set by |
 |---|---|---|
 | 0-17 | title band | `metaBGConfInv` (`height` 17) |
-| 1- | title text | `metaConf` top 1, fontsize 2 (12x16 cell) |
-| 19 | title1 + bitrate | `title1Conf`, `bitrateConf` |
-| 26-38 | playlist highlight | `playlBGConf` (overridden to the live row height) |
-| 28 | title2 | `title2Conf` |
-| 28+FONTSHIFT | number | `numConf` |
-| 30-38 | playlist text | `playlistConf`, 11 px rows |
-| 38+FONTSHIFT | clock (right) and VU (left) | `clockConf`, `vuConf` |
+| 1 | station name | `metaConf`, fontsize 2 |
+| 19 | title 1 and the bitrate | `title1Conf`, `bitrateConf` |
+| 26-38 | playlist highlight | `playlBGConf` |
+| 28 | title 2 and the big number | `title2Conf`, `numConf` |
+| 30-38 | playlist text, 11 px rows | `playlistConf` |
+| 38+FONTSHIFT | the clock, and the VU beside it | `clockConf`, `vuConf` |
 | 55 | battery / IP / RSSI / weather | shared bottom row |
-| 63 | volume bar | `volbarConf`, full width, 1 px |
+| 63 | volume bar, full width, 1 px | `volbarConf` |
 
-The VU as configured:
-
-```c
-.vuConf     = { TFT_FRAMEWDT, 38+FONTSHIFT, 1, WA_LEFT },
-.bandsConf  = { 7, 44, 1, 1, 11, 3 },
-.rotateVU   = true,
-```
-
-`rotateVU = true` makes it horizontal, so the footprint is `width*2+space = 15` px tall and
-`height = 44` px long, placed at `x = 1`, `y = 38 + FONTSHIFT`. With the default
-`CLOCKFONT` that is `y = 53`, ending at 68 — i.e. it overlaps the bottom row. With
-`FONTSHIFT = 0` it would be `38..53` and clear. Verify against the hardware for whichever
-`CLOCKFONT` is in use, and remember the VU shares its row with the right-aligned clock.
+The file ships a few variants to experiment with — a plain one, one without a VU at all
+(`vuConf` and `bandsConf` empty), and one with a large VU where `clockMove = { }` so the clock
+gives up the row while the meter is playing. Read the names in `_layoutNames[]` rather than
+expecting a fixed number: the set changes as layouts are tried out.
 
 ---
 
-## 10. Checklist and gotchas
+## 10. Checklist before you flash
 
-- **Changing a conf needs a rebuild and flash.** Nothing here is runtime-configurable.
-- **A conf is shared across models of the same resolution.** Editing the 128x64 OLED file
-  affects SH1106/SH1107/SSD1305/SSD1306/SSD1327.
-- **Compute the VU footprint** (`width*2 + space` in the non-length axis) before picking
-  numbers, and check it against `DSP_HEIGHT` and the row it shares.
-- **The peak bar adds no footprint** — it is clamped inside `len`, so its only per-conf
-  decision is its colour (`.vupeak`). Speed is derived from `len`.
-- **`fontsize` is a 6x8 cell multiplier**, not points.
-- **`TFT_FRAMEWDT` is a margin**, despite the name.
-- **`uppercase` does nothing** — use `PRETEXT_ALLCAPS`.
-- **The VU fade is derived, not configured** — `VU_FADE_MS` in `options.h` sets the fall time
-  and the rate follows the bar length, so layouts no longer carry a fade value at all.
-- **Designated initialisers must stay in declaration order.** Commenting a line out is
-  fine; reordering is not.
-- **`{ }` and an omitted line are equivalent.**
-- **`_layoutNames` and `_layouts` must stay in step** — the index is the layout id.
-- `playlBGConf.height` is overridden at runtime by the live playlist row height, so the
-  value in the conf is only a fallback.
+- `_layoutNames[]` and `_layouts[]` have the same number of entries, in the same order.
+- Fields are written in declaration order (§3).
+- Every widget you want is actually switched on — check `fontsize` / `buffsize` / `height`.
+- Everything you placed fits inside `MAX_WIDTH` and `DSP_HEIGHT`. For the VU, that means
+  `width*2 + space` in the thin direction.
+- Widgets sharing a line have `shareWeatherIP` / `shareBattRSSI` set.
+- `FONTSHIFT` is accounted for on `clockConf`, `numConf` and `vuConf`.
+- Build and flash, then look at the real screen — positions near the edges and the exact
+  `FONTSHIFT` are the two things that only the hardware can settle.

@@ -7,9 +7,6 @@
 
 #define TFT_FRAMEWDT    8
 #define MAX_WIDTH       DSP_WIDTH-TFT_FRAMEWDT*2
-#ifndef RSSI_DIGIT
-  #define RSSI_DIGIT      true
-#endif
 #define BOOTLOGOTOP     68
 
 const BootData _bootConfig PROGMEM = {
@@ -64,7 +61,8 @@ const LayoutData _layouts[] PROGMEM = {
         .clockMove           = { 0, 164, 0 },
         .weatherMove         = { TFT_FRAMEWDT, 202, -1 },
         .weatherMoveVU       = { TFT_FRAMEWDT, 202, -1/*MAX_WIDTH*/ },
-        .boomboxStyle        = true,
+        .boomboxVU           = true,
+        .rssiDigit           = true, // signal drawn as a number instead of bars
     },
 };
 

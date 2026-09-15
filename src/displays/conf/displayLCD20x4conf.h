@@ -8,7 +8,11 @@
 #define TFT_FRAMEWDT    0
 #define MAX_WIDTH       20
 #define PLMITEMS        4
-#define META_MOVE
+/* Dialog placement for the meta line.  Display::_showDialog() calls _meta->moveTo(LCD_META_MOVE),
+   which re-lays the line at the origin with the full width so a centred dialog title has room;
+   moveBack() restores it.  The braces make this a single macro argument - never use it after a
+   comma in a call. */
+#define LCD_META_MOVE   { 0, 0, MAX_WIDTH }
 #define BOOTLOGOTOP     0
 
 const BootData _bootConfig PROGMEM = {

@@ -91,6 +91,9 @@ class Display {
     void _applyState();
     void _showDialog(const char *title);
     void _setReturnTicker(uint8_t time_s);
+    /* Widget visibility = runtime state AND active layout, decided in one place. */
+    bool _clockHidden();
+    bool _weatherHidden();
     void _swichMode(displayMode_e newmode);
     void _updateBattery();
     void _updateVolume();

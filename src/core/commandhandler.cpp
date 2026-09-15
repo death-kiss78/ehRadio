@@ -138,7 +138,7 @@ bool CommandHandler::exec(const char *command, const char *value, uint8_t cid, C
   if (cmdIs(command, "flipscreen"))    { config.saveValueButWait(&config.store.flipscreen, static_cast<bool>(atoi(value)), 5000); display.flip(); display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER); return true; }
   if (cmdIs(command, "invertdisplay")) { config.saveValueButWait(&config.store.invertdisplay, static_cast<bool>(atoi(value)), 5000); return true; } //display.invert();
   if (cmdIs(command, "inverttitle"))   { config.saveValueButWait(&config.store.inverttitle, static_cast<bool>(atoi(value)), 5000); display.applyTheme(config.store.themeId); return true; }
-  if (cmdIs(command, "layout"))        { uint8_t id = constrain(atoi(value), 0, display.getLayoutCount() - 1); config.saveValueButWait(&config.store.layoutId, id, 5000); display.applyLayout(id); return true; }
+  if (cmdIs(command, "layout"))        { uint8_t id = constrain(atoi(value), 0, display.getLayoutCount() - 1); config.saveValueButWait(&config.store.layoutId, id, 5000); display.applyLayout(id); netserver.requestOnChange(GETACTIVE, 0); return true; }
   if (cmdIs(command, "theme"))         { uint8_t id = constrain(atoi(value), 0, display.getThemeCount() - 1); config.saveValueButWait(&config.store.themeId, id, 5000); display.applyTheme(id); return true; }
   if (cmdIs(command, "numplaylist"))   { config.saveValueButWait(&config.store.numplaylist, static_cast<bool>(atoi(value)), 5000); display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER); return true; }
   if (cmdIs(command, "clock12"))       { config.saveValueButWait(&config.store.clock12, static_cast<bool>(atoi(value)), 5000); display.putRequest(CLOCK); return true; }

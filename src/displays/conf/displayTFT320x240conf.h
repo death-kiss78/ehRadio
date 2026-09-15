@@ -94,8 +94,8 @@ const LayoutData _layouts[] PROGMEM = {
         .clockMove           = { 0, 0, -1 },
         .weatherMove         = { 10, 95, MAX_WIDTH },
         .weatherMoveVU       = { TFT_FRAMEWDT, 95, MAX_WIDTH },
-        /* BOOMBOX STYLE: middle-out VU */
-        .boomboxStyle        = true,
+        /* BOOMBOX VU: middle-out */
+        .boomboxVU           = true,
     },
 };
 

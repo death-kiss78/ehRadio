@@ -108,8 +108,8 @@ const LayoutData _layouts[] PROGMEM = {
         .clockMove           = { 0, 176, -1 },
         .weatherMove         = { 10, DSP_HEIGHT-50, MAX_WIDTH },
         .weatherMoveVU       = { TFT_FRAMEWDT, DSP_HEIGHT-50, MAX_WIDTH },
-        /* BOOMBOX STYLE: middle-out VU */
-        .boomboxStyle        = true,
+        /* BOOMBOX VU: middle-out */
+        .boomboxVU           = true,
     },
     {   // krzxsiek kopia
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
@@ -144,8 +144,8 @@ const LayoutData _layouts[] PROGMEM = {
         .clockMove           = { 0, 176, -1 },
         .weatherMove         = { 0, 0, -1 },
         .weatherMoveVU       = { 0, 0, -1 },
-        /* BOOMBOX STYLE: middle-out VU */
-        .boomboxStyle        = true,
+        /* BOOMBOX VU: middle-out */
+        .boomboxVU           = true,
     },
 };
 // ******************** CHECK ALL const char LINES CAREFULLY! ********************

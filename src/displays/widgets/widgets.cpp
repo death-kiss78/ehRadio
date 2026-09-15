@@ -70,6 +70,10 @@ void TextWidget::init(WidgetConfig wconf, uint16_t buffsize, bool uppercase, uin
 }
 
 void TextWidget::setText(const char* txt) {
+  /* A widget whose init() has not run has null buffers and a zero _buffsize.  Bail rather than reach
+     strcmp(_oldtext, _text) with nulls: a predicate mistake upstairs should degrade to "nothing drawn",
+     not to a LoadProhibited boot loop. */
+  if (!_text || !_oldtext || !txt) return;
   strlcpy(_text, txt, _buffsize);
   /* Compute width by character count (utf8_strlen) * _charWidth.
      Pixel spacers (0x1E) are 2px wide instead of _charWidth, so adjust. */
@@ -198,6 +202,9 @@ bool ScrollWidget::_checkIsScrollNeeded() {
 }
 
 void ScrollWidget::setText(const char* txt) {
+  /* A ScrollWidget whose init() has not run (the layout omits it) has null buffers, a zero _buffsize and
+     a null _fb.  Without this, strlcpy would be handed _buffsize - 1 == 65535 and write into null. */
+  if (!_text || !_oldtext || !txt) return;
   strlcpy(_text, txt, _buffsize - 1);
   if (strcmp(_oldtext, _text) == 0) return;
   _textwidth = utf8_strlen(_text) * _charWidth;
@@ -278,7 +285,7 @@ void ScrollWidget::loop() {
 }
 
 void ScrollWidget::_clear(){
-  if(_fb->ready()){
+  if(_fb && _fb->ready()){
     #ifdef PSFBUFFER
       _fb->fillRect(0, 0, _width, _textheight, _bgcolor);
       // display() happens in _draw() after text is rendered — not here
@@ -375,8 +382,13 @@ bool ScrollWidget::_checkDelay(int m, uint32_t &tstamp) {
 }
 
 void ScrollWidget::_reset(){
+  /* Widget::lock() calls this, and hideByLayout() locks a widget the layout omits - which is a widget
+     whose init() never ran, so _fb is null.  Bail before touching it: nothing is on screen, and the
+     framebuffer below was never created.  A widget the layout DOES provide has always been through
+     init(), so _fb exists on every path that reaches the rest of this function. */
+  if(!_present) return;
   dsp.setScrollId(NULL);
-  _x = _fb->ready()?0:_config.left;
+  _x = _fb && _fb->ready()?0:_config.left;
   _scrolldelay = millis();
   _doscroll = _checkIsScrollNeeded();
   #ifdef PSFBUFFER
@@ -497,11 +509,16 @@ void VuWidget::_draw(){
   else h = 1;
 
   for (int i = 0; i < len; i += step) {
+    /* Clamp the last segment to len.  The loop bound only guarantees a segment STARTS before len,
+       and anything drawn past the box can never be erased - the fills and _clear() all stop at len.
+       Clamp, not skip, so the bar tip still reaches len - 1.  Only the last pass can overshoot. */
+    uint16_t hh = h;
+    if ((uint16_t)(i + hh) > len) hh = len - i;
     uint16_t colorL, colorR;
     if (_rotate) {
       colorL = colorR = (i > len - step * 3) ? _vumaxcolor : _vumincolor;
     } else if (_config.align) {
-      if (!*boomboxStyle_ptr) {
+      if (!*boomboxVU_ptr) {
         colorL = colorR = (i > len - step * 4) ? _vumaxcolor : _vumincolor;
       } else {
         colorL = (i > step) ? _vumincolor : _vumaxcolor;
@@ -510,15 +527,15 @@ void VuWidget::_draw(){
     } else {
       colorL = colorR = (i < step * 3) ? _vumaxcolor : _vumincolor;
     }
-    _drawBand(i, 0, h, colorL);
-    _drawBand(i, 1, h, colorR);
+    _drawBand(i, 0, hh, colorL);
+    _drawBand(i, 1, hh, colorR);
   }
 
   if (_rotate) {
     fillLocal(len - measL, 0, measL, thk, _bgcolor);
     fillLocal(len - measR, thk + _bands.space, measR, thk, _bgcolor);
   } else if (_config.align) {
-    if (!*boomboxStyle_ptr) {
+    if (!*boomboxVU_ptr) {
       fillLocal(len - measL, 0, measL, thk, _bgcolor);
       fillLocal(cw - measR, 0, measR, thk, _bgcolor);
     } else {
@@ -543,7 +560,7 @@ void VuWidget::_draw(){
       fillLocal(len - pkL, 0, peakThk, thk, _vupeakcolor);
       fillLocal(len - pkR, thk + _bands.space, peakThk, thk, _vupeakcolor);
     } else if (_config.align) {
-      if (!*boomboxStyle_ptr) {
+      if (!*boomboxVU_ptr) {
         fillLocal(len - pkL, 0, peakThk, thk, _vupeakcolor);
         fillLocal(cw - pkR, 0, peakThk, thk, _vupeakcolor);
       } else {
@@ -761,6 +778,7 @@ void NumWidget::init(WidgetConfig wconf, uint16_t buffsize, bool uppercase, uint
 }
 
 void NumWidget::setText(const char* txt) {
+  if (!_text || !_oldtext || !txt) return;   // init() has not run - see TextWidget::setText()
   strlcpy(_text, txt, _buffsize);
   _getBounds();
   if (strcmp(_oldtext, _text) == 0) return;
@@ -878,10 +896,10 @@ bool ClockWidget::_getTime(){
 }
 
 uint16_t ClockWidget::_left(){
-  if(_fb->ready()) return 0; else return _clockleft;
+  if(_fb && _fb->ready()) return 0; else return _clockleft;
 }
 uint16_t ClockWidget::_top(){
-  if(_fb->ready()) return _timeheight; else return _config.top;
+  if(_fb && _fb->ready()) return _timeheight; else return _config.top;
 }
 
 void ClockWidget::_getTimeBounds() {
@@ -1026,13 +1044,16 @@ void ClockWidget::_getTimeBounds() {
     gfx.setCursor(_left()+_dotsleft, _top());
     gfx.print(":");
     gfx.setFont();
-    if(_fb->ready()) _fb->display();
+    if(_fb && _fb->ready()) _fb->display();
   }
 
   void ClockWidget::_clearClock(){
+    /* Nothing to clear when the layout omits the clock: the geometry used below is only valid after
+       init(), so clearing would fill a rectangle at indeterminate coordinates. */
+    if(!_present) return;
     uint16_t bgColor = config.isScreensaver ? 0 : config.theme.background;
   #ifdef PSFBUFFER
-    if(_fb->ready()) { _fb->clear(); return; }
+    if(_fb && _fb->ready()) { _fb->clear(); return; }
   #endif
   #ifndef CLOCKFONT5x7
     dsp.fillRect(_left(), _top()-_timeheight, _clockwidth+2, _clockheight+1, bgColor);
@@ -1052,10 +1073,15 @@ void ClockWidget::_getTimeBounds() {
   }
 
   void ClockWidget::_reset(){
+    if(!_present) return;   // omit-by-layout: _fb was never created, so there is nothing to reset
+    /* _getTimeBounds() derives _clockleft/_clockwidth from _config.left and align, and _left() returns
+       _clockleft on non-framebuffer builds - so this has to run on every display, not just PSFBUFFER
+       ones, or a moveTo()'s horizontal component is silently ignored (the vertical one works, because
+       _top() reads _config.top directly). */
+    _getTimeBounds();
   #ifdef PSFBUFFER
-    if(_fb->ready()) {
+    if(_fb && _fb->ready()) {
       _fb->freeBuffer();
-      _getTimeBounds();
       _begin();
     }
   #endif

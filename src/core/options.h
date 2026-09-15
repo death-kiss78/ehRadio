@@ -208,9 +208,8 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef DSP_INVERT_QUIRK
   #define DSP_INVERT_QUIRK false // if a display shows inverted colors by default, override it by setting this to true
 #endif
-#ifndef RSSI_DIGIT
-  #define RSSI_DIGIT false // display RSSI as number
-#endif
+/* RSSI_DIGIT used to be a per-model macro here ("display RSSI as number").  It is a per-layout
+   boolean now (LayoutData.rssiDigit), so a stale #define is no longer read. */
 #ifndef RSSI_STEPS
   #define RSSI_STEPS -50,-60,-70,-80
 #endif

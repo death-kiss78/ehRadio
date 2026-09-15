@@ -96,7 +96,6 @@ const LayoutData _layouts[] PROGMEM = {
         .clockMove           = { 0, 0, -1 },
         .weatherMove         = { TFT_FRAMEWDT, 120, MAX_WIDTH },
         .weatherMoveVU       = { TFT_FRAMEWDT, 120, MAX_WIDTH },
-        /* ROTATED VU: transpose the default bottom-to-top VU into a left-to-right bar */
         .rotateVU            = true,
     },
     {   // BoomBox (VaraiTamas)
@@ -132,8 +131,7 @@ const LayoutData _layouts[] PROGMEM = {
         .clockMove           = { 0, 0, -1 },
         .weatherMove         = { TFT_FRAMEWDT, 120, MAX_WIDTH },
         .weatherMoveVU       = { TFT_FRAMEWDT, 120, MAX_WIDTH },
-        /* BOOMBOX STYLE: middle-out VU */
-        .boomboxStyle        = true,
+        .boomboxVU           = true,
     },
 };
 

@@ -94,8 +94,11 @@ struct LayoutData {
     MoveConfig   clockMove;
     MoveConfig   weatherMove;
     MoveConfig   weatherMoveVU;
-    bool         boomboxStyle;
-    bool         rotateVU;
+    bool         boomboxVU;      // VU drawn as a "boombox" horizontal meter (was boomboxStyle)
+    bool         rotateVU;       // VU rotated 90 degrees
+    bool         shareWeatherIP; // IP and weather share one row (was the IP_WEATHER_SHARED macro)
+    bool         shareBattRSSI;  // RSSI and battery share one row (was the RSSI_BATT_SHARED macro)
+    bool         rssiDigit;      // signal drawn as a number, not bars (was the RSSI_DIGIT macro)
 };
 
 // Layout switching — extern pointer declarations, defined in display.cpp
@@ -122,8 +125,11 @@ extern const VUBandsConfig*   bandsConf_ptr;
 extern const MoveConfig*    clockMove_ptr;
 extern const MoveConfig*    weatherMove_ptr;
 extern const MoveConfig*    weatherMoveVU_ptr;
-extern const bool*          boomboxStyle_ptr;
+extern const bool*          boomboxVU_ptr;
 extern const bool*          rotateVU_ptr;
+extern const bool*          shareWeatherIP_ptr;
+extern const bool*          shareBattRSSI_ptr;
+extern const bool*          rssiDigit_ptr;
 
 extern LayoutData activeLayout;
 extern uint8_t layoutCount;

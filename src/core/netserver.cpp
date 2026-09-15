@@ -534,9 +534,11 @@ void NetServer::processQueue() {
                                                                 act += F("\"group_oled\",");
                                                               #endif
                                                               #if (I2S_BCLK!=255 || (VS1053_CS != 255 && VS_PATCH_ENABLE == true) || DBGWUI)
-            if (vuConf_ptr->textsize > 0 || DBGWUI) act += F("\"group_vu\",");
+            if (vuConf_ptr->textsize > 0 || DBGWUI)             act += F("\"group_vu\",");
+                                                           else act += F("\"hide_group_vu\",");
                                                               #endif
             if (bufferbarConf_ptr->height > 0 || DBGWUI)        act += F("\"group_buffer\",");
+                                                           else act += F("\"hide_group_buffer\",");
             if (BRIGHTNESS_PIN != 255 || DBGWUI)                act += F("\"group_brightness\",");
             if (DSP_DIMMING_ENABLED || DBGWUI)                  act += F("\"group_dimming\",");
             if (DSP_CAN_FLIPPED || DBGWUI)                      act += F("\"group_tft\",");
@@ -552,6 +554,7 @@ void NetServer::processQueue() {
             if (DSP_MODEL == DSP_NOKIA5110 || DBGWUI)           act += F("\"group_nokia\",");
                                                                 act += F("\"group_locale\",");
             if (weatherConf_ptr->buffsize > 0 || DBGWUI)        act += F("\"group_weather\",");
+                                                           else act += F("\"hide_group_weather\",");
                                                                 act += F("\"group_controls\",");
             if (BTN_UP != 255 || BTN_DOWN != 255 || DBGWUI)     act += F("\"group_volbuttons\",");
             if ((DSP_MODEL != DSP_DUMMY && (BTN_NEXT != 255 || BTN_PREV != 255)) || DBGWUI)
