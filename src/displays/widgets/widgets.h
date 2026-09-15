@@ -30,16 +30,11 @@ class Widget{
     void setAlign(WidgetAlign align){
       _config.align = align;
     }
-    /* _present is the layout's answer to "does the active layout provide this widget"; it is set only
-       by hideByLayout()/showByLayout() in display.cpp.
-       It is deliberately authoritative over _active, because Pager::setPage() -> Page::setActive()
-       re-activates EVERY widget on a page (recursing into child pages, so the footer too) on each
-       mode change.  A hide that relied on _active alone would therefore be undone the first time the
-       user left the player page and came back.  _present is not touched by setActive(), so it holds. */
+    /* _present = the active layout provides this widget, set only by hideByLayout()/showByLayout().
+       It outranks _active, which Pager::setPage() re-activates on every mode change. */
     void setActive(bool act, bool clr=false) { if(act && !_present) return; _active = act; if(_active && !_locked) _draw(); if(clr && !_locked) _clear(); }
-    /* Locking is always allowed; UNLOCKING a widget the layout has dropped is not.  Together with the
-       guards in setActive() and unlock() this closes the invariant: once the layout marks a widget
-       absent, no public method can make it draw again except showByLayout(). */
+    /* Locking is always allowed; unlocking a widget the layout dropped is not.  Once absent, nothing
+       but showByLayout() can make it draw again. */
     void lock(bool lck=true) { if(!lck && !_present) return; _locked = lck; if(_locked) _reset(); if(_locked && _active) _clear();  }
     void unlock() { if(_present) _locked = false; }
     bool locked() { return _locked; }

@@ -72,8 +72,8 @@ const LayoutData _layouts[] PROGMEM = {
         .weatherMove         = { 0, 0, -1 },
         .weatherMoveVU       = { 0, 0, -1 },
         .rotateVU            = true,
-        .shareWeatherIP      = true, // IP and weather share the bottom row (both at top 55)
-        .shareBattRSSI       = true, // RSSI and battery share the same row (both at top 55)
+        .shareWeatherIP      = true,
+        .shareBattRSSI       = true,
     },
     {   // Default (no VU)
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
@@ -110,8 +110,8 @@ const LayoutData _layouts[] PROGMEM = {
         /* Rotated so the bands run horizontally: ch = width*2+space = 15px tall and
            cw = height = 44px long, fitting the y=38..54 line beside the clock */
         .rotateVU            = true,
-        .shareWeatherIP      = true, // IP and weather share the bottom row (both at top 55)
-        .shareBattRSSI       = true, // RSSI and battery share the same row (both at top 55)
+        .shareWeatherIP      = true,
+        .shareBattRSSI       = true,
     },
     {   // Big VU
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
@@ -145,8 +145,8 @@ const LayoutData _layouts[] PROGMEM = {
         .weatherMove         = { 0, 0, -1 },
         .weatherMoveVU       = { 0, 0, -1 },
         .rotateVU            = true,
-        .shareWeatherIP      = true, // IP and weather share the bottom row (both at top 55)
-        .shareBattRSSI       = true, // RSSI and battery share the same row (both at top 55)
+        .shareWeatherIP      = true,
+        .shareBattRSSI       = true,
     },
 };
 
