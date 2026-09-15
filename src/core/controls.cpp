@@ -220,11 +220,14 @@ void Controls::irLoop() {
     if (irrecv.decode(&irResults)) {
       if (irResults.value<256) return;
       if (netserver.irRecordEnable) {
-        String irText = resultToHumanReadableBasic(&irResults);
-        FUNCTIONLOG("Controls.IR", "%s", irText.c_str());
-        FUNCTIONLOG("Controls.IR", "--------------------------");
-        config.ircodes.irVals[config.irindex][config.irchck]=irResults.value;
-        netserver.irToWs(typeToString(irResults.decode_type, irResults.repeat).c_str(), irResults.value);
+        uint64_t* irSlot = config.irCodes(static_cast<uint8_t>(config.irindex));
+        if (irSlot != nullptr) {
+          String irText = resultToHumanReadableBasic(&irResults);
+          FUNCTIONLOG("Controls.IR", "%s", irText.c_str());
+          FUNCTIONLOG("Controls.IR", "--------------------------");
+          irSlot[config.irchck] = irResults.value;
+          netserver.irToWs(typeToString(irResults.decode_type, irResults.repeat).c_str(), irResults.value);
+        }
         return;
       }
       if (!irResults.repeat/* && irResults.command!=0*/) {
@@ -240,17 +243,31 @@ void Controls::irLoop() {
             break;
           }
       }
-      for(int target=0; target<17; target++) {
+      uint8_t irCount = config.irButtonCount();
+      for(uint8_t target=0; target<irCount; target++) {
+        const uint64_t* irVals = config.irCodes(target);
+        uint8_t irAct = config.irAction(target);
+        // Power/mute/mode are local actions: allow them even when offline or showing LOST
+        bool localAction = (irAct==IRACT_POWER || irAct==IRACT_MUTE || irAct==IRACT_MODE);
         for(int j=0; j<3; j++) {
-          if (config.ircodes.irVals[target][j]==irResults.value) {
-            if (network.status != CONNECTED && network.status!=SDOFFLINE && target!=IR_AST) return;
-            if (target!=IR_AST && display.mode()==LOST) return;
+          if (irVals[j]==irResults.value) {
+            if (network.status != CONNECTED && network.status!=SDOFFLINE && !localAction) return;
+            if (!localAction && display.mode()==LOST) return;
             if (screenSaverExit()) delay(200); // give it time to exit before doing the action
             // Reset screensaver timers on any IR press so the screensaver can't fire mid-adjustment
             config.screensaverTicks = 0;
             config.screensaverPlayingTicks = 0;
-            switch (target) {
-              case IR_PLAY: {
+            switch (irAct) {
+              case IRACT_POWER: {
+                  irBlink();
+                  utility.togglestandby();
+                  break;
+                }
+              case IRACT_MUTE: {
+                  player.mute();
+                  break;
+                }
+              case IRACT_PLAY: {
                   irBlink();
                   if (display.mode() == NUMBERS) {
                     display.putRequest(NEWMODE, PLAYER);
@@ -258,28 +275,28 @@ void Controls::irLoop() {
                     display.numOfNextStation = 0;
                     break;
                   }
-                  onBtnClick(1);
+                  onBtnClick(EVT_BTN_PLAY);
                   break;
                 }
-              case IR_PREV: {
+              case IRACT_PREV: {
                   player.prev();
                   break;
                 }
-              case IR_NEXT: {
+              case IRACT_NEXT: {
                   player.next();
                   break;
                 }
-              case IR_UP: {
+              case IRACT_UP: {
                   controlsEvent(display.mode() == STATIONS ? false : true);
                   irVolRepeat = 1;
                   break;
                 }
-              case IR_DOWN: {
+              case IRACT_DOWN: {
                   controlsEvent(display.mode() == STATIONS ? true : false);
                   irVolRepeat = 2;
                   break;
                 }
-              case IR_HASH: {
+              case IRACT_HASH: {
                   if (display.mode() == NUMBERS) {
                     display.putRequest(NEWMODE, PLAYER);
                     display.numOfNextStation = 0;
@@ -288,57 +305,21 @@ void Controls::irLoop() {
                   display.putRequest(NEWMODE, display.mode() == PLAYER ? STATIONS : PLAYER);
                   break;
                 }
-              case IR_0: {
-                  irNumber(0);
+              case IRACT_DIGIT: {
+                  // digit buttons are stored under the "n<d>" key (n0..n9)
+                  irNumber((uint8_t)(config.irButtonKey(target)[1] - '0'));
                   break;
                 }
-              case IR_1: {
-                  irNumber(1);
-                  break;
-                }
-              case IR_2: {
-                  irNumber(2);
-                  break;
-                }
-              case IR_3: {
-                  irNumber(3);
-                  break;
-                }
-              case IR_4: {
-                  irNumber(4);
-                  break;
-                }
-              case IR_5: {
-                  irNumber(5);
-                  break;
-                }
-              case IR_6: {
-                  irNumber(6);
-                  break;
-                }
-              case IR_7: {
-                  irNumber(7);
-                  break;
-                }
-              case IR_8: {
-                  irNumber(8);
-                  break;
-                }
-              case IR_9: {
-                  irNumber(9);
-                  break;
-                }
-              case IR_AST: {
-                  //ESP.restart();
+              case IRACT_MODE: {
                   onBtnClick(EVT_BTN_MODE);
                   break;
                 }
-            } /* switch (target) */
-            target=17;
+            } /* switch (irAct) */
+            target=irCount;
             break;
-          } /* if (config.ircodes.irVals[target][j]==irResults.value) */
+          } /* if (irVals[j]==irResults.value) */
         }   /* for(int j=0; j<3; j++) */
-      }     /* for(int target=0; target<16; target++) */
+      }     /* for(uint8_t target=0; target<irCount; target++) */
     }       /* if (irrecv.decode(&irResults)) */
   #endif // if IR_PIN!=255
 }
@@ -596,15 +577,10 @@ void Controls::onBtnDoubleClick(int id) {
       }
     case EVT_BTN_MODE:
     case EVT_ENC2_SW: {
+        // Mute via a physical button does nothing without a display (no visible state feedback).
+        // The mute command and the IR mute button are deliberately NOT gated this way.
         if (DSP_MODEL == DSP_DUMMY) break;
-        static uint8_t savedVolume = 30;  // preserve the last active volume level before muting
-        // Dynamic state check based on real-time core volume instead of a blind boolean flag
-        if (player.getVolume() == 0) {
-          player.setVolume(savedVolume);  // Restore audio if currently at absolute zero
-        } else {
-          savedVolume = player.getVolume();  // Capture current volume level before muting
-          player.setVolume(0);  // Trigger software/hardware mute via standard core volume method
-        }
+        player.mute();
         break;
       }
     case EVT_BTN_UP: {

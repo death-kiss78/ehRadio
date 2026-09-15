@@ -120,6 +120,9 @@ public:
   uint16_t fillPlaylistRange(int from, uint8_t count, char names[][STATION_FIELD_LENGTH / 2]);
   void doSleepW();
   void sleepForAfter(uint16_t sleepfor, uint16_t sa = 0);
+  void standbyon();
+  void standbyoff();
+  void togglestandby();
   void cleanupSpiffs();
   void deleteMainwwwFile();
   void updateFile(void* param, const char* localFile, const char* onlineFile, const char* updatePeriod, const char* simpleName);

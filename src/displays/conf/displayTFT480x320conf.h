@@ -31,7 +31,7 @@ const BootData _bootConfig PROGMEM = {
 const char _layoutNames[][64] PROGMEM = {
     "Default",
     "Default (VU Rotated)",
-    "VaraiTamas (BoomBox)",
+    "BoomBox (VaraiTamas)",
 };
 
 /* LAYOUT DEFINITIONS */
@@ -99,7 +99,7 @@ const LayoutData _layouts[] PROGMEM = {
         /* ROTATED VU: transpose the default bottom-to-top VU into a left-to-right bar */
         .rotateVU            = true,
     },
-    {   // VaraiTamas (BoomBox)
+    {   // BoomBox (VaraiTamas)
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
         .metaConf            = {{ TFT_FRAMEWDT, TFT_FRAMEWDT, 4, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY, 3, SCROLLTIME },
         .title1Conf          = {{ TFT_FRAMEWDT, 62, 2, WA_LEFT }, 140, true, MAX_WIDTH-(44==0?6*2*7-6:44), SCROLLDELAY, 2, SCROLLTIME },
@@ -130,8 +130,8 @@ const LayoutData _layouts[] PROGMEM = {
         .bandsConf           = { 200, 7, 4, 2, 20 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 0, 0, -1 },
-        .weatherMove         = { 10, 116, MAX_WIDTH },
-        .weatherMoveVU       = { 10, 116, MAX_WIDTH },
+        .weatherMove         = { TFT_FRAMEWDT, 120, MAX_WIDTH },
+        .weatherMoveVU       = { TFT_FRAMEWDT, 120, MAX_WIDTH },
         /* BOOMBOX STYLE: middle-out VU */
         .boomboxStyle        = true,
     },

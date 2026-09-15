@@ -25,7 +25,7 @@ const BootData _bootConfig PROGMEM = {
 
 const char _layoutNames[][64] PROGMEM = {
     "Default",
-    "VaraiTamas (BoomBox)",
+    "BoomBox (VaraiTamas)",
 };
 
 /* LAYOUT DEFINITIONS */
@@ -61,7 +61,7 @@ const LayoutData _layouts[] PROGMEM = {
         .weatherMove         = { TFT_FRAMEWDT, 97, MAX_WIDTH },
         .weatherMoveVU       = { 70, 97, MAX_WIDTH-70+TFT_FRAMEWDT },
     },
-    {   // VaraiTamas (BoomBox)
+    {   // BoomBox (VaraiTamas)
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
         .metaConf            = {{ TFT_FRAMEWDT, TFT_FRAMEWDT, 3, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY, 3, SCROLLTIME*5/4 },
         .title1Conf          = {{ TFT_FRAMEWDT, 48, 2, WA_LEFT }, 140, true, MAX_WIDTH-44, SCROLLDELAY, 2, SCROLLTIME },

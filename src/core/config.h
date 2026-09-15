@@ -195,10 +195,30 @@ struct configKeyMap {
 };
 
 #if IR_PIN!=255
-  struct ircodes_t
+  /* IR code store: one named field per remote button, 3 codes each.
+     Persisted in its own NVS namespace ("ehradioir") using the irKeyMap table in config.cpp.
+     Buttons are identified by name (see data-irid in irrecord.html) - never by array index. */
+  struct irstore_t
   {
-    unsigned int ir_set = 0; // will be 4224 if written/restored correctly
-    uint64_t irVals[20][3];
+    uint64_t power[3];
+    uint64_t mute[3];
+    uint64_t up[3];
+    uint64_t down[3];
+    uint64_t prev[3];
+    uint64_t next[3];
+    uint64_t play[3];
+    uint64_t mode[3];
+    uint64_t hash[3];
+    uint64_t n0[3];
+    uint64_t n1[3];
+    uint64_t n2[3];
+    uint64_t n3[3];
+    uint64_t n4[3];
+    uint64_t n5[3];
+    uint64_t n6[3];
+    uint64_t n7[3];
+    uint64_t n8[3];
+    uint64_t n9[3];
   };
 #endif
 
@@ -231,7 +251,7 @@ class Config {
     #if IR_PIN!=255
       int irindex = -1;
       uint8_t irchck = 0;
-      ircodes_t ircodes;
+      irstore_t irstore;
     #endif
 
     volatile BitrateFormat configFmt = BF_UNKNOWN;  // volatile: cross-core/task access
@@ -252,7 +272,17 @@ class Config {
     void initSDPlaylist(bool force = false);
     void initPlaylistMode();
     void loadTheme();
-    void saveIR();
+    #if IR_PIN!=255
+      void loadIR();
+      void saveIR();
+      void saveIR(uint8_t button);
+      uint64_t* irCodes(uint8_t button);
+      void clearIR(uint8_t button, uint8_t slot);
+      int irButtonByName(const char* name);
+      uint8_t irButtonCount();
+      const char* irButtonKey(uint8_t button);
+      uint8_t irAction(uint8_t button);
+    #endif
     void defaultSettings(const char *val, uint8_t clientId);
     void processDeferredSaves();
     uint8_t setVolume(uint8_t val);

@@ -49,6 +49,7 @@ class Player: public Audio {
     void stepVol(bool up);
     uint8_t volToI2S(uint8_t volume);
     void setVol(uint8_t volume);
+    void mute();
 
     bool hasError() { return strlen(_plError)>0; }
     plStatus_e status() { return _status; }
@@ -58,6 +59,7 @@ class Player: public Audio {
     plStatus_e  _status = STOPPED;
     uint16_t    _playingStationId = 0;
     char        _plError[PLERR_LN];
+    uint8_t     _muteVol = 30;  // last active raw audio volume, restored by mute()
 
     void _stop(bool alreadyStopped = false);
     void _play(uint16_t stationId);

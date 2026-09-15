@@ -751,8 +751,10 @@ void NetServer::irToWs(const char* protocol, uint64_t irvalue) {
 void NetServer::irValsToWs() {
   #if IR_PIN!=255
     if (!irRecordEnable) return;
+    const uint64_t* irVals = config.irCodes(static_cast<uint8_t>(config.irindex));
+    if (irVals == nullptr) return;
     char buf[80] = { 0 };
-    snprintf(buf, sizeof(buf), "{\"irvals\": [%llu, %llu, %llu]}", config.ircodes.irVals[config.irindex][0], config.ircodes.irVals[config.irindex][1], config.ircodes.irVals[config.irindex][2]);
+    snprintf(buf, sizeof(buf), "{\"irvals\": [%llu, %llu, %llu]}", irVals[0], irVals[1], irVals[2]);
     websocket.textAll(buf);
   #endif
 }

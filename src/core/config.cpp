@@ -351,15 +351,7 @@ void Config::initPlaylistMode() {
 void Config::_initHW() {
   loadTheme();
   #if IR_PIN!=255
-    prefs.begin("ehradio", false);
-    memset(&ircodes, 0, sizeof(ircodes));
-    size_t read = prefs.getBytes("ircodes", &ircodes, sizeof(ircodes));
-    if (read != sizeof(ircodes) || ircodes.ir_set != 4224) {
-      FUNCTIONLOG("_initHW", "ircodes not initialized or corrupt, resetting...");
-      prefs.remove("ircodes");
-      memset(ircodes.irVals, 0, sizeof(ircodes.irVals));
-    }
-    prefs.end();
+    loadIR();
   #endif
   #if BRIGHTNESS_PIN!=255
     pinMode(BRIGHTNESS_PIN, OUTPUT);
@@ -512,14 +504,120 @@ void Config::setDefaults() {
   prefs.end();
 }
 
-void Config::saveIR() {
-  #if IR_PIN!=255
-    ircodes.ir_set = 4224;
-    prefs.begin("ehradio", false);
-    size_t written = prefs.putBytes("ircodes", &ircodes, sizeof(ircodes));
-    prefs.end();
-  #endif
+#if IR_PIN!=255
+/* ===== IR code storage =====
+   One NVS key per remote button in the dedicated "ehradioir" namespace, each holding that button's
+   3 codes. The behaviour id travels in the same row as the field offset and NVS key, so the table
+   cannot fall out of sync and row order is irrelevant. */
+struct irKeyMapEntry {
+  size_t      fieldOffset;
+  const char* key;
+  size_t      size;
+  uint8_t     action;
+};
+
+#define IR_KEY_ENTRY(field, keyname, act) { offsetof(irstore_t, field), keyname, sizeof(((irstore_t*)0)->field), act }
+
+static const irKeyMapEntry irKeyMap[] = {
+  IR_KEY_ENTRY(power,  "power",  IRACT_POWER),
+  IR_KEY_ENTRY(mute,   "mute",   IRACT_MUTE),
+  IR_KEY_ENTRY(up,     "up",     IRACT_UP),
+  IR_KEY_ENTRY(down,   "down",   IRACT_DOWN),
+  IR_KEY_ENTRY(prev,   "prev",   IRACT_PREV),
+  IR_KEY_ENTRY(next,   "next",   IRACT_NEXT),
+  IR_KEY_ENTRY(play,   "play",   IRACT_PLAY),
+  IR_KEY_ENTRY(mode,   "mode",   IRACT_MODE),
+  IR_KEY_ENTRY(hash,   "hash",   IRACT_HASH),
+  IR_KEY_ENTRY(n0,     "n0",     IRACT_DIGIT),
+  IR_KEY_ENTRY(n1,     "n1",     IRACT_DIGIT),
+  IR_KEY_ENTRY(n2,     "n2",     IRACT_DIGIT),
+  IR_KEY_ENTRY(n3,     "n3",     IRACT_DIGIT),
+  IR_KEY_ENTRY(n4,     "n4",     IRACT_DIGIT),
+  IR_KEY_ENTRY(n5,     "n5",     IRACT_DIGIT),
+  IR_KEY_ENTRY(n6,     "n6",     IRACT_DIGIT),
+  IR_KEY_ENTRY(n7,     "n7",     IRACT_DIGIT),
+  IR_KEY_ENTRY(n8,     "n8",     IRACT_DIGIT),
+  IR_KEY_ENTRY(n9,     "n9",     IRACT_DIGIT),
+  {0, nullptr, 0, 0} // Yup, 4 fields - don't delete the last line!
+};
+static const size_t irKeyMapCount = sizeof(irKeyMap) / sizeof(irKeyMap[0]) - 1;
+
+static const char* const IR_NVS_NAMESPACE = "ehradioir";
+static const char* const IR_MAGIC_KEY = "irset";
+static const uint16_t IR_MAGIC = 1812;
+
+void Config::loadIR() {
+  memset(&irstore, 0, sizeof(irstore));  // getBytes() leaves the destination untouched for missing keys
+  prefs.begin(IR_NVS_NAMESPACE, false);
+  uint16_t magic = 0;
+  size_t read = prefs.getBytes(IR_MAGIC_KEY, &magic, sizeof(magic));
+  if (read != sizeof(magic) || magic != IR_MAGIC) {
+    FUNCTIONLOG("loadIR", "IR codes not initialized or corrupt, resetting...");
+    prefs.clear();
+    uint16_t m = IR_MAGIC;
+    prefs.putBytes(IR_MAGIC_KEY, &m, sizeof(m));
+  } else {
+    for (size_t i = 0; i < irKeyMapCount; ++i) {
+      uint8_t* field = (uint8_t*)&irstore + irKeyMap[i].fieldOffset;
+      prefs.getBytes(irKeyMap[i].key, field, irKeyMap[i].size);
+    }
+  }
+  prefs.end();
 }
+
+void Config::saveIR() {
+  prefs.begin(IR_NVS_NAMESPACE, false);
+  uint16_t m = IR_MAGIC;
+  prefs.putBytes(IR_MAGIC_KEY, &m, sizeof(m));
+  for (size_t i = 0; i < irKeyMapCount; ++i) {
+    uint8_t* field = (uint8_t*)&irstore + irKeyMap[i].fieldOffset;
+    if (prefs.putBytes(irKeyMap[i].key, field, irKeyMap[i].size) != irKeyMap[i].size) {
+      FUNCTIONLOG("saveIR", "Failed to write IR key '%s' (NVS full?)", irKeyMap[i].key);
+    }
+  }
+  prefs.end();
+}
+
+void Config::saveIR(uint8_t button) {
+  if (button >= irKeyMapCount) return;
+  prefs.begin(IR_NVS_NAMESPACE, false);
+  uint16_t m = IR_MAGIC;
+  prefs.putBytes(IR_MAGIC_KEY, &m, sizeof(m));
+  uint8_t* field = (uint8_t*)&irstore + irKeyMap[button].fieldOffset;
+  if (prefs.putBytes(irKeyMap[button].key, field, irKeyMap[button].size) != irKeyMap[button].size) {
+    FUNCTIONLOG("saveIR", "Failed to write IR key '%s' (NVS full?)", irKeyMap[button].key);
+  }
+  prefs.end();
+}
+
+uint64_t* Config::irCodes(uint8_t button) {
+  if (button >= irKeyMapCount) return nullptr;
+  return (uint64_t*)((uint8_t*)&irstore + irKeyMap[button].fieldOffset);
+}
+
+void Config::clearIR(uint8_t button, uint8_t slot) {
+  if (button >= irKeyMapCount || slot > 2) return;
+  irCodes(button)[slot] = 0;
+}
+
+int Config::irButtonByName(const char* name) {
+  if (name == nullptr || name[0] == '\0') return -1;
+  for (size_t i = 0; i < irKeyMapCount; ++i) {
+    if (strcmp(irKeyMap[i].key, name) == 0) return (int)i;
+  }
+  return -1;
+}
+
+uint8_t Config::irButtonCount() { return (uint8_t)irKeyMapCount; }
+
+const char* Config::irButtonKey(uint8_t button) {
+  return (button < irKeyMapCount) ? irKeyMap[button].key : "";
+}
+
+uint8_t Config::irAction(uint8_t button) {
+  return (button < irKeyMapCount) ? irKeyMap[button].action : 0xFF;  // 0xFF = unknown button
+}
+#endif // IR_PIN!=255
 
 void Config::processDeferredSaves() {
   for (uint8_t i = 0; i < DEFERRED_SAVE_SLOTS; ++i) {
@@ -876,6 +974,7 @@ void Config::deleteOldKeys() {
   prefs.remove("smartstartx"); // why the x...?
   prefs.remove("skipplupdn"); // replaced by oneclickswitch
   prefs.remove("showwthr"); // replaced by showweather
+  prefs.remove("ircodes"); // replaced by the named per-button keys in the "ehradioir" namespace
   // none yet
 }
 

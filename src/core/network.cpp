@@ -34,6 +34,14 @@ static bool shouldClearWeatherCacheOnFailure();
 
 EhDP ehdp;
 
+void MyNetwork::cancelStreamRetry() {
+  if (streamRetryTaskHandle != NULL) {
+    network.lostPlaying = false;
+    vTaskDelete(streamRetryTaskHandle);
+    streamRetryTaskHandle = NULL;
+  }
+}
+
 void ticks() {
   if (!display.ready()) return; //waiting for SD is ready
   static uint32_t timeSyncTicks = 0;

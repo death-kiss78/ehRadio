@@ -240,6 +240,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
 - `station_t` fields (`name`, `url`, `title`) are sized by `STATION_FIELD_LENGTH` (default 170, defined in `options.h`). These are RAM-only fields — not NVS-stored. `BUFLEN` has been retired; use `STATION_FIELD_LENGTH` for station metadata buffers across the codebase.
 - `SD_PATH_LENGTH` (256, defined in `sdmanager.h`) is used for SD filesystem path buffers where paths may exceed 170 bytes.
 - `Config::keyMap` declaration controls Preferences key mapping.
+- IR remote codes use a separate named store: `struct irstore_t` with one `uint64_t[3]` field per button (`power`, `mute`, `up`, `down`, `prev`, `next`, `play`, `mode`, `hash`, `n0`…`n9`). It is persisted in its own NVS namespace (`ehradioir`) through a dedicated key map in `config.cpp`; buttons are addressed by name, never by array position. The old positional `ircodes_t` blob was removed.
 - `Config::saveValue(...)` API now has two simple overloads only:
   - typed: `saveValue(T* field, const T& value)`
   - string: `saveValue(char* field, const char* value)`
@@ -260,6 +261,8 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - playlist-mode initialization and file-presence checks before delegating playlist indexing/load helpers to `utility`
   - canonical SPIFFS asset allowlists (`Config::wwwFiles[]`, `Config::dataFiles[]`) used by startup recovery and file-maintenance flows
   - reset section handlers (`defaultSettings(...)`)
+  - named IR code storage in the dedicated `ehradioir` NVS namespace (`IR_MAGIC` 1812 stored under key `irset`, one key per button via `irKeyMap[]`); helpers `loadIR()`, `saveIR()` / `saveIR(button)`, `irCodes()`, `clearIR()`, `irButtonByName()`, `irButtonCount()`, `irButtonKey()`, `irAction()`
+  - `deleteOldKeys()` also drops the legacy `ircodes` key from the `ehradio` namespace
 - SPI bus initialization: `Config::init()` calls `SPI.begin(SPIA_SCK, SPIA_MISO, SPIA_MOSI)` only when `SPIA_SCK` is defined and `!= 255`, and `SPIB.begin(SPIB_SCK, SPIB_MISO, SPIB_MOSI)` only when `SPIB_SCK` is defined and `!= 255`. I2C-only builds skip SPI init entirely. Both buses are initialized before `_initHW()` and before `display.init()` / `player.init()`. Both SPI buses are fully configured before any peripheral uses them. `SPIClass SPIB(SPI_BUS_SECONDARY)` is declared at file scope in `config.cpp`; extern declared in `config.h`.
 - SD-specific behavior:
   - `_initHW()` configures `SD_CARD_DETECT_PIN` as `INPUT_PULLUP` when available
@@ -318,7 +321,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - weather cache and formatting logic
   - centralized runtime logging for reconnect/weather/boot progress/time-sync via `FUNCTIONLOG`/`SERIALLOG`/`BOOTLOGX`
   - web-stream reconnect now resumes through `player.resumeLastWebSource()` so direct URL sources can recover via `/data/laststation.url` instead of always falling back to `lastStation`
-  - `retryStreamConnection` task (40 attempts × 15 s) can be externally cancelled by `commandhandler.cpp` `cancelStreamRetry()` when the user issues any playback-changing command; the task also cleans itself up when conditions change (user stops, WiFi drops, or playback resumes)
+  - `retryStreamConnection` task (40 attempts × 15 s) is cancelled through `MyNetwork::cancelStreamRetry()`, the single owner of `streamRetryTaskHandle` (called by commandhandler on playback-changing commands, by `player.prev()`/`next()`/`toggle()`, and by `utility.turnoff()`); the task also cleans itself up when conditions change (user stops, WiFi drops, or playback resumes)
 - Coupling:
   - pushes display updates (`display.putRequest(...)`)
   - calls player/netserver hooks
@@ -338,6 +341,8 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - error reporting and display/net updates
   - command queue depth: `xQueueCreate(10, ...)` — increased from 5 to prevent queue overflow during rapid mode-switch sequences (SD→web transitions) where multiple commands (PR_STOP, PR_PLAY, PR_VUTONUS) arrive before the first finishes processing.
   - direct playback lifecycle side effects for `rgbled` and `backlightControls` (start/stop + initial stopped-state sync)
+  - `mute()`: volume-0 toggle backed by the private `_muteVol` member; uses raw `getVolume()`/`setVolume()` so `config.store.volume` and the displayed volume are deliberately untouched. Shared by the physical mute buttons, the `mute` command, and the IR mute button — the `DSP_DUMMY` suppression lives only at the physical-button call site.
+  - `prev()` / `next()` / `toggle()` delegate retry cancellation to `network.cancelStreamRetry()` (previously duplicated inline).
 - VS1053 SPI: `Player::Player()` constructor passes `&VS1053_SPIBUS` to the `Audio(CS, DCS, DREQ, SPIClass*)` constructor. `VS1053_SPIBUS` is the `SPIB` or `SPIA` object resolved by `options.h`. No `SPIClass` declared in `player.cpp` or `player.h`.
 - Coupling:
   - updates display queue and websocket state
@@ -411,6 +416,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - `/settings.html`, `/update.html`, `/ir.html` no longer served via `index_html[]` — handled by PSRAM cache fallthrough
   - websocket command parsing and outbound updates
   - state request queue processing (`GETSYSTEM`, `GETSCREEN`, `GETLOCALE`, etc.)
+  - IR websocket helpers: `irToWs()` (protocol + code) and `irValsToWs()` (the active button's 3 codes, read through `config.irCodes()`)
   - online update check/start tasks
   - radio-browser search and curated task management
   - exact-match-first preview/add handling on `/search`; unmatched preview now uses the same direct URL playback path as `playurl` instead of a mutating playlist scan
@@ -437,7 +443,9 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - own shared command aliases across ingress channels (`playstation`/`play`, `boot`/`reboot`, `vol+`/`volup`, `dim`/`brightness`, `dspon`/`screenon`)
   - player-command parity helpers (including exact-match-first direct URL playback command routing for `playurl` / `burl`)
   - trigger curated operations and locale update tasks
-  - cancel the stream retry task (`cancelStreamRetry()`) before executing user-initiated playback commands (`stop`, `playstation`, `prev`, `next`, `toggle`, `turnoff`, `burl`, `mode`, `submitplaylist`) so explicit user actions always interrupt automatic reconnection loops
+  - cancel the stream retry task (`network.cancelStreamRetry()`) before executing user-initiated playback commands (`stop`, `playstation`, `prev`, `next`, `toggle`, `turnoff`, `burl`, `mode`, `submitplaylist`) so explicit user actions always interrupt automatic reconnection loops
+  - `turnon` / `turnoff` delegate to `utility.turnon()` / `utility.turnoff()`; the `mute` command maps to `player.mute()`
+  - IR recorder commands: `irbtn` resolves a button **name** via `config.irButtonByName()` (`-1` stops recording and saves), `chkid` selects the slot, and `irclr` clears a slot through `config.clearIR()`
 - Critical coupling file for setting changes.
 - New commands: `theme` (theme switching), `layout` (layout switching), `inverttitle` (invert title toggle). All persist via `saveValue` and trigger `display._applyState()`.
 
@@ -471,6 +479,8 @@ All modules in `src/core/` follow the **class + global instance** pattern:
 - Converts hardware input events into same core actions used by WebUI (`controlsEvent`, player commands, display mode changes).
 - `Controls::loop()` now calls `backlightControls.controlsLoop()` directly for non-PLAYER backlight wake behavior.
 - IR record debug text now routes through centralized logging macros.
+- IR dispatch is name-based: `irLoop()` iterates `config.irButtonCount()`, matches codes from `config.irCodes(button)`, then switches on the behaviour id from `config.irAction(button)` (`IRACT_POWER`, `IRACT_MUTE`, `IRACT_UP`, `IRACT_DOWN`, `IRACT_PREV`, `IRACT_NEXT`, `IRACT_PLAY`, `IRACT_MODE`, `IRACT_HASH`, `IRACT_DIGIT`). Digit buttons derive their value from the `n0`…`n9` key. The old positional `IR_UP`…`IR_HASH` enum is gone. Power/mute/mode are local actions and are allowed while offline or showing `LOST`.
+- Physical mute (`EVT_ENC2_SW` / `EVT_BTN_MODE` double-click) calls `player.mute()` and keeps the `DSP_MODEL == DSP_DUMMY` no-op guard at the call site.
 - Screensaver wake hardening:
   - `controlsEvent()` now flushes pending display requests (`display.resetQueue()`) and zeroes screensaver tick counters before queueing `NEWMODE, PLAYER` when waking from `SCREENSAVER`/`SCREENBLANK`, preventing one-detent rotary wake races where a stale queued screensaver mode request could immediately re-apply.
 
@@ -520,6 +530,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - playlist CSV parsing and station lookup/load helpers
   - WiFi credential parse/save/import helpers
   - deep-sleep entrypoints (`doSleepW`, `sleepForAfter`)
+  - standby on/off helpers `standbyon()`, `standbyoff()`, `standbytoggle()` (shared by the `standbyon`/`turnon` and `standbyoff`/`turnoff` commands and the IR power button); `standbyoff()` also calls `network.cancelStreamRetry()`
   - SPIFFS file-maintenance helpers shared with startup and WebUI update paths:
     - `cleanupSpiffs()`
     - `deleteMainwwwFile()`
@@ -646,6 +657,8 @@ All modules in `src/core/` follow the **class + global instance** pattern:
 
 ## `data/www/ir.html`
 - IR recording and assignment UI.
+- Every `.irbutton` carries a `data-irid` name (`power`, `mute`, `up`, `down`, `prev`, `next`, `play`, `mode`, `number`, `n0`…`n9`) that maps 1:1 to the `irstore` field / NVS key, so DOM order is irrelevant.
+- The shell loads the page body from `irrecord.html`; the `/ir.html` route itself is handled by the PSRAM cache fallthrough.
 
 ## `data/www/search.html`
 - Search UI for radio-browser integration.
@@ -658,7 +671,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
 - Contains logic previously in `ir.js`, `updform.js`, `playstation.js`
   - station preview/play helper (`sendStationAction`)
   - online update check/start UI helpers
-  - IR setup/learn interactions (`initControls`, `checkSelect`, `irClear`, `backRecord`)
+  - IR setup/learn interactions (`initControls`, `checkSelect`, `irClear`, `backRecord`); `irbuttonClick()` sends the button's `data-irid` name as `irbtn=<name>` and `irbtn=-1` on deselect
 - also consolidated with `data/www/locale.js`
   - i18n runtime helper (`t(...)`) and translation application (`applyI18n`).
   - Applies key-based translations to DOM and fallback behavior.
@@ -830,7 +843,7 @@ Each config type has its own field that makes a widget meaningful, and that is w
 ## Screen Rendering Fixes (Session: VU Rotated Layout)
 
 - **New layout flag** `LayoutData::rotateVU` (exposed via `rotateVU_ptr`), treated exactly like `boomboxStyle` — absent means false. `VuWidget::_rotate` is read from `rotateVU_ptr` in `init()`.
-- **Layout ordering** in `displayTFT480x320conf.h`: `_layoutNames` is now `Default`, `Default (VU Rotated)`, `VaraiTamas (BoomBox)`. The rotated layout is layout #2 (`bandsConf = { 32, 130, 4, 2, 10, 3 }`, `.rotateVU = true`); BoomBox moved to #3.
+- **Layout ordering** in `displayTFT480x320conf.h`: `_layoutNames` is now `Default`, `Default (VU Rotated)`, `BoomBox (VaraiTamas)`. The rotated layout is layout #2 (`bandsConf = { 32, 130, 4, 2, 10, 3 }`, `.rotateVU = true`); BoomBox moved to #3.
 - **Blit choice**: `VuWidget::_draw()` uses the manual `startWrite()` / `setAddrWindow()` / `writePixels()` / `endWrite()` sequence for all three modes. `drawRGBBitmap()` was deliberately removed from the widget layer — the manual path depends only on `setAddrWindow` and `writePixels`, which every TFT driver is guaranteed to implement, and it issues a single bulk transfer rather than one `writePixels` call per scanline. Do not switch this back.
 - **Direction**: the rotated VU fills left-to-right with `_vumaxcolor` at the right end.
 

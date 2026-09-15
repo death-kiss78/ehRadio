@@ -18,8 +18,10 @@ Order and sections match that file.
 | `middle` | Set middle (-16..16). |
 | `bass` | Set bass (-16..16). |
 | `volume`, `vol` | Set absolute volume (clamped 0..VOLUME_SCALE). |
-| `turnoff` | Turn display off, stop playback, and preserve smartstart value. |
-| `turnon` | Turn display on, optionally resume smartstart playback. |
+| `mute` | Toggle mute: volume 0 <-> last active level. Same behaviour as the IR mute button; physical-button mute is suppressed without a display. |
+| `standby` | Toggle standby on or off |
+| `standbyoff` | Turn display off, stop playback, and preserve smartstart value. |
+| `standbyon` | Turn display on, optionally resume smartstart playback. |
 | `burl`, `playurl` | Play direct stream URL (http/https). |
 | `sdpos` | Set SD playback position when in SD mode. |
 | `playstation`, `play` | Play station by playlist index (clamped to valid range). |
@@ -164,9 +166,9 @@ Only available when built with IR_PIN != 255.
 
 | Command(s) | Action |
 | --- | --- |
-| `irbtn` | Set IR recording index and update IR recording mode/state. Blocked in HTTP/MQTT/Telnet. |
-| `chkid` | Set IR check slot id. Blocked in HTTP/MQTT/Telnet. |
-| `irclr` | Clear selected IR slot value at active index. Blocked in HTTP/MQTT/Telnet. |
+| `irbtn` | Select the IR button to record by name (for example `power`, `mute`, `n1`); `-1` stops recording and saves. Blocked in HTTP/MQTT/Telnet. |
+| `chkid` | Set IR check slot id (0-2). Blocked in HTTP/MQTT/Telnet. |
+| `irclr` | Clear the selected IR slot (0-2) of the active button. Blocked in HTTP/MQTT/Telnet. |
 
 ## Curated Playlists
 

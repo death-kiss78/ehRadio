@@ -31,6 +31,7 @@ class MyNetwork {
     void requestWeatherSync();
     bool buildWeatherString();
     void ehDPinit();
+    void cancelStreamRetry();
   private:
     Ticker rtimer;
     static void WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info);

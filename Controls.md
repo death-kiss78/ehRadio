@@ -66,14 +66,23 @@ Repeat for other buttons.
 
 | Button  | Action                 | Longpress Action |
 | ------  | ---------------------- | ---------------- |
+| Power   | toggle the display/radio on and off | - |
+| Mute    | toggle mute (volume 0 and back) | - |
 | &#9199; | start/stop playing     | - |
 | &#9664; | previous station/track | - |
 | &#9654; | next station/track     | - |
 | &#9650; | volume up              | quick volume up |
 | &#9660; | volume down            | quick volume down
-| #       | toggle between player/playlist mode | - |
+| #       | toggle between player/playlist mode or cancel entering station number | - |
 | *       | toggle between stations/SD mode | - |
-| 0-9     | Start entering the station number. To finish input and start playback, press the play button. To cancel, press hash. | - |
+| 0-9     | Start entering the station number. To finish input and start playback, press the play button. To cancel, press #. | - |
+
+Each button stores up to 3 alternative IR codes (the three slots in the recorder).
+
+#### Power Toggle
+
+This is not a real power control. It is not actually possible in code to wake up the radio with an IR signal.
+This merely fakes power control by stopping audio, blanking the display, and turning off the display backlight (if possible).
 
 ### Touchscreen
 

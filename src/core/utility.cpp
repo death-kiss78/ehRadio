@@ -11,9 +11,12 @@
   #include <driver/rtc_io.h>
 #endif
 
+#include "backlightcontrols.h"
 #include "config.h"
 #include "display.h"
 #include "netserver.h"
+#include "network.h"
+#include "player.h"
 #include "../displays/tools/pretext.h"
 
 namespace {
@@ -615,6 +618,30 @@ void Utility::sleepForAfter(uint16_t sleepfor, uint16_t sa) {
   } else {
     Utility::doSleep();
   }
+}
+
+void Utility::standbyon() {
+  config.setDspOn(true);
+  backlightControls.restart();
+  if (config.store.smartstart) {
+    if (config.getMode() == PM_WEB) player.resumeLastWebSource();
+    else player.sendCommand({PR_PLAY, config.lastStation()});
+  }
+}
+
+void Utility::standbyoff() {
+  network.cancelStreamRetry();
+  bool sst = config.store.smartstart;
+  config.setDspOn(false);
+  backlightControls.restart();
+  player.sendCommand({PR_STOP, 0});
+  delay(100);
+  config.saveValue(&config.store.smartstart, sst);
+}
+
+void Utility::togglestandby() {
+  if (config.store.dspon) standbyoff();
+  else standbyon();
 }
 
 void Utility::cleanupSpiffs() {

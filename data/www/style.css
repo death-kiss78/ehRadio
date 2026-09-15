@@ -319,9 +319,10 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
 .irbutton:active svg, .irbutton.active svg { fill: var(--main-bg-color); }
 #irform { flex: 1; text-align: center; padding-left: 20px; }
 #irstartrecord h3 { font-size: 20px; font-weight: bold; color: var(--accent-color); }
-#irrecordtitle { padding-left: 42px; }
+#irrecordtitle { padding-left: 42px; margin-bottom: 6px; }
 #irrecordtitle span { background-color: var(--accent-color); color: var(--main-bg-color); width: 40px; height: 40px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-family: Helvatica, Arial, Sans; font-size: 18px; margin-left: 8px; border: var(--section-border) 2px solid; }
 #irrecordtitle span svg { fill: var(--main-bg-color); width: 16px; }
+#irrecordcaption { padding-left: 42px; font-size: 16px; line-height: 21px; min-height: 21px; margin-bottom: 16px; color: var(--main-text-color); }
 .irrecordrow { display: flex; margin-bottom: 20px; position: relative; }
 .irradio { width: 42px; cursor: pointer; display: flex; align-items: center; }
 .irradio span { position: relative; height: 28px; width: 28px; background-color: var(--main-bg-color); border-radius: 50%; border: var(--accent-color) 2px solid; margin: 4px 0; }
@@ -336,7 +337,11 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
 .irtitle { line-height: 48px; margin: 5px 0; text-align: center; padding-top: 10px; text-transform: var(--tt-uppercase); font-weight: bold; font-size: 26px; color: var(--accent-color); width: 100%; }
 #done_ir, #back_ir { background: var(--accent-color); color: var(--main-bg-color); margin: 40px auto 0 auto; max-width: 120px; user-select: none; display: block; }
 #back_ir { margin-top: 20px; }
-#back_ir { margin-left: calc(50% + 18px); transform: translateX(-50%); }
+/* Centre both Done buttons within the form column. The old calc(50% + 18px) + translateX(-50%) offset
+   assumed the wide desktop form and pushed the button right of centre (and over the remote on mobile).
+   Scoped with #playerwrap so it outranks `#playerwrap .fb { margin: 3px }` in the <=375px block, which
+   otherwise left-aligns these buttons on small screens. */
+#playerwrap #back_ir, #playerwrap #done_ir { margin-left: auto; margin-right: auto; transform: none; }
 .irclear { width: 22px; height: 22px; background: var(--odd-bg-color) url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMBAMAAACkW0HUAAAAFVBMVEUAAABUVFRUVFRUVFRUVFRUVFRUVFTyq8WEAAAABnRSTlMA9T3ruK3N/zxkAAAAOElEQVQI12NwVmBgYDJhMBNiYFBMZlBMVGASE2IAYiCLAcgFchiAXCAHSkEFoUqgGmDag0GGmQIAZPIIklXNC10AAAAASUVORK5CYII=') center center no-repeat; border-radius: 50%; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; }
 
 /* For mobile devices 375px to 1100px */
@@ -384,7 +389,20 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
   #loadListsBtn, #replaceBtn, #mergeBtn { font-size: 14px; }
   /* IRRECORD */
   .irbutton { width: 40px; height: 40px; font-size: 18px; line-height: 36px; }
-  #irwrap { margin: 2px; }
+  /* Keep the remote and the form side by side, as before. The inherited `flex: 1` is kept so that
+     #copy still lands at the bottom of the view window; the children are top-aligned instead of
+     vertically centred, since that centring was the source of the gap under the title. */
+  #irwrap { align-items: flex-start; margin: 2px; }
+  .irtitle { line-height: 34px; font-size: 22px; margin: 0 0 10px 0; padding-top: 2px; }
+  /* Compact the three code rows so the form sits comfortably beside the remote */
+  #irform { padding-left: 8px; }
+  #irrecordtitle, #irrecordcaption { padding-left: 0; }
+  #protocol { padding-left: 0; }
+  .irrecordrow { margin-bottom: 10px; }
+  .irradio { width: 30px; }
+  .irradio span { height: 22px; width: 22px; }
+  .irradio span:after { top: 5px; left: 5px; width: 8px; height: 8px; }
+  .irrecordvalue { height: 30px; line-height: 26px; font-size: 16px; padding: 0 6px; }
 }
 /* Below will force smaller displays to fit */
 @media screen and (max-width: 375px) {
