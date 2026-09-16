@@ -62,40 +62,26 @@ const bool*           rssiDigit_ptr       = &activeLayout.rssiDigit;
 uint8_t layoutCount = (sizeof(_layoutNames) / sizeof(_layoutNames[0]));
 
 /* ---- Layout owns widget existence -----------------------------------------------------------------
-   A widget is only part of the display when the ACTIVE LAYOUT provides it.  A layout switch re-runs
-   _reinitWidgets(), which HIDES a widget the new layout omits rather than freeing it: the display task
-   on the other core may be inside that widget's _draw() at this moment, so a delete here would be a
-   use-after-free.  Keeping the object alive costs a bounded amount of RAM - one instance per widget
-   type, reused on every switch - and a hidden widget does nothing at all.
+   An omitted widget is HIDDEN, never freed - the other core may be inside its _draw(), so a delete
+   would be a use-after-free.
 
-   Both flags are needed because the _draw() guards are not uniform: Text/Fill/Num bail on !_active
-   only, Slider bails on _locked only, and Scroll/Vu/Clock check both.  Neither flag alone is an off
-   switch for every widget type.
-
-   They are also not persistent enough by themselves: Pager::setPage() re-activates every widget on a
-   page on each mode change, so the base class carries a third flag, _present, which setActive() and
-   unlock() refuse to override.  _present is the authoritative answer; the other two still have to be
-   set because each widget type's _draw() consults a different subset.
+   Three flags, because the _draw() guards differ per type (Text/Fill/Num look at _active, Slider at
+   _locked, Scroll/Vu/Clock at both) and Pager::setPage() re-activates everything on a mode change.
+   _present is authoritative; the other two still have to be set.
    See plans/layout-widget-lifecycle.md */
 static void hideByLayout(Widget* w) { if (w) { w->setPresent(false); w->lock(true); w->setActive(false, true); } }
 static void showByLayout(Widget* w) { if (w) { w->setPresent(true); w->unlock(); w->setActive(true); } }
 
 /* ---- Does the active layout provide this widget? --------------------------------------------------
-   "Absent" is spelled differently by each config type, so define it once per TYPE and then name the
-   per-widget questions in terms of it.  Everything here inlines to a single comparison.
+   "Absent" is spelled differently by each config type, so it is defined once per TYPE; everything here
+   inlines to one comparison.
 
-   This rule has to be consulted from two kinds of place, and missing either kind reintroduces the bug
-   the whole hide/show mechanism exists to fix:
-     - the hide/show decision in _reinitWidgets();
-     - every RE-SHOW site, i.e. setActive(true), unlock() and lock(false).  There are three separate
-       revival paths in this file, and the _draw() guards are not uniform - TextWidget draws on
-       _active alone while SliderWidget draws on _locked alone - so a guard on one flag at one site is
-       not enough.  See plans/layout-widget-lifecycle.md */
+   Consult it at the hide/show site in _reinitWidgets() AND at every RE-SHOW site - setActive(true),
+   unlock(), lock(false) - or the bug the mechanism exists to fix comes back.
+   See plans/layout-widget-lifecycle.md */
 static inline bool present(const WidgetConfig&  c) { return c.textsize  > 0; }
-/* Presence for a ScrollWidget needs BOTH fields: init() computes the scroll window as
-   _width / _charWidth, and _charWidth comes from textsize with no clamp in _charSize() - so a layout
-   with buffsize set and textsize zeroed would pass a buffsize-only test and then divide by zero.
-   A hand-authored layout doing that is a crash, not a widget. */
+/* Scroll needs BOTH fields: a buffsize-only test passes a layout that then divides by zero in init()
+   (_width / _charWidth, unclamped in _charSize()). */
 static inline bool present(const ScrollConfig&  c) { return c.buffsize > 0 && c.widget.textsize > 0; }
 static inline bool present(const FillConfig&    c) { return c.height    > 0; }
 static inline bool present(const BitrateConfig& c) { return c.dimension > 0; }
@@ -117,14 +103,10 @@ static inline bool voltxtInLayout()      { return present(*voltxtConf_ptr); }
 static inline bool ipInLayout()          { return present(*iptxtConf_ptr); }
 static inline bool rssiInLayout()        { return present(*rssiConf_ptr); }
 static inline bool batteryInLayout()     { return present(*batteryConf_ptr); }
-/* The clock and the digits are the two widgets whose conf does NOT encode presence through textsize:
-   both draw with a GFX font at TIME_SIZE, so their confs carry textsize == 0 even when present.  They
-   therefore use the "zeroed means absent" convention that every other widget's { } already relies on -
-   all four fields zero means the layout does not want this widget.
-   The one thing this makes unexpressible is a clock or digits block at left 0 / top 0 / WA_LEFT, i.e.
-   hard against the top-left corner.  Accepted: top 0 would clip the glyphs anyway.
-   A textsize-based test here reports "absent" for a widget that is present, which is what skipped the
-   init() and caused the boot loop - see plans/layout-widget-lifecycle.md section 9. */
+/* The clock and the digits are the exception: both draw a GFX font at TIME_SIZE, so their confs carry
+   textsize 0 even when present.  Hence all-zero-means-absent below rather than a textsize test, which
+   reported absent, skipped init() and boot-looped (lifecycle plan section 9).  A clock at exactly
+   left 0 / top 0 is then unexpressible - accepted, since top 0 would clip the glyphs anyway. */
 static inline bool zeroed(const WidgetConfig& c) { return c.left || c.top || c.textsize || c.align; }
 static inline bool clockInLayout()       { return zeroed(*clockConf_ptr); }
 static inline bool numInLayout()         { return zeroed(*numConf_ptr); }
@@ -208,19 +190,13 @@ static uint32_t normalizeBufferbarValue(uint32_t rawValue, uint32_t maxValue) {
   return min(rawValue, maxValue);
 }
 
-/* Every MOVE goes through one of these, so no call site can forget the `{ }` rule.  They live up here
-   rather than beside _clockHidden(), where they read more naturally, because C++ needs them declared
-   before _swichMode() calls them.
+/* Every MOVE goes through one of these, so no call site can forget the `{ }` rule.  Above _swichMode()
+   because C++ needs them declared first.
 
-   The three MoveConfig cases:
-     all-zero `{ }`  => yield to the VU: do nothing here and let the locks erase the widget instead,
-                        which is what makes an empty conf line hide a widget (see _clockHidden()).
-     non-zero x/y    => move there.
-     width < 0       => the conf's own position.  moveTo() ignores a negative width, so a widget that
-                        has been displaced anyway needs the active restore: that is
-                        applyMoveOrRestore, used for the clock because _time() displaces it on every
-                        SCREENSAVERMOVE tick.  The weather never needs it - its restores are the
-                        explicit moveBack() calls in the branches that stop the meter. */
+   `{ }` yields to the VU - do nothing and let the lock erase the widget, which is what makes an empty
+   conf line hide it.  width < 0 means "the conf's own position", which needs the active restore
+   because moveTo() ignores a negative width: the clock needs that (_time() displaces it on every
+   SCREENSAVERMOVE tick), the weather does not. */
 static inline bool moveZeroed(const MoveConfig& m) { return m.x == 0 && m.y == 0 && m.width == 0; }
 static inline void applyMove(Widget* w, const MoveConfig& m) {
   if (!w || moveZeroed(m)) return;
@@ -1067,11 +1043,8 @@ void Display::_reinitWidgets() {
   /* Title1 is optional like the rest: nothing else depends on it, and it has no other lock site. */
   if (title1InLayout()) { _title1->init("*", *title1Conf_ptr, config.theme.title1, config.theme.background); showByLayout(_title1); }
   else hideByLayout(_title1);
-  /* Conditional again, but now on the zeroed-conf rule rather than on textsize.  This is only safe
-     because ClockWidget's entry points are inert for a widget whose init() never ran: _reset() and
-     _clearClock() bail on !_present, and every _fb deref is null-guarded.  Without those, _swichMode's
-     screen-blank clear(), lock() and the lock/unlock cycle all reach uninitialised geometry - which is
-     exactly how the previous, textsize-based attempt boot-looped. */
+  /* Safe on a never-initialised clock: ClockWidget's entry points bail on !_present and guard every
+     _fb deref, so lock()/clear() cannot reach uninitialised geometry - the old boot loop. */
   if (clockInLayout()) { _clock->init(*clockConf_ptr, 0, 0); showByLayout(_clock); }
   else hideByLayout(_clock);
   #if DSP_MODEL==DSP_NOKIA5110
@@ -1254,10 +1227,8 @@ void Display::_applyState() {
     }
   #endif
   _reinitWidgets();
-  /* Re-apply every feature lock, because _reinitWidgets() may just have shown a widget that came back
-     with the new layout.  A widget is live only when the layout provides it AND its feature is on -
-     and the VU only while something is playing, which is the state _layoutChange() maintains.
-     See plans/layout-widget-lifecycle.md */
+  /* Re-apply every feature lock: _reinitWidgets() may just have shown a widget the new layout brought
+     back.  A widget is live only when the layout provides it AND its feature is on. */
   if (_vuwidget)  _vuwidget->lock(!vuInLayout() || !config.store.vumeter || !player.isRunning());
   /* The weather rule mirrors SHOWWEATHER exactly, including the shared-row suppression during the
      volume overlay, so a layout switch cannot drop the weather back onto the IP row mid-overlay. */
