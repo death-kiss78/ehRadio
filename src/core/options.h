@@ -1036,6 +1036,12 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef VU_PEAK_THICKNESS_MILLI
   #define VU_PEAK_THICKNESS_MILLI 11   // marker thickness = length * 11/1000, rounded up (never below 1 px)
 #endif
+#ifndef VU_SPECTRUM_MIN_PX
+  #define VU_SPECTRUM_MIN_PX 2 // minimum pixels of a spectrum channel
+#endif
+#ifndef VU_SPECTRUM_MAX_CHANNELS
+  #define VU_SPECTRUM_MAX_CHANNELS 15 // maximum number of channels each R/L
+#endif
 
 
 /* --- SOURCE OF UPDATE FILES --- */

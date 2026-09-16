@@ -208,6 +208,29 @@ static uint32_t normalizeBufferbarValue(uint32_t rawValue, uint32_t maxValue) {
   return min(rawValue, maxValue);
 }
 
+/* Every MOVE goes through one of these, so no call site can forget the `{ }` rule.  They live up here
+   rather than beside _clockHidden(), where they read more naturally, because C++ needs them declared
+   before _swichMode() calls them.
+
+   The three MoveConfig cases:
+     all-zero `{ }`  => yield to the VU: do nothing here and let the locks erase the widget instead,
+                        which is what makes an empty conf line hide a widget (see _clockHidden()).
+     non-zero x/y    => move there.
+     width < 0       => the conf's own position.  moveTo() ignores a negative width, so a widget that
+                        has been displaced anyway needs the active restore: that is
+                        applyMoveOrRestore, used for the clock because _time() displaces it on every
+                        SCREENSAVERMOVE tick.  The weather never needs it - its restores are the
+                        explicit moveBack() calls in the branches that stop the meter. */
+static inline bool moveZeroed(const MoveConfig& m) { return m.x == 0 && m.y == 0 && m.width == 0; }
+static inline void applyMove(Widget* w, const MoveConfig& m) {
+  if (!w || moveZeroed(m)) return;
+  w->moveTo(m);
+}
+static inline void applyMoveOrRestore(Widget* w, const MoveConfig& m) {
+  if (!w || moveZeroed(m)) return;
+  if (m.width < 0) w->moveBack(); else w->moveTo(m);
+}
+
 
 void returnPlayer() {
   display.putRequest(NEWMODE, PLAYER);
@@ -525,11 +548,11 @@ void Display::_swichMode(displayMode_e newmode) {
   if (newmode == PLAYER) {
     if (player.isRunning()){
       if (config.store.vumeter && _vuwidget && vuInLayout()) {
-        if (clockMove_ptr->width<0) _clock->moveBack(); else _clock->moveTo(*clockMove_ptr);
-        if (_weather) _weather->moveTo(*weatherMoveVU_ptr);
+        applyMoveOrRestore(_clock, *clockMove_ptr);
+        applyMove(_weather, *weatherMoveVU_ptr);
       } else {
         _clock->moveBack();  // restore from screensaver position
-        if (_weather) _weather->moveTo(*weatherMove_ptr);
+        applyMove(_weather, *weatherMove_ptr);
       }
     } else {
       _clock->moveBack();
@@ -683,10 +706,6 @@ void Display::updateProgress(const char* label, float progress) {
   #endif
 }
 
-/* An all-zero MOVE (`{ }`) means "yield to the VU": hidden while the meter is up, back when it stops.
-   Distinct from `width < 0` (leave the position alone) and a non-zero x/y (move there). */
-static inline bool moveZeroed(const MoveConfig& m) { return m.x == 0 && m.y == 0 && m.width == 0; }
-
 /* The clock hides with no time source, when the layout omits it, or when it yields to the VU.  One
    definition, so _start() and _layoutChange() cannot lock what the other just unlocked. */
 bool Display::_clockHidden() {
@@ -708,11 +727,8 @@ void Display::_layoutChange(bool played) {
   if (config.store.vumeter && _vuwidget && vuInLayout()) {
     if (played) {
       if (_vuwidget) _vuwidget->unlock();
-      /* Zeroed move = yield, so leave the position alone; the locks below erase it instead. */
-      if (!moveZeroed(*clockMove_ptr)) {
-        if (clockMove_ptr->width<0) _clock->moveBack(); else _clock->moveTo(*clockMove_ptr);
-      }
-      if (_weather && !moveZeroed(*weatherMoveVU_ptr)) _weather->moveTo(*weatherMoveVU_ptr);
+      applyMoveOrRestore(_clock, *clockMove_ptr);
+      applyMove(_weather, *weatherMoveVU_ptr);
     } else {
       if (_vuwidget) if (!_vuwidget->locked()) _vuwidget->lock();
       _clock->moveBack();
@@ -721,7 +737,7 @@ void Display::_layoutChange(bool played) {
   } else {
     if (played) {
       _clock->moveBack();  // restore clock from VU-shifted position
-      if (_weather) _weather->moveTo(*weatherMove_ptr);
+      applyMove(_weather, *weatherMove_ptr);
       //_clock->moveBack();
     } else {
       if (_weather) _weather->moveBack();
