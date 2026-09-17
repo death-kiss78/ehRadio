@@ -61,6 +61,7 @@ Order and sections match that file.
 | `bufferbar` | Enable/disable the buffer bar on the display. |
 | `vumeter` | Enable/disable VU meter and refresh display state. |
 | `vupeaks` | Enable/disable the VU meter peak markers. |
+| `vustyle` | Select the VU meter visualisation style (a `vuStyle_e` id, clamped to the known range, and the display is refreshed). |
 | `wifiscan` | Enable/disable best-RSSI WiFi scan behavior. |
 | `autoupdate` | Enable/disable auto update checks. |
 | `ehdp` | Enable/disable eHDP service. |

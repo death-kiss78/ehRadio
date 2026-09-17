@@ -229,6 +229,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
 - See earlier build section.
 - `DSP_INVERT_TITLE` macro removed — replaced by runtime `config.store.inverttitle` boolean.
 - `DSP_TFT` added to `dspcore.h` for all TFT display models — used to gate color-theme reloading (monochrome displays skip it).
+- VU visualiser tunables live here: `VU_REFRESH_MS`, `VU_FADE_MS`, `VU_PEAK_FREEZE_MS`, `VU_PEAK_FADE_DIV`, `VU_PEAK_THICKNESS_MILLI`, `VU_SPECTRUM_MIN_PX`, `VU_SPECTRUM_SPACE_PX`, `VU_SPECTRUM_DB_FLOOR`, `VU_SPECTRUM_MAX_CHANNELS`, `VU_HISTORY_MIN_PX`, `VU_CAPTURE_SAMPLES`, `VU_DUTY_FACTOR` and `VU_STYLE_DEFAULT`. **`VU_CAPTURE_SAMPLES` must stay a power of two** — it is both the rolling sample window and the FFT size. `VU_REFRESH_MS` is a *floor* on the redraw interval, i.e. the ceiling on the frame rate, and `VU_DUTY_FACTOR` stretches that interval by the frame's measured draw cost (see the VU Widget Rendering section).
 
 ## `src/core/config.h`
 - Defines persistent struct `config_t store`.
@@ -276,6 +277,11 @@ All modules in `src/core/` follow the **class + global instance** pattern:
 
 ## `src/core/startup.h` / `startup.cpp`
 - Boot-only orchestration module following the standard core `class + global instance` pattern (`Startup startup;`).
+- **Boot stability is a state, not a timer.** `Startup::_services` is `SVC_NONE` / `SVC_WILL_RUN` / `SVC_DONE`, and `setup()` has already settled which one applies by the time `loop()` can run, because `startupServices()` has exactly one call site — [`main.cpp:106`](src/main.cpp:106), inside `setup()`. `loop()` then: for `SVC_NONE` proves the boot over `BOOT_STABLE_TIME` from power-on (nothing risky will run, but an early crash must still trip Safe Mode on the next boot), waits indefinitely for `SVC_WILL_RUN`, and marks stable `BOOT_STABLE_TIME` after `SVC_DONE`. `SVC_NONE` is the **only** case where the power-on count is used, and that is what makes it safe — the power-on count is wrong only when it is applied while the state is still unknown.
+- **The three boot outcomes, and why the state can always be settled before `loop()`:** *SD offline* (`network.offlineMode || config.store.SDoffline`) never calls `checkSafeMode()`, so `_bootStablePending` stays false and the marker is not touched at all — that is the long-standing workaround and it is deliberate. *No WiFi / soft AP* returns early from `setup()` before the services call, leaving `SVC_NONE`, and the boot then proves itself over `BOOT_STABLE_TIME` from power-on. *Connected* records `SVC_WILL_RUN` before the task is created, and the task sets `SVC_DONE`, so a download that finishes quickly cannot be missed.
+- **SD playback mode is deliberately left waiting.** The services task parks in `while (config.getMode() == PM_SDCARD)` until the user leaves SD, so the boot stays unproven until the downloads actually happen. The known consequence: a device that boots into SD playback and is powered off without ever leaving SD never proves its boot, and the next boot comes up in Safe Mode once (smartstart and autoupdate off for that session). Chosen deliberately over marking it stable, because the services are the risk being guarded.
+- **What replaced what:** the first attempt made `_servicesDoneMs == 0` fall back to the power-on count, which marked the boot stable at exactly the moment the services were starting (`[BOOT] Boot stable after 10022 ms (startup services did not run)` while `[Services] Startup Async Services starting` was on the same second). The second attempt kept a `BOOT_STABLE_BACKSTOP_MULT` timer as a safety net, which allowed a boot to be called stable while the risky window was still open. Both are gone.
+- The startup services are a known high-risk path: three concurrent TLS sessions against ~75 KB of internal heap, which has been observed to exhaust it and crash the boot. See `.github/code-issues.md` section 7.
 - Owns startup-time helpers that were previously mixed into `config.cpp`:
   - boot-time version marker and required SPIFFS/WebUI file verification (`checkVerAndSpiffs()`)
   - loading saved SSIDs from `/data/wifi.csv` into `config.ssids`
@@ -291,7 +297,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
     - cleans stale search results older than 24 hours
     - deletes the `ESPFileUpdater` param and self-terminates via `vTaskDelete(NULL)`
   - `deassertCsPins()` — called from `main.cpp` `setup()` before any device init. Sets all known SPI CS pins (`VS1053_CS`, `SD_CS`, `TFT_CS`, `TS_CS`) to `OUTPUT` + `HIGH` to prevent floating CS from causing bus contention during peripheral detection.
-  - safe mode boot crash-loop detection (`checkSafeMode`, `bootInSafeMode`, `markBootStable`, `loop`): reads NVS key `bootstablemark` at boot — if previous boot did not complete successfully, disables `smartstart` and `autoupdate` in memory only for this session so the device does not auto-reconnect to a crash-causing stream; marks boot stable after `BOOT_STABLE_TIME` seconds of uptime
+  - safe mode boot crash-loop detection (`checkSafeMode`, `bootInSafeMode`, `markBootStable`, `loop`): reads NVS key `bootstablemark` at boot — if previous boot did not complete successfully, disables `smartstart` and `autoupdate` in memory only for this session so the device does not auto-reconnect to a crash-causing stream. **Note the marker is now set by the state machine above, not by a fixed uptime**: `BOOT_STABLE_TIME` after the startup services finish when they will run, or over `BOOT_STABLE_TIME` from power-on when they will not
 - Coupling:
   - drives `utility` for shared update/download helpers
   - reads Config-owned asset allowlists during required-file recovery
@@ -410,6 +416,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - `handleNotFound`: checks PSRAM cache first for GET requests, cache-busting `?v=` stripping removed (max-age=60 handles freshness)
   - `handleIndex`: serves `player.html` from PSRAM cache for `GET /`
   - route handlers (`/`, `/search`, `/update`, `/locale.json`, `/ready`, etc.)
+  - `/visuals.json` — the VU style list, built **at request time** from one static `{ id, i2s label, vs1053 label }` table, so the WebUI select can only offer what the running build can draw: waveform and Lissajous are omitted on a VS1053, and the two spectra are labelled "(simulated)" there. The ids are `vuStyle_e`, the same numbers that travel in `vustyle=<n>` and come back in `GETSCREEN`. There is deliberately **no box-based filtering**
   - `fileCache.loadAll()` called in `begin()` before `webserver.begin()`
   - `invalidateCache()` public method exposed for `utility.cpp` runtime updates
   - `Cache-Control: max-age=60` for all cached static files (was 3600)
@@ -424,8 +431,8 @@ All modules in `src/core/` follow the **class + global instance** pattern:
 - Coupling:
   - uses `cmd.exec(...)` from commandhandler
   - emits JSON consumed by `data/www/script.js`
-  - `GETSCREEN` now also carries `invtitle`, `layout`, `theme` fields for WebUI dropdown state
-  - Virtual endpoints `/themes.json` and `/layouts.json` serve dropdown data from PROGMEM arrays
+  - `GETSCREEN` now also carries `invtitle`, `layout`, `theme` **and `vustyle`** fields for WebUI dropdown state
+  - Virtual endpoints `/themes.json` and `/layouts.json` serve dropdown data from PROGMEM arrays; `/visuals.json` is the first *runtime* one (built per request, not from PROGMEM), and the WebUI loads it through `loadVisuals()` + `populateNamedDropdown('vustyle', data)`
 - Readiness detail:
   - `/ready` returns `{"ready":true}` only when `netserver.bootReady` is true, required web files exist, and network state is stable (`CONNECTED` + `WL_CONNECTED`, or `SDREADY`).
 - OTA note:
@@ -777,6 +784,7 @@ The widget classes mix two allocation conventions; release must match allocation
 | `_sep`, `_window` | `ScrollWidget` | `malloc` | `free` |
 | `_fb` | `ScrollWidget`, `ClockWidget` | `new psFrameBuffer` | `delete` |
 | `_canvas` | `VuWidget` | `new Canvas` | `delete` |
+| `_caps` *(removed)* | `VuWidget` | was an in-object array for the spectrum's per-band caps | — the caps were cut on review, so the widget carries no per-band state |
 
 Rules:
 - Never `free()` a `new`-allocated object: `free()` skips the destructor and leaks the internal buffer.
@@ -796,19 +804,38 @@ Each config type has its own field that makes a widget meaningful, and that is w
 
 `_fullbitrate` and `_bitrate` are alternatives: an empty `.fullbitrateConf` falls back to `.bitrateConf`, and `_reinitWidgets` must tear down whichever one is no longer wanted even when the replacement config is itself empty.
 
-## VU Widget Rendering (TFT vs OLED)
+## VU Widget Rendering (TFT vs OLED, and the runtime style)
 
-`VuWidget` is compiled for every graphics display (`#if !defined(DSP_LCD)` in `widgets.cpp`); character LCDs get inert stubs. Geometry, `_levels()` and the colour-ramp selection are shared, and only the pixel surface differs:
+`VuWidget` lives in **`src/displays/widgets/widget_vu.h` / `widget_vu.cpp`** — it moved out of `widgets.h`/`widgets.cpp` because it is now seven draw paths over one box. `widget_vu.h` includes `widgets.h`; **`widgets.h` must not include `widget_vu.h`** (that is the include cycle) — `display.cpp` includes it explicitly instead. It is compiled for every graphics display (`#if !defined(DSP_LCD)`); character LCDs get inert stubs in the same file.
+
+`_draw()` is a **dispatcher**: it resolves the area once into `_len`/`_thk`/`_cw`/`_ch`, calls `_levels()`, fills the whole area with the background, then switches on `config.store.vustyle` and blits once at the end. The styles are `vuStyle_e` from `widgetsconfig.h` — **six of them**: bars (0), bars with LED steps (1), history strip (2), Spectrum (3), waveform (4), Lissajous (5). The ids are persisted in `config.store.vustyle` and are the keys in `/visuals.json`, so they must never be renumbered again (Spectrum A was cut, and the ids shifted, before the first release). `_fillLocal()` is the only helper that knows the pixel surface:
 
 | | TFT (`DSP_TFT`) | OLED (`DSP_OLED`) |
 |---|---|---|
 | Buffer | `Canvas *_canvas`, 16-bit (`GFXcanvas16`) | none — the driver owns the framebuffer |
 | `init()` | allocates the canvas | no allocation |
-| `_drawBand()` | `_canvas->fillRect` at widget-local coords | `dsp.fillRect` at `_config.left/top` + local coords |
-| `_draw()` fills | `fillLocal` lambda | same lambda, writing to `dsp` |
+| Fills | `_canvas->fillRect` at widget-local coords | `dsp.fillRect` at `_config.left/top` + local coords |
 | Transfer | one `startWrite`/`setAddrWindow`/`writePixels`/`endWrite` | none — `DspCore::loop()` calls `display()` |
 
-`fillLocal` is a lambda inside `_draw()` so the geometry and clear-rect logic are written once. Do not reintroduce `drawRGBBitmap` here — the manual blit is deliberate (see the memory-ownership notes above).
+The shared box fill in `_draw()` is the clear for **every** style, including the tail-clear bar family: every fill and `_clear()` stops at `len`, so the final (clamped) segment is only clean because the box was cleared first. Do not reintroduce `drawRGBBitmap` here — the manual blit is deliberate (see the memory-ownership notes above).
+
+**Two kinds of layout, one drawing rule.** The **bar family** (styles 0-1) draws two strips where `bandsConf` says they are, so `rotateVU`, `align` and `boomboxVU` all matter to it, exactly as they always have. **Every other style** (2-5) draws into one area, `_cw` x `_ch`: time or frequency runs along its **width**, the two channels split its **height**, and `boomboxVU` is ignored. Nothing transposes - the OLED, the rotated TFT box, the portrait TFT box and the BoomBox ribbon get the same picture. The booleans are read in `_draw()` for both cases, but only to size the area: `_rotate` picks `_cw = bandsConf.height` with `_ch = bandsConf.width * 2 + bandsConf.space`, otherwise it is the other way round. `_fillLocal()` is the only pixel helper; the non-bar painters never touch the per-channel geometry. A first cut transposed the non-bar styles onto the area's *long* axis, which put the portrait box's spectrum on its side and needed per-family special cases - all of that is gone.
+
+**The sample styles need audio the VS1053 does not have.** `player.getWaveform(int16_t* out, uint16_t n)` returns `n` interleaved L/R pairs (oldest first) and `player.getSpectrum(uint8_t* bands, uint8_t n)` returns `2 * n` band values in 0..255 (L's bands then R's), or `false` when there is nothing to give. On the I2S path the audio task keeps a `VU_CAPTURE_SAMPLES` (512) rolling window, rotated into a published copy on the `f_vu` tick with a sequence counter around the copy; a reader that sees the sequence move drops the frame rather than drawing a torn trace. On the VS1053 both methods are stubs returning `false`, which is why the spectrum there is synthesised from the level in the widget and labelled "(simulated)". **The transform only exists where it is used**: `getSpectrum()` is dead code on a VS1053 build, so the linker drops its twiddle table, Hann table and FFT scratch entirely.
+
+**The spectrum's scale is two factors that are easy to lose.** `getSpectrum()` returns 0..255 where 255 is a full-height bar, and it gets there as `sqrt(mean power) * (2/N) * (2/32768) * gain`. The first two are the transform's own normalisation; the third takes the int16 sample range down to 0..1 *and* gives back the Hann window's 0.5 coherent gain; and `gain` is **the meter's reference**, `clamp(256 / config.vuThreshold, 1, 32)`, so the loudest content the level meter has seen sits at full scale. That is what makes the I2S spectrum behave like the level bar beside it and like the simulated source on the VS1053, which is fed that same calibrated level. Dropping the `2/32768` pins every band at 255 and hot — that is exactly what the first hardware build did. The dB window is `VU_SPECTRUM_DB_FLOOR` (60) in `options.h`.
+
+**Three spectrum and trace layout details.** The inter-bar gap is `VU_SPECTRUM_SPACE_PX`, never `bandsConf.space` (that separates the two *meter strips* — 4 px on one TFT layout, 17 px on another, which left only 7 bars on the second). Because `barW` is floored, the bar block is **centred** under the baseline from `(width - used) / 2` instead of being left against the right edge. And the Lissajous joins each sample pair to the previous one with a stepped line — one fill per pixel of the longer axis — because isolated dots read as a scatter rather than as a vectorscope trace.
+
+**The sample styles use the same reference as everything else.** `_waveGain()` is `65536 / config.vuThreshold` in 8.8 fixed point (256 = unity, clamped to 0.25x..32x), applied to the waveform's amplitude and the Lissajous's X and Y, with the hot colouring measured *after* it. Without it both styles were absolute readings of raw int16: a trace that hugged the middle of the area and could never reach the hot zone. An uncalibrated meter (threshold 0) maps to unity. The Lissajous hot test is proportional on whichever axis the beam is furthest out on — a single `min(halfW, halfH)` scale can never go hot at the left or right edge of a wide box.
+
+**The `[PSRAM]` core-monitor line is the memory diagnostic, and its fields are a contract.** `Used / total: Framebuffer: X, VU FFT: X, WebUI Cache: X, Audio buffered: X, Contiguous Free: X`. `VU FFT` is `vuPsramBytes` (declared in `config.h`, defined in `config.cpp`), written by the audio library's scratch allocator, and it reads 0 until a spectrum frame has been drawn because that allocation is lazy. `Contiguous Free` is `heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)` — the largest single free block, which is the figure that reveals fragmentation, since total free can look healthy while the biggest block shrinks. Add new fields at the end rather than reordering.
+
+**Pacing is adaptive now, not a fixed divisor.** `VuWidget::loop()` times `_draw()` with `micros()`, smooths the cost (`_drawUs`, a quarter of each sample) and sets `interval = max(VU_REFRESH_MS, cost * VU_DUTY_FACTOR)`, both macros in `options.h` — at the default factor of 3, a frame spends at most a third of its own interval drawing. `VU_REFRESH_MS` is the floor and stays the number the level bars care about, so the limiter can only ever slow a style **below** the rate the audio core publishes levels at. `_redrawMs` (the limiter's timestamp) is deliberately **not** `_lastMs` (the fade maths' time base): while they were shared, a skipped frame showed up as a doubled `dt` in the fade. `VU_SAMPLE_REFRESH_DIV` is gone — it was a fixed guess at which styles were heavy and by how much, and it covered only two of them. On TFT the blit is inside `_draw()` and counted; on OLED the panel flush is paid afterwards by the display task, so the figure measured there is the widget's own cost. **While the startup services are downloading** the floor is multiplied by `VU_STARTUP_SERVICES_DIV` (4), so every style redraws a quarter as often for that window — the updater holds up to three TLS sessions on the network core and the audio stream is usually already up. The gate is [`startup.servicesBusy()`](src/core/startup.h:19), set by the services task around its own downloads: **not** `SVC_WILL_RUN`, which also covers the SD-mode park and the 10 s countdown, where the display must stay fast.
+
+**History is the one style a variable redraw rate breaks**, because its x axis *is* time, so `_drawHistory()` advances by wall clock: it pushes however many columns the elapsed time owes (one per `VU_REFRESH_MS`), keeping the sub-tick remainder in `_histMs` so the strip does not drift, and a gap longer than the strip fills it in one go rather than replaying it. It also draws **two rects per column, not four** — the tick at each level is already inside either the fill (switch off) or the joined run (switch on), so only the first column, which has nothing to join to, needs bare ticks. The waveform and the Lissajous need neither fix: they plot the whole capture window every frame, so only their refresh rate moves.
+
+**The draw-cost report is the measuring instrument.** With `WIDGET_DEBUG` defined, `loop()` accumulates frames, fills and draw time and prints them every 5 s like the Core Monitor: `[VU.Widget] Box 404x7, style 3: 28.1 FPS, draw 1.05ms avg / 2.31ms peak, interval 33ms, 12.0 fills/frame, free heap 93000`. `fills/frame` counts `_fillLocal()` and `_drawBand()` calls (not the blit) and is what shows whether a style is drawing rects it does not need; the draw time shows whether the box is simply too big for the panel. The members and the log are both behind `#ifdef WIDGET_DEBUG`, so a normal build pays nothing for either. The `WIDGET_DEBUG` line in `options.h`'s `ALL_DEBUG_LOGS` block used to read `#ifdef WIDGET_DEBUG`, a define that could never take effect; it is now `#ifndef`, matching its siblings.
 
 ### Colours on OLED
 

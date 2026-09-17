@@ -792,9 +792,9 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef STARTUP_ASYNC_SERVICES_DELAY
   #define STARTUP_ASYNC_SERVICES_DELAY 10
 #endif
- // How many seconds to wait after boot completed (including smart start) to consider successful, if rebooted during that time, will enter safe mode (disables smart start, autoupdate, boots to web not SD)
- #ifndef BOOT_STABLE_TIME
-  #define BOOT_STABLE_TIME 30
+ // How many seconds to wait after boot completed (including smart start and Async Services) to consider successful, if rebooted during that time, will enter safe mode (disables smart start, autoupdate, boots to web not SD)
+  #ifndef BOOT_STABLE_TIME
+  #define BOOT_STABLE_TIME 10
 #endif
 #ifndef SEARCHRESULTS_BUFFER
  // Buffer for chunked HTTP transfers from radio-browser.info. Defined in KB; conversion to bytes done in netserver.cpp.
@@ -1034,13 +1034,31 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #define VU_PEAK_FADE_DIV 2 // peak marker takes this many times the bar's fall time
 #endif
 #ifndef VU_PEAK_THICKNESS_MILLI
-  #define VU_PEAK_THICKNESS_MILLI 11   // marker thickness = length * 11/1000, rounded up (never below 1 px)
+  #define VU_PEAK_THICKNESS_MILLI 11 // marker thickness = length * 11/1000, rounded up (never below 1 px)
+#endif
+#ifndef VU_DUTY_FACTOR
+  #define VU_DUTY_FACTOR 3 // redraw interval = max(VU_REFRESH_MS, draw time * this): 3 means a 1/3 duty
+#endif
+#ifndef VU_STARTUP_SERVICES_DIV
+  #define VU_STARTUP_SERVICES_DIV 4 // redraws this many times slower until the Startup Services finish
 #endif
 #ifndef VU_SPECTRUM_MIN_PX
   #define VU_SPECTRUM_MIN_PX 2 // minimum pixels of a spectrum channel
 #endif
+#ifndef VU_SPECTRUM_SPACE_PX
+  #define VU_SPECTRUM_SPACE_PX 1 // spacing between spectrum channels
+#endif
+#ifndef VU_SPECTRUM_DB_FLOOR
+  #define VU_SPECTRUM_DB_FLOOR 60 // Spectrum floor, dB below full scale; sets display range
+#endif
 #ifndef VU_SPECTRUM_MAX_CHANNELS
   #define VU_SPECTRUM_MAX_CHANNELS 15 // maximum number of channels each R/L
+#endif
+#ifndef VU_HISTORY_MIN_PX
+  #define VU_HISTORY_MIN_PX 2 // minimum pixels of a history strip column
+#endif
+#ifndef VU_CAPTURE_SAMPLES
+  #define VU_CAPTURE_SAMPLES 512 // rolling window and FFT size; must be a power of two
 #endif
 
 
@@ -1192,8 +1210,8 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #ifndef CORE_MONITOR
     #define CORE_MONITOR // This shows the ESP32 CPU Core Monitor in serial and telnet (updated every 5s), includes SPIFFS information
   #endif
-  #ifdef WIDGET_DEBUG
-    #define WIDGET_DEBUG // This shows the Widget's Text in logging.  It's extremely noisy.
+  #ifndef WIDGET_DEBUG
+    #define WIDGET_DEBUG // This shows the Widget's Text (and the VU draw cost) in logging
   #endif
 #endif
 #ifndef CORE_MONITOR_ETC_LOOPS
@@ -1339,6 +1357,9 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 #ifndef SHOW_VU_PEAK
   #define SHOW_VU_PEAK true
+#endif
+#ifndef VU_STYLE_DEFAULT
+  #define VU_STYLE_DEFAULT 0 // be sure about the number before setting it
 #endif
 #ifndef WIFI_SCAN_BEST_RSSI
   #define WIFI_SCAN_BEST_RSSI true

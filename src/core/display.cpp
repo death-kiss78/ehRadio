@@ -19,6 +19,7 @@
 #include "../displays/themes.h"
 #include "../displays/widgets/pages.h"
 #include "../displays/widgets/widgets.h"
+#include "../displays/widgets/widget_vu.h"
 #include "battery.h"
 
 extern const char batterytxtFmt[] PROGMEM;

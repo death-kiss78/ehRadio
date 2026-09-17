@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <DNSServer.h>
 #include <esp_system.h>
+#include <esp_heap_caps.h>   // heap_caps_get_largest_free_block, for the [PSRAM] contiguous figure
 #include "core/battery.h"
 #include "core/backlightcontrols.h"
 #include "core/config.h"
@@ -156,12 +157,14 @@ void loop() {
           size_t psramTotal = ESP.getPsramSize();
           size_t psramUsed  = psramTotal - ESP.getFreePsram();
           size_t audioFill  = player.inBufferFilled();
-          FUNCTIONLOG("PSRAM", "Used: %uKB / %uKB: Framebuffer: %uKB, WebUI Cache: %uKB, Audio buffered: %uKB",
+          FUNCTIONLOG("PSRAM", "Used: %uKB / %uKB: Framebuffer: %uKB, VU FFT: %uKB, WebUI Cache: %uKB, Audio buffered: %uKB, Contiguous Free: %uKB",
               psramUsed / 1024,
               psramTotal / 1024,
               psramFrameBufferBytes / 1024,
+              vuPsramBytes / 1024,
               netserver.getFileCache().totalBytes() / 1024,
-              audioFill / 1024);
+              audioFill / 1024,
+              heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024);
         }
       }
       cmLastPrint = millis();

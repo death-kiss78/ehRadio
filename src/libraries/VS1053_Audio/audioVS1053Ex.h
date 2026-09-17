@@ -446,6 +446,12 @@ public:
     void     setVUmeter();
     uint16_t get_VUlevel(uint16_t dimension);
     void     computeVUlevel();
+    /* No PCM ever reaches this chip, so the sample-based visualiser styles cannot exist here: both of
+       these return false, which keeps the widget's "is there a spectrum?" path the same on both audio
+       backends.  The spectrum style is still offered on this build - it is drawn from the synthesised
+       band source - and only the waveform and the Lissajous are absent from /visuals.json. */
+    bool     getWaveform(int16_t *out, uint16_t n);
+    bool     getSpectrum(uint8_t *bands, uint8_t n);
     bool     eofHeader;
     // implement several function with respect to the index of string
     void strlower(char *str){

@@ -2748,6 +2748,19 @@ uint16_t Audio::get_VUlevel(uint16_t dimension){
   return ((uint8_t)lL << 8) | (uint8_t)lR;
 }
 //---------------------------------------------------------------------------------------------------------------------
+/* The chip decodes in hardware, so there is no PCM here to hand out: a waveform or a Lissajous cannot
+   exist on this path, and the spectrum is synthesised in the widget from the level instead.  Both
+   return false so the widget needs one code path rather than an #if per style. */
+bool Audio::getWaveform(int16_t *out, uint16_t n){
+  (void)out; (void)n;
+  return false;
+}
+
+bool Audio::getSpectrum(uint8_t *bands, uint8_t n){
+  (void)bands; (void)n;
+  return false;
+}
+//---------------------------------------------------------------------------------------------------------------------
 void Audio::setConnectionTimeout(uint16_t timeout_ms, uint16_t timeout_ms_ssl){
     if(timeout_ms)     m_timeout_ms     = timeout_ms;
     if(timeout_ms_ssl) m_timeout_ms_ssl = timeout_ms_ssl;

@@ -12,6 +12,7 @@
 #if VS1053_CS==255
 #include "../../core/config.h"
 #include "Audio.h"
+#include <esp_heap_caps.h>   // for the PSRAM-preferred spectrum scratch
 
 #include "aac_decoder/aac_decoder.h"
 #include "flac_decoder/flac_decoder.h"
@@ -5300,25 +5301,43 @@ void Audio::computeVUlevel(int16_t sample[2]) {
         return maxValue;
     };
 
+    /* --- visualiser capture ---------------------------------------------------------------------
+       Every decoded pair lands in the rolling window before any of the level maths below.  The window
+       is rotated out for the display task on the f_vu tick (see _capturePublish), which is once per
+       512 calls, so a redraw sees exactly the samples the level it is drawn beside was built from. */
+    _capWin[LEFTCHANNEL][_capPos]  = sample[LEFTCHANNEL];
+    _capWin[RIGHTCHANNEL][_capPos] = sample[RIGHTCHANNEL];
+    if (++_capPos >= VU_CAPTURE_SAMPLES) _capPos = 0;
+
+    /* The ladder as it actually behaves.  cnt0 is never incremented, so `if(cnt0 == 64)` never runs
+       and every `if(!cntN)` test below passes on every call: the "every 64th sample" step that the
+       comments further down describe does not exist.  The real cadence is 8 x 8 x 8 = 512 sample pairs
+       per published level, ~86 Hz at 44.1 kHz, and sampleArray[0] holds the last 8 samples rather than
+       a decimated history.
+       This is long-standing upstream behaviour - the same code, with the same stale comments, is in
+       every other audio library generation in this workspace - and it is deliberately NOT fixed here.
+       Adding the missing cnt0++ would put a 64:1 decimation in front of the meter and retune its
+       attack and decay, which is a visible change to a known feature that would need its own hardware
+       A/B.  See .github/code-issues.md. */
     if(cnt0 == 64) { cnt0 = 0; cnt1++; }
     if(cnt1 == 8) { cnt1 = 0; cnt2++; }
     if(cnt2 == 8) { cnt2 = 0; cnt3++; }
     if(cnt3 == 8) { cnt3 = 0; cnt4++; f_vu = true; }
     if(cnt4 == 8) { cnt4 = 0; }
 
-    if(!cnt0) { // store every 64th sample in the array[0]
+    if(!cnt0) { // every call, because cnt0 never moves off zero: the last 8 samples
         sampleArray[LEFTCHANNEL][0][cnt1] = abs(sample[LEFTCHANNEL] >> 7);
         sampleArray[RIGHTCHANNEL][0][cnt1] = abs(sample[RIGHTCHANNEL] >> 7);
     }
-    if(!cnt1) { // store argest from 64 * 8 samples in the array[1]
+    if(!cnt1) { // largest of the last 8 samples, i.e. of the last 64 calls
         sampleArray[LEFTCHANNEL][1][cnt2] = largest(sampleArray[LEFTCHANNEL][0]);
         sampleArray[RIGHTCHANNEL][1][cnt2] = largest(sampleArray[RIGHTCHANNEL][0]);
     }
-    if(!cnt2) { // store avg from 64 * 8 * 8 samples in the array[2]
+    if(!cnt2) { // largest of the last 8 of those, i.e. of the last 512 calls
         sampleArray[LEFTCHANNEL][2][cnt3] = largest(sampleArray[LEFTCHANNEL][1]);
         sampleArray[RIGHTCHANNEL][2][cnt3] = largest(sampleArray[RIGHTCHANNEL][1]);
     }
-    if(!cnt3) { // store avg from 64 * 8 * 8 * 8 samples in the array[3]
+    if(!cnt3) { // average of the last 8 of those, i.e. one level per 512 calls
         sampleArray[LEFTCHANNEL][3][cnt4] = avg(sampleArray[LEFTCHANNEL][2]);
         sampleArray[RIGHTCHANNEL][3][cnt4] = avg(sampleArray[RIGHTCHANNEL][2]);
     }
@@ -5328,6 +5347,10 @@ void Audio::computeVUlevel(int16_t sample[2]) {
         if(vuLeft>config.vuThreshold)  config.vuThreshold = vuLeft;
         vuRight = (avg(sampleArray[RIGHTCHANNEL][3]));
         if(vuRight>config.vuThreshold) config.vuThreshold = vuRight;
+        /* Publish the window on the same tick as the level, so the two never describe different
+           audio.  Costs one 2 KB rotation per 512 samples, which is a fraction of a percent of this
+           task. */
+        _capturePublish();
     }
     cnt1++;
 }
@@ -5344,6 +5367,189 @@ uint16_t Audio::get_VUlevel(uint16_t dimension){
     vuRight = vuRight * 1.6;
     return (vuLeft << 8) + vuRight;
 */
+}
+//****************************************************************************************
+/* ---- Visualiser capture -----------------------------------------------------------------------
+   The audio task publishes here and the display task reads.  The payload is 2 KB rather than the
+   single byte vuLeft/vuRight hand over, so a read can land mid-copy; the sequence number goes odd
+   before the copy and even after it, and every reader compares the value across its own copy and
+   drops the frame when it moved.  One stale frame at 30 Hz is invisible, a spliced trace is not. */
+void Audio::_capturePublish() {
+  const uint16_t tail = VU_CAPTURE_SAMPLES - _capPos;   // samples from _capPos to the end of the ring
+  __sync_synchronize();
+  _capSeq++;                                            // odd: a publish is in progress
+  for (int ch = 0; ch < 2; ch++) {
+    /* Two copies rather than a modulo per sample: the ring is linearised here, so readers get the
+       window oldest-first and never have to rotate it themselves. */
+    memcpy(&_capPub[ch][0],    &_capWin[ch][_capPos], (size_t)tail * sizeof(int16_t));
+    memcpy(&_capPub[ch][tail], &_capWin[ch][0],       (size_t)_capPos * sizeof(int16_t));
+  }
+  __sync_synchronize();
+  _capSeq++;                                            // even again: the copy above is complete
+}
+
+/* Interleaved L/R, oldest first and newest last, which is the order both sample styles want. */
+bool Audio::getWaveform(int16_t *out, uint16_t n) {
+  if (!out || !n || n > VU_CAPTURE_SAMPLES) return false;
+  if (!config.store.vumeter) return false;
+  const uint32_t seq = _capSeq;
+  if (!seq || (seq & 1)) return false;                  // never published, or a publish is in flight
+  const uint16_t first = VU_CAPTURE_SAMPLES - n;        // the newest n samples sit at the end
+  for (uint16_t i = 0; i < n; i++) {
+    out[i * 2]     = _capPub[LEFTCHANNEL][first + i];
+    out[i * 2 + 1] = _capPub[RIGHTCHANNEL][first + i];
+  }
+  return (_capSeq == seq);                              // false when the publisher moved under us
+}
+//****************************************************************************************
+/* ---- Spectrum ---------------------------------------------------------------------------------
+   A self-contained radix-2 FFT rather than ESP-DSP's.  The framework ships esp-dsp as a prebuilt
+   library (libespressif__esp-dsp.a) with the headers but no sources and no examples, and the only
+   sizing contract available is ambiguous: dsps_fft2r_init_fc32() documents table_size as "size of the
+   buffer in float words" but range-checks it against CONFIG_DSP_MAX_FFT_SIZE, which is a count of FFT
+   points.  Getting that wrong is an out-of-bounds table access on the audio board, so it is not worth
+   guessing at.  Everything below is sized by construction, adds no flash, and runs on the display
+   task where ~1 ms per frame is free.  Swapping in the optimised kernel later touches only this
+   block: the window, the band maths and the return contract all stay. */
+static const float VU_TWO_PI = 6.283185307179586f;
+
+/* PSRAM-preferred scratch for the transform.  Boards with PSRAM have megabytes of it and internal RAM is
+   what actually runs short - the boot-time updater's concurrent TLS sessions can take it down to a few
+   KB, which is the window in which a boot can fail, so 8 KB of scratch is worth relocating.  Only the
+   display task ever touches these buffers, so PSRAM's latency is not in the decode path.  Falls back to
+   internal RAM where there is no PSRAM, and counts what came from PSRAM so the [PSRAM] boot log can
+   show it (vuPsramBytes, declared in core/config.h). */
+static void* vuScratchAlloc(size_t bytes) {
+  void *p = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
+  if (p) { vuPsramBytes += (uint32_t)bytes; return p; }
+  return heap_caps_malloc(bytes, MALLOC_CAP_8BIT);
+}
+
+static void vuFft(float *d, int n, const float *tw) {
+  /* In place, decimation in time, interleaved complex.  tw holds n/2 pairs, tw[2k] = cos(-2.pi.k/n)
+     and tw[2k+1] = sin(-2.pi.k/n). */
+  for (int i = 1, j = 0; i < n; i++) {                  // bit-reversal permutation
+    int bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      const float tr = d[i * 2], ti = d[i * 2 + 1];
+      d[i * 2] = d[j * 2]; d[i * 2 + 1] = d[j * 2 + 1];
+      d[j * 2] = tr;       d[j * 2 + 1] = ti;
+    }
+  }
+  for (int len = 2; len <= n; len <<= 1) {
+    const int half = len >> 1, step = n / len;
+    for (int i = 0; i < n; i += len) {
+      for (int k = 0; k < half; k++) {
+        const float wr = tw[(k * step) * 2], wi = tw[(k * step) * 2 + 1];
+        const int a = i + k, b = a + half;
+        const float xr = d[b * 2], xi = d[b * 2 + 1];
+        const float tr = xr * wr - xi * wi, ti = xr * wi + xi * wr;
+        const float ur = d[a * 2], ui = d[a * 2 + 1];
+        d[a * 2] = ur + tr; d[a * 2 + 1] = ui + ti;
+        d[b * 2] = ur - tr; d[b * 2 + 1] = ui - ti;
+      }
+    }
+  }
+}
+
+/* Low bands for L, then the low bands for R.  The band edges are log-spaced and cached per band count,
+   so the painter's N decides both the count and the edges and a narrow box shows fewer bands with the
+   right edges rather than the same bands stretched. */
+bool Audio::getSpectrum(uint8_t *bands, uint8_t n) {
+  const int N = VU_CAPTURE_SAMPLES;
+  if (!bands || !n || n > VU_SPECTRUM_MAX_CHANNELS) return false;
+  if (!config.store.vumeter) return false;
+  const uint32_t seq = _capSeq;
+  if (!seq || (seq & 1)) return false;                  // never published, or a publish is in flight
+
+  /* One set of tables and one scratch buffer, allocated on first use and kept for the life of the
+     device.  Static POINTERS rather than static arrays on purpose: arrays would be internal RAM, and
+     this 8 KB belongs in PSRAM where the board has it (see vuScratchAlloc).  Built once, not per frame. */
+  static float  *tw = nullptr, *hann = nullptr, *buf = nullptr;
+  static int     edgeBin[VU_SPECTRUM_MAX_CHANNELS + 1];
+  static uint8_t edgeN = 0;
+  static bool    ready = false;
+  if (!ready) {
+    tw   = (float*)vuScratchAlloc((size_t)(N / 2) * 2 * sizeof(float));   // N/2 complex pairs
+    hann = (float*)vuScratchAlloc((size_t)N * sizeof(float));
+    buf  = (float*)vuScratchAlloc((size_t)N * 2 * sizeof(float));
+    if (!tw || !hann || !buf) {
+      /* No scratch at all: the spectrum cannot run, and the caller falls back to the simulated source.
+         Free whatever did land so this does not accumulate on a device that is out of memory. */
+      if (tw)   { free(tw);   tw   = nullptr; }
+      if (hann) { free(hann); hann = nullptr; }
+      if (buf)  { free(buf);  buf  = nullptr; }
+      return false;
+    }
+    for (int k = 0; k < N / 2; k++) {
+      const float a = -VU_TWO_PI * k / N;
+      tw[k * 2] = cosf(a); tw[k * 2 + 1] = sinf(a);
+    }
+    for (int i = 0; i < N; i++) hann[i] = 0.5f - 0.5f * cosf(VU_TWO_PI * i / N);
+    ready = true;
+  }
+
+  const float binHz = (float)(m_sampleRate ? m_sampleRate : 44100) / N;
+  if (edgeN != n) {                                     // the painter asked for a different band count
+    const float fmin = 40.0f, fmax = 16000.0f;
+    for (uint8_t b = 0; b <= n; b++) {
+      const float f = fmin * powf(fmax / fmin, (float)b / n);
+      int k = (int)(f / binHz);
+      if (k < 1) k = 1;                                 // bin 0 is DC, and a log scale never wants it
+      if (k > N / 2) k = N / 2;
+      if (b && k <= edgeBin[b - 1]) k = edgeBin[b - 1] + 1;   // never a zero-width band
+      edgeBin[b] = k;
+    }
+    edgeBin[0] = 1;
+    edgeN = n;
+  }
+
+  /* The reference the height of a bar is measured against, and it is deliberately the SAME one the
+     level bars use.  config.vuThreshold is the loudest the stream has been, in units of
+     sample / 128 (computeVUlevel() stores abs(sample >> 7) and keeps the high-water mark), so
+     256 / vuThreshold puts that loudest content at full scale.  Without it the spectrum would be an
+     absolute dBFS meter: music sits 20-40 dB down, the hot zone never lights, and the I2S path would
+     look nothing like the synthesised one on the VS1053, which is fed the calibrated level directly.
+     Clamped because a stream that has barely been audible gives an absurd gain, and 256 means
+     "never calibrated": gain 1, which is honest until the meter has seen something. */
+  float gain = 256.0f / (float)(config.vuThreshold ? config.vuThreshold : 256);
+  if (gain < 1.0f)  gain = 1.0f;
+  if (gain > 32.0f) gain = 32.0f;
+  const float floorDb = VU_SPECTRUM_DB_FLOOR ? (float)VU_SPECTRUM_DB_FLOOR : 60.0f;
+
+  for (int ch = 0; ch < 2; ch++) {
+    const int16_t *src = &_capPub[ch][0];
+    for (int i = 0; i < N; i++) { buf[i * 2] = (float)src[i]; buf[i * 2 + 1] = 0.0f; }
+    if (_capSeq != seq) return false;                   // staged mid-publish: drop the frame
+    for (int i = 0; i < N; i++) buf[i * 2] *= hann[i];  // Hann in place, so the bin leakage is bounded
+    vuFft(buf, N, tw);
+    for (uint8_t b = 0; b < n; b++) {
+      const int k0 = edgeBin[b], k1 = edgeBin[b + 1];
+      float acc = 0.0f;
+      for (int k = k0; k < k1; k++) {
+        const float re = buf[k * 2], im = buf[k * 2 + 1];
+        acc += re * re + im * im;
+      }
+      /* Mean magnitude over the band, in four factors, because the scale of each one matters and a
+         missing one is invisible until it is on a panel:
+           sqrt            - mean power to amplitude
+           2 / N           - the transform's own normalisation
+           2 / 32768       - the int16 sample range down to 0..1, and the Hann window's 0.5 coherent
+                             gain back up, so a full-scale sine in one bin reads exactly 1.0
+           gain            - the meter's reference above
+         Leaving out the 32768 is what pinned every band at 255 on the first hardware run: the samples
+         went in raw, so a full-scale sine came out at +84 dB and clamped.  A quiet or short element
+         still simply lands at the bottom, which is how the bars behave. */
+      const float mag = sqrtf(acc / (float)(k1 - k0)) * (2.0f / N) * (2.0f / 32768.0f) * gain;
+      float db = 20.0f * log10f(mag + 1e-9f);
+      if (db < -floorDb) db = -floorDb;
+      if (db > 0.0f)     db = 0.0f;
+      bands[ch * n + b] = (uint8_t)((db + floorDb) * (255.0f / floorDb));
+    }
+  }
+  return true;
 }
 //****************************************************************************************
 void Audio::setTone(int8_t gainLowPass, int8_t gainBandPass, int8_t gainHighPass) {

@@ -593,7 +593,7 @@ void NetServer::processQueue() {
                                   config.store.irtlp,
                                   VOLUME_SCALE);
                                   break;
-      case GETSCREEN:     snprintf(wsbuf, sizeof(wsbuf), "{\"flip\":%d,\"inv\":%d,\"nump\":%d,\"dspon\":%d,\"br\":%d,\"con\":%d,\"scre\":%d,\"scrb\":%d,\"scrt\":%d,\"scrpe\":%d,\"scrpb\":%d,\"scrpt\":%d,\"scrfull\":%d,\"bufbar\":%d,\"vu\":%d,\"vupeak\":%d,\"dim\":%d,\"dimto\":%d,\"dimbr\":%d,\"volpg\":%d,\"clock12\":%d,\"invtitle\":%d,\"layoutId\":%d,\"themeId\":%d}",
+      case GETSCREEN:     snprintf(wsbuf, sizeof(wsbuf), "{\"flip\":%d,\"inv\":%d,\"nump\":%d,\"dspon\":%d,\"br\":%d,\"con\":%d,\"scre\":%d,\"scrb\":%d,\"scrt\":%d,\"scrpe\":%d,\"scrpb\":%d,\"scrpt\":%d,\"scrfull\":%d,\"bufbar\":%d,\"vu\":%d,\"vupeak\":%d,\"vustyle\":%d,\"dim\":%d,\"dimto\":%d,\"dimbr\":%d,\"volpg\":%d,\"clock12\":%d,\"invtitle\":%d,\"layoutId\":%d,\"themeId\":%d}",
                                   config.store.flipscreen,
                                   config.store.invertdisplay,
                                   config.store.numplaylist,
@@ -610,6 +610,7 @@ void NetServer::processQueue() {
                                   config.store.bufferbar,
                                   config.store.vumeter,
                                   config.store.vupeak,
+                                  config.store.vustyle,
                                   config.store.dimmingEnabled,
                                   config.store.dimmingTimeout,
                                   config.store.dimmingBrightness,
@@ -1670,6 +1671,39 @@ void handleNotFound(AsyncWebServerRequest * request) {
       #endif
    );
     AsyncWebServerResponse *response = request->beginResponse(200, "application/javascript", varjsbuf);
+    response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    response->addHeader("Pragma", "no-cache");
+    response->addHeader("Expires", "0");
+    request->send(response);
+    return;
+  }
+  if (request->url() == "/visuals.json") {
+    /* Which visualisers this build can actually draw, as an id -> label map for the WebUI select.
+       The ids are vuStyle_e, the same numbers that travel in vustyle=<n> and come back in GETSCREEN,
+       so the select is generated from the device rather than hard-coded in the page.  A null label
+       means "this build cannot do it" and the entry is omitted - that is how the sample-based styles
+       disappear on a VS1053, which never sees PCM. */
+    static const struct { uint8_t id; const char *i2s; const char *vs; } vuStyleNames[] = {
+      { VU_STYLE_BARS,       "Bars",                   "Bars"                    },
+      { VU_STYLE_BARS_LED,   "Bars (segments)",        "Bars (segments)"         },
+      { VU_STYLE_HISTORY,    "History",                "History"                 },
+      { VU_STYLE_SPECTRUM,   "Spectrum",               "Spectrum (simulated)"    },
+      { VU_STYLE_WAVE,       "Waveform",               nullptr                   },
+      { VU_STYLE_LISSAJOUS,  "Lissajous",              nullptr                   },
+    };
+    char visualsbuf[320];
+    int n = snprintf(visualsbuf, sizeof(visualsbuf), "{");
+    for (uint8_t i = 0; i < sizeof(vuStyleNames) / sizeof(vuStyleNames[0]); i++) {
+      #if defined(USE_AUDIO_I2S)
+        const char *lbl = vuStyleNames[i].i2s;
+      #else
+        const char *lbl = vuStyleNames[i].vs;
+      #endif
+      if (!lbl) continue;
+      n += snprintf(visualsbuf + n, sizeof(visualsbuf) - n, "%s\"%u\":\"%s\"", (n > 1) ? "," : "", vuStyleNames[i].id, lbl);
+    }
+    snprintf(visualsbuf + n, sizeof(visualsbuf) - n, "}");
+    AsyncWebServerResponse *response = request->beginResponse(200, "application/json", visualsbuf);
     response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     response->addHeader("Pragma", "no-cache");
     response->addHeader("Expires", "0");

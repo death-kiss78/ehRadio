@@ -34,9 +34,9 @@ void Startup::sdOfflineMode() {
   network.ctimer.attach(1, ticks);  // 1ms heartbeat for player audio callbacks (bitrate, etc.)
 }
 
-void Startup::markBootStable() {
+void Startup::markBootStable(const char* reason) {
   config.saveValue(&config.store.bootStableMarker, true);
-  BOOTLOG("Boot stable after %lu ms", millis() - _bootStartMs);
+  BOOTLOG("Boot stable after %lu ms - %s", millis() - _bootStartMs, reason);
 }
 
 void Startup::loop() {
@@ -45,8 +45,17 @@ void Startup::loop() {
     _bootStartMs = millis();  // First loop() call — setup() (including smartstart) is done
     return;
   }
-  if (millis() - _bootStartMs > (BOOT_STABLE_TIME * 1000UL)) {
-    markBootStable();
+  /* A boot is proven stable only once the startup services have run they are the riskiest thing in the boot:
+     three TLS downloads (version check, timezones database, radio-browser list) against the internal heap */
+  if (_services == SVC_NONE) {
+    if (millis() - _bootStartMs > (BOOT_STABLE_TIME * 1000UL)) {
+      markBootStable("no startup services this boot");
+      _bootStablePending = false;
+    }
+    return;
+  }
+  if (_services == SVC_DONE && (millis() - _servicesDoneMs) > (BOOT_STABLE_TIME * 1000UL)) {
+    markBootStable("BOOT_STABLE_TIME after the startup services finished");
     _bootStablePending = false;
   }
 }
@@ -378,6 +387,11 @@ wait_for_online:
   }
 
   FUNCTIONLOG("Services", "Startup Async Services starting", STARTUP_ASYNC_SERVICES_DELAY);
+  /* From here to the end of the task the display chokes its redraw rate, because these three downloads
+     hold a TLS session each on the network core and the audio stream is usually up by the second one.
+     The flag covers the work only: the countdown above and the SD park are not "busy", so a long SD
+     session draws at the normal rate. */
+  startup._servicesBusy = true;
   #ifdef UPDATEURL
     utility.updateFile(param, "/data/new_ver.txt", CHECKUPDATEURL, CHECKUPDATEURL_TIME, "New version check");
     startup.checkNewVersionFile();
@@ -394,21 +408,34 @@ wait_for_online:
   #ifdef CORE_MONITOR
     FUNCTIONLOG("Core.HWM", "[%s] stack HWM: %u bytes", pcTaskGetName(NULL), uxTaskGetStackHighWaterMark(NULL) * 4);
   #endif
+  /* Last act of the services, and it is what lets Startup::loop() prove the boot.  Order matters: the
+     timestamp first, then the state, so the countdown can never read DONE with a stale timestamp.
+     Clearing busy before the state means the display can still be choked for a fraction of a second
+     after the last download, never the other way round. */
+  startup._servicesDoneMs = millis();
+  startup._servicesBusy = false;
+  startup._services = Startup::SVC_DONE;
   delete (ESPFileUpdater*)param;
   vTaskDelete(NULL);
 }
 
 void Startup::startupServices() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  #ifdef UPDATEURL
+  /* Every exit from here means something definite about whether the services will run, and Startup::loop()
+     relies on that: SVC_NONE is the default, so "not connected" needs no assignment, but the running case
+     must be recorded before the task can finish, or a fast download could be missed entirely. */
+  #ifndef UPDATEURL
+    return;   // no updater in this build: SVC_NONE says nothing risky will happen
+  #else
+    if (WiFi.status() != WL_CONNECTED) return;
     if (!config.wwwFilesExist) {
-      getRequiredFiles();
+      getRequiredFiles();   // reboots once the files are back
       return;
     }
 
     ESPFileUpdater* updater = new ESPFileUpdater(SPIFFS);
     updater->setMaxSize(1024);
     updater->setUserAgent(ESPFILEUPDATER_USERAGENT);
+    _services = SVC_WILL_RUN;
     xTaskCreatePinnedToCore(Startup::startupServicesAsync, "startupServicesAsync", 8192, updater, LOW_TASK_PRIORITY, NULL, NETWORK_CORE);
   #endif
 }

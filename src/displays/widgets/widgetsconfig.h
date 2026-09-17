@@ -53,6 +53,16 @@ struct MoveConfig {
   int16_t width;
 };
 
+enum vuStyle_e : uint8_t {
+  VU_STYLE_BARS = 0,      // the segmented bar VU that ships today
+  VU_STYLE_BARS_LED,      // the same bar with the lit boundary snapped to whole segments
+  VU_STYLE_HISTORY,       // level over time, both channels
+  VU_STYLE_SPECTRUM,      // bands across the frequency axis, L above the baseline and R below it
+  VU_STYLE_WAVE,          // waveform, I2S only
+  VU_STYLE_LISSAJOUS,     // vectorscope, I2S only
+  VU_STYLE_COUNT
+};
+
 struct BitrateConfig {
   WidgetConfig widget;
   uint16_t dimension;

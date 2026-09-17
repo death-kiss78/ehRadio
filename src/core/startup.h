@@ -15,14 +15,24 @@ public:
   void loop();
   void getDefaultPlaylist();
   void cleanStaleSearchResults();
+  bool servicesBusy() const { return _servicesBusy; } // true only while the services task is actually downloading
 
 private:
-  void markBootStable();
+  void markBootStable(const char* reason);
   void getRequiredFiles();
   void checkNewVersionFile();
   static void startupServicesAsync(void* param);
 
   uint32_t _bootStartMs = 0;
+  // Whether the startup services run this boot, decided by setup() before loop() can run - there is one call site, in main.cpp, and it is inside setup().
+  enum svcState_e : uint8_t {
+    SVC_NONE,      // not run: no WiFi, no UPDATEURL, or the web files are missing
+    SVC_WILL_RUN,  // the task was created; it may still be parked by SD mode
+    SVC_DONE       // finished
+  };
+  volatile svcState_e _services = SVC_NONE;
+  volatile uint32_t _servicesDoneMs = 0;
+  volatile bool _servicesBusy = false;
   bool _bootStablePending = false;
 };
 
