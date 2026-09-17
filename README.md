@@ -318,7 +318,7 @@ For that and other major needed changes to the codebase, there is a `code-issues
 
 | Date       | Release Notes    |
 | ---------- | ---------------- |
-| 2026.09.17 `dev` | NV3007 added (work in progress), Fixes to: SSD1327, `ROTATE_90` for square displays, TFT display resolutions, volume page, Firefox mobile, IR code overhauled and mute/power added, recover fast: network stack crash, Wi-fi and stream reconnects, major work on layouts and VU: OLED displays can get VU, timing fixed, bar orientation, peak bars, visualization options added (I2S gets more) |
+| 2026.09.17 `dev` | Major work on layouts and VU: OLEDs now can get VU, timing fixed, bar orientation, peak bars, visualizations added (I2S gets more), fixes to: SSD1327, `ROTATE_90` for square displays, TFT display resolutions, volume page, Firefox mobile, IR code overhauled and mute/power added, recover fast: network stack crash, Wi-fi and stream reconnects, NV3007 added (work in progress) |
 | 2026.08.19 | Stability and bug fixes (SD Offline), documentation |
 | 2026.08.13 | Memory usage, stability, and bug fixes (especially to SD, VS1053) |
 | 2026.08.03 | Minor fixes (and whoops) fixed Search and Curated |

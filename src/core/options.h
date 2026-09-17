@@ -81,13 +81,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #define ONE_CLICK_SWITCH true // need to force this on with no display
 #endif
 
-/* SSD1322 and SSD1327 are 4-bit / 16-level grayscale panels */
-// false uses the panel's own grayscale palette (in its display*.cpp)
-// true treats as 1-bit mono via tools/oledcolorfix.h
-#ifndef OLED_MONO
-  #define OLED_MONO false
-#endif
-
 /* --- DISPLAY RESOLUTION --- */
 // DSP_WIDTH / DSP_HEIGHT set the panel resolution in pixels.
 // Displays whose constructor accepts dimensions have defaults below - override in myoptions.h for variants
@@ -177,6 +170,14 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 #ifndef BRIGHTNESS_PIN
   #define BRIGHTNESS_PIN 255 // BRIGHTNESS Pin
+#endif
+
+/* SSD1322 is a 4-bit / 16-level grayscale panels */
+// Add this to your myoptions.h to use the greyscale palette - untested!
+// #define OLED_GREYSCALE true
+// SSD1327 proved to have issues showing greyscale so it no longer has this option
+#ifndef OLED_GREYSCALE
+  #define OLED_GREYSCALE false
 #endif
 
 /* Can the display be dimmed? If it is set to true but the Brightness Pin is not set... */

@@ -883,7 +883,7 @@ The shared box fill in `_draw()` is the clear for **every** style, including the
 `config.theme.vumax` / `vumin` are set per driver, not via `dspcolors.h`:
 
 - 1-bit panels (`tools/oledcolorfix.h`, `displayN5110.cpp`): both `TFT_FG`. A single bit cannot express two colours, so level reads from geometry alone.
-- `OLED_MONO` with `core/options.h`, default `false` selects 1-bit mono vs the driver's grayscale palette, and is only valid for `SSD1322` / `SSD1327`
+- `OLED_GREYSCALE` with `core/options.h`, default `false` selects the driver's grayscale palette (instead of 1-bit mono), and is only valid for `SSD1322` (support removed from`SSD1327`)
 
 `dspcolors.h` is deliberately minimal: only `BOOT_PRG_COLOR`, `BOOT_TXT_COLOR`, `TFT_BG`, `TFT_FG`. Panel-specific palettes live with their own drivers.
 

@@ -10,7 +10,7 @@
   DspCore::DspCore(): Jamis_SSD1322(DSP_WIDTH, DSP_HEIGHT, &SPI, TFT_DC, TFT_RST, TFT_CS, DEF_SPI_FREQ) {}
 
 void DspCore::initDisplay() {
-#if OLED_MONO
+#if !OLED_GREYSCALE
   #include "tools/oledcolorfix.h"
 #else
   /* Ordered to match theme_t in core/config.h */
