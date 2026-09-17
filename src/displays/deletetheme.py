@@ -3,8 +3,16 @@
 deletetheme.py — List or delete themes from themes.h.
 
 USAGE:
-    py deletetheme.py              # List themes with indices
+    py deletetheme.py              # List themes with indices, then pick one to delete
     py deletetheme.py <index>      # Delete theme at index (0-based)
+    py deletetheme.py -h | --help  # Show this help
+
+Deleting ALWAYS asks for confirmation — including when the index is passed on
+the command line.  There is no bypass flag.
+
+EXAMPLES:
+    py deletetheme.py
+    py deletetheme.py 3
 """
 
 import re, sys, os
@@ -66,7 +74,37 @@ def _parse_entries(content):
     return entries, m.start()
 
 
+def _ask_index(prompt, count, what):
+    """Prompt for a 0-based index into 'count' entries.  Blank/EOF/^C cancels (None)."""
+    while True:
+        try:
+            resp = input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if resp == '':
+            return None
+        if resp.isdigit() and 0 <= int(resp) < count:
+            return int(resp)
+        print(f"  Please enter 0-{count - 1} for the {what}, or blank to cancel.")
+
+
+def interactive_delete():
+    """No-argument flow: list the themes, pick one, then delete it."""
+    names = list_themes()
+    if not names:
+        return
+    idx = _ask_index(f"\nDelete which theme? [0-{len(names) - 1}] (blank to cancel): ",
+                     len(names), "theme")
+    if idx is None:
+        print("Cancelled. Nothing was changed.")
+        return
+    print()
+    delete_theme(idx)
+
+
 def list_themes():
+    """List themes in themes.h, numbered.  Returns the names list."""
     if not os.path.exists(TARGET):
         print(f"ERROR: {TARGET} not found.")
         sys.exit(1)
@@ -75,10 +113,13 @@ def list_themes():
     names, _, _ = _parse_names(content)
     if not names:
         print("No themes found.")
-        return
+        return names
+    print()
     print(f"Themes in file ({len(names)}):")
+    print()
     for i, name in enumerate(names):
         print(f"[{i}] {name}")
+    return names
 
 
 def delete_theme(index):
@@ -89,7 +130,7 @@ def delete_theme(index):
     with open(TARGET, 'r', encoding='utf-8') as f:
         content = f.read()
 
-    names, nm_start, nm_brace_end = _parse_names(content)
+    names, _, _ = _parse_names(content)
     entries, _ = _parse_entries(content)
 
     if index < 0 or index >= len(names):
@@ -105,36 +146,62 @@ def delete_theme(index):
         sys.exit(1)
 
     target_name = names[index]
-    print(f"Deleting: [{index}] {target_name}")
+
+    print(f"About to delete: [{index}] {target_name}  (from {os.path.basename(TARGET)})")
+    try:
+        reply = input("This cannot be undone. Continue? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        reply = ''
+    if reply not in ('y', 'yes'):
+        print("Cancelled. Nothing was changed.")
+        return False
 
     # Remove name from names list
     del names[index]
 
-    # Remove entry block from content
+    # Remove the entry block.  _parse_entries() runs its ^ against a slice, so for any
+    # entry after the first it also swallows the previous line's newline: normalise that
+    # start, then consume the entry's own line terminator, so the neighbours end up on
+    # adjacent lines instead of leaving a blank one behind or joining two lines.
     entry_start, entry_end = entries[index]
+    if content[entry_start] == '\n':
+        entry_start += 1
+    if entry_end < len(content) and content[entry_end] == '\n':
+        entry_end += 1
     content = content[:entry_start] + content[entry_end:]
 
     # Fix up: ensure no double-newlines after removal (max 1 blank line between entries)
     content = re.sub(r'\n{4,}', '\n\n\n', content)
 
-    # Rebuild _themeNames block
-    indented = '\n'.join(f'    "{n}",' for n in names)
-    new_names_block = f'const char _themeNames[][64] PROGMEM = {{\n{indented}\n}};'
-    content = content[:nm_start] + new_names_block + content[nm_brace_end + 1:]
+    # Rebuild _themeNames in the content, keeping the file's own trailing-comma
+    # style so a delete rewrites only the removed name's line.
+    nm = re.search(r'const char _themeNames\[\]\[\d+\] PROGMEM = \{', content)
+    if nm:
+        be = content.find('\n};', nm.end())
+        if be != -1:
+            keeps_trailing_comma = content[nm.end():be].rstrip().endswith(',')
+            lines = [f'    "{n}",' for n in names]
+            if not keeps_trailing_comma:
+                lines[-1] = lines[-1][:-1]
+            new_names_block = f'const char _themeNames[][64] PROGMEM = {{\n' + '\n'.join(lines) + '\n};'
+            content = content[:nm.start()] + new_names_block + content[be + 1:]
 
     content = re.sub(r'\};(\};)+', '};', content)
     with open(TARGET, 'w', encoding='utf-8') as f:
         f.write(content)
     print(f"Deleted [{index}] {target_name}")
-    print()
     list_themes()
+    return True
 
 def main():
     argv = sys.argv[1:]
     if not argv:
-        list_themes()
-    elif len(argv) == 1 and argv[0].isdigit():
-        delete_theme(argv[0])
+        interactive_delete()
+    elif argv[0] in ('-h', '--help'):
+        print(__doc__)
+    elif len(argv) == 1 and argv[0].lstrip('-').isdigit():
+        delete_theme(argv[0])  # asks for confirmation, always
     else:
         print(__doc__)
         sys.exit(1)

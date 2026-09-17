@@ -31,7 +31,6 @@ const BootData _bootConfig PROGMEM = {
 
 const char _layoutNames[][64] PROGMEM = {
     "Default",
-    "Default (no VU)",
     "Big VU",
     "Compact",
     "Minimal"
@@ -73,44 +72,6 @@ const LayoutData _layouts[] PROGMEM = {
         .clockMove           = { TFT_FRAMEWDT+(44/2)+2, 38+FONTSHIFT, 0 },
         .weatherMove         = { 0, 0, -1 },
         .weatherMoveVU       = { 0, 0, -1 },
-        .rotateVU            = true,
-        .shareWeatherIP      = true,
-        .shareBattRSSI       = true,
-    },
-    {   // Default (no VU)
-        /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
-        .metaConf            = {{ TFT_FRAMEWDT, TFT_FRAMEWDT, 2, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY, 2, SCROLLTIME*7/4 },
-        .title1Conf          = {{ TFT_FRAMEWDT, 19, 1, WA_LEFT }, 140, true, MAX_WIDTH-6*4, SCROLLDELAY, 1, SCROLLTIME },
-        .title2Conf          = {{ TFT_FRAMEWDT, 28, 1, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY, 1, SCROLLTIME },
-        .playlistConf        = {{ TFT_FRAMEWDT, 30, 1, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY/5, 1, SCROLLTIME },
-        .weatherConf         = {{ TFT_FRAMEWDT, 64-9, 1, WA_LEFT }, 140, true, MAX_WIDTH-6*4, 0, 1, SCROLLTIME },
-        /* BACKGROUNDS         {{ left, top, fontsize, align }, width, height, outlined } */
-        .metaBGConf          = { },
-        .metaBGConfInv       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 17, false },
-        .volbarConf          = {{ 0, 64-1, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        .playlBGConf         = {{ 0, 26, 0, WA_LEFT }, DSP_WIDTH, 12, false },
-        .bufferbarConf       = { }, // unused
-        // .bufferbarConf       = {{ 0, 63, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        /* WIDGETS             { left, top, fontsize, align } */
-        .bitrateConf         = { 0, 19, 1, WA_RIGHT },
-        .voltxtConf          = { }, // unused
-        .batteryConf         = { 0, 64-9, 1, WA_RIGHT },
-        .iptxtConf           = { TFT_FRAMEWDT, 64-9, 1, WA_LEFT },
-        .rssiConf            = { 0, 64-9, 1, WA_RIGHT },
-        .numConf             = { 0, 28+FONTSHIFT, 0, WA_CENTER },
-        //.clockConf           = { TFT_FRAMEWDT, 38+FONTSHIFT, 0, WA_CENTER },
-        .clockConf           = { TFT_FRAMEWDT, 38+FONTSHIFT, 0, WA_CENTER },
-        .vuConf              = { }, // unused
-        /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
-        .fullbitrateConf     = { }, // unused
-        /* BANDS               { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
-        .bandsConf           = { }, // unused
-        /* MOVES               { left, top, width (-1 keeps Conf position) */
-        .clockMove           = { TFT_FRAMEWDT+(44/2)+2, 38+FONTSHIFT, 0 },
-        .weatherMove         = { 0, 0, -1 },
-        .weatherMoveVU       = { 0, 0, -1 },
-        /* Rotated so the bands run horizontally: ch = width*2+space = 15px tall and
-           cw = height = 44px long, fitting the y=38..54 line beside the clock */
         .rotateVU            = true,
         .shareWeatherIP      = true,
         .shareBattRSSI       = true,
