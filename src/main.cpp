@@ -113,22 +113,54 @@ void loop() {
   #ifdef CORE_MONITOR
     cmLoopStart = micros();
   #endif
+  // Stage attribution, always on: an iteration over MAIN_LOOP_STALL_MS names the blocking stage, which is
+  // the whole diagnosis (this is what found the stream connect in the player stage). */
+  const uint32_t tStage0 = micros();
+
   if (network.status == SOFT_AP) {
     network.loopImprov();
     if (network.dnsServer) network.dnsServer->processNextRequest();
   } else {
     telnet.loop();
   }
-  
+  const uint32_t tStage1 = micros();
+
   rgbled.loop();
   battery.loop();
+  const uint32_t tStage2 = micros();
 
   controls.loop();
+  const uint32_t tStage3 = micros();
+
   if (network.status == CONNECTED || network.status == SDOFFLINE) {
     player.loop();
     config.processDeferredSaves();
   }
+  const uint32_t tStage4 = micros();
+
   startup.loop();
+  const uint32_t tStage5 = micros();
+
+  {
+    const uint32_t total = tStage5 - tStage0;
+    if (total > ((uint32_t)MAIN_LOOP_STALL_MS * 1000UL)) {
+      const uint32_t staged[5] = {
+        tStage1 - tStage0,   // net: improv or telnet
+        tStage2 - tStage1,   // rgbled + battery
+        tStage3 - tStage2,   // controls
+        tStage4 - tStage3,   // player + deferred saves
+        tStage5 - tStage4,   // startup
+      };
+      static const char* const stageNames[5] = {"net/telnet", "rgbled+battery", "controls", "player+saves", "startup"};
+      uint8_t worst = 0;
+      for (uint8_t i = 1; i < 5; i++) if (staged[i] > staged[worst]) worst = i;
+      ERRORLOG("Main loop stalled %lums, worst stage %s %lums - net %lu, hw %lu, ctl %lu, player %lu, startup %lu",
+          (unsigned long)(total / 1000UL), stageNames[worst], (unsigned long)(staged[worst] / 1000UL),
+          (unsigned long)(staged[0] / 1000UL), (unsigned long)(staged[1] / 1000UL),
+          (unsigned long)(staged[2] / 1000UL), (unsigned long)(staged[3] / 1000UL),
+          (unsigned long)(staged[4] / 1000UL));
+    }
+  }
 
   #ifdef CORE_MONITOR
     cmMainCount++;
@@ -153,6 +185,10 @@ void loop() {
       if (++cmEtcCount >= CORE_MONITOR_ETC_LOOPS) {
         cmEtcCount = 0;
         FUNCTIONLOG("SPIFFS", "Used: %u / %u bytes, Free: %u bytes", SPIFFS.usedBytes(), SPIFFS.totalBytes(), SPIFFS.totalBytes() - SPIFFS.usedBytes());
+        // Internal free and the largest CONTIGUOUS block - the figure a TLS handshake actually needs
+        FUNCTIONLOG("Heap", "Internal: %uKB free, %uKB largest block",
+            ESP.getFreeHeap() / 1024,
+            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024);
         if (psramFound()) {
           size_t psramTotal = ESP.getPsramSize();
           size_t psramUsed  = psramTotal - ESP.getFreePsram();

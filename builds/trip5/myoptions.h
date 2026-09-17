@@ -134,7 +134,6 @@
   #define TFT_RST            -1        /* set to -1 if connected to ESP EN pin */
   #define DSP_DIMMING_ENABLED true
   #define DSP_INVERT_QUIRK   true
-  /* modify src\displays\displayILI9488.cpp -- in section DspCore::initDisplay and add setRotation(3); to do 180 degree rotation */
 #elif defined(ST7735_PCM_1BUTTON)
   #define DSP_MODEL          DSP_ST7735         /* Red board / 1.8" Black Tab, if problems try one of DTYPE */
   /* DSP_ST7735 DTYPES BELOW (add if needed but so far, not needed)*/
@@ -166,6 +165,7 @@
   #define VS1053_DCS         14
   #define VS1053_DREQ        10
   #define VS1053_RST         -1        /* set to -1 if connected to ESP EN pin */
+  #define VS_PATCH_ENABLE    true
 #elif defined(ILI9488_VS1053_1BUTTON)
   #define VS1053_SPI         'B'       /* assign VS1053 to Bus B */
   #define VS1053_CS          15
@@ -216,8 +216,10 @@
   #define BTN_DOWN           7
   #define BTN_UP             15
   #define WAKE_PIN           18
-#elif defined(ST7735_PCM_1BUTTON) || defined(ILI9488_PCM_1BUTTON) || defined(ILI9488_PCM_1BUTTON_FULL) || defined(ILI9488_VS1053_1BUTTON)
+#elif defined(ST7735_PCM_1BUTTON) || defined(ILI9488_PCM_1BUTTON) || defined(ILI9488_VS1053_1BUTTON)
   #define BTN_NEXT           42
+#elif defined(ILI9488_PCM_1BUTTON_FULL)
+  #define BTN_NEXT           13
 #elif defined(ES3C28P)
   #define TS_MODEL           TS_MODEL_FT6336
   #define TS_SDA             16
@@ -235,9 +237,6 @@
   #define ENC_SW             38
   #if defined(SH1106_PCM_REMOTE)
     #define ENC_STEPS          4
-  #endif
-  #if defined(ILI9488_VS1053_1BUTTON)
-    #define VS_PATCH_ENABLE true
   #endif
 #elif defined(SH1106_PCM_1BUTTON)
   #define ENC_CLK            7
@@ -269,7 +268,7 @@
 #endif
 
 #if defined(ILI9488_PCM_1BUTTON_FULL)
-  #define IR_PIN          41
+  #define IR_PIN          14
   #define RTC_MODULE      DS1307
   #define RTC_SDA         17
   #define RTC_SCL         18

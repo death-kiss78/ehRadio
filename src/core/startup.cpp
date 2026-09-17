@@ -39,6 +39,13 @@ void Startup::markBootStable(const char* reason) {
   BOOTLOG("Boot stable after %lu ms - %s", millis() - _bootStartMs, reason);
 }
 
+void Startup::deferBootStable(const char* reason) {
+  if (!_bootStablePending) return;  // already proven, or this boot never had to prove itself
+  _bootStartMs = millis();
+  _servicesDoneMs = millis();
+  FUNCTIONLOG("Boot.stable", "countdown restarted: %s", reason ? reason : "network instability");
+}
+
 void Startup::loop() {
   if (!_bootStablePending) return;
   if (_bootStartMs == 0) {
@@ -49,13 +56,19 @@ void Startup::loop() {
      three TLS downloads (version check, timezones database, radio-browser list) against the internal heap */
   if (_services == SVC_NONE) {
     if (millis() - _bootStartMs > (BOOT_STABLE_TIME * 1000UL)) {
-      markBootStable("no startup services this boot");
+      /* The reason is printed verbatim by markBootStable(), so it carries the configured number rather
+         than the macro's name - the literal "BOOT_STABLE_TIME" in the log read like a formatting bug. */
+      char reason[64];
+      snprintf(reason, sizeof(reason), "%u s from power-on, no startup services this boot", (unsigned)BOOT_STABLE_TIME);
+      markBootStable(reason);
       _bootStablePending = false;
     }
     return;
   }
   if (_services == SVC_DONE && (millis() - _servicesDoneMs) > (BOOT_STABLE_TIME * 1000UL)) {
-    markBootStable("BOOT_STABLE_TIME after the startup services finished");
+    char reason[64];
+    snprintf(reason, sizeof(reason), "%u s after the startup services finished", (unsigned)BOOT_STABLE_TIME);
+    markBootStable(reason);
     _bootStablePending = false;
   }
 }

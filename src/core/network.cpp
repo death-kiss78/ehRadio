@@ -25,6 +25,7 @@ MyNetwork network;
 
 TaskHandle_t syncTaskHandle;
 TaskHandle_t streamRetryTaskHandle = NULL;
+static uint8_t streamResetsUsed = 0;
 
 bool getWeather(char *wstr);
 void doSync(void * pvParameters);
@@ -40,6 +41,7 @@ void MyNetwork::cancelStreamRetry() {
     vTaskDelete(streamRetryTaskHandle);
     streamRetryTaskHandle = NULL;
   }
+  streamResetsUsed = 0;   // the user ended the outage, so the reset budget starts over
 }
 
 void ticks() {
@@ -152,22 +154,114 @@ void ticks() {
   }
 }
 
+// Wait before each attempt, by attempt index: nearly immediate at first, then close together for a cold DNS/ARP
+// then the steady cadence.  A recovery starts in seconds; a long outage is retried patiently
+static uint32_t streamRetryWaitMs(uint16_t attempt) {
+  if (attempt == 0) return 1000;      // essentially now: is this just a dropped connection?
+  if (attempt == 1) return 3000;
+  if (attempt == 2) return 6000;
+  if (attempt <= 4) return 12000;
+  if (attempt < 40) return 15000;     // steady cadence through the fast budget
+  return (uint32_t)STREAM_RETRY_SLOW_S * 1000UL;   // then the slow, indefinite tail
+}
+
+// Probe verdicts: only WEDGED resets the link, everything else means leave it alone
+enum netVerdict_e : uint8_t { NET_STACK_OK, NET_STACK_WEDGED, NET_LINK_DOWN };
+
+static const char* netVerdictName(netVerdict_e v) {
+  switch (v) {
+    case NET_STACK_OK:     return "stack ok - it can connect, so the stream host refused";
+    case NET_STACK_WEDGED: return "STACK WEDGED - nothing can connect while the driver says connected";
+    default:               return "link down";
+  }
+}
+
+// Ask the stack if it is healthy: the driver saying connected while a bare-IP
+// TCP connect cannot complete IS the wedge signature (requiring DNS too left the device unrecoverable)
+static netVerdict_e probeNetworkStack() {
+  if (WiFi.status() != WL_CONNECTED) return NET_LINK_DOWN;
+
+  // Gateway first, with the shorter timeout: a LAN connect is tens of ms and if it answers nothing more
+  // can be learned, so the expensive internet probe never runs.
+  const uint32_t gwIp = (uint32_t)WiFi.gatewayIP();
+  bool gwOk = false;
+  uint32_t gwMs = 0;
+  if (gwIp) {
+    WiFiClient lan;
+    const uint32_t t0 = millis();
+    gwOk = lan.connect(IPAddress(gwIp), NETHEALTH_GATEWAY_PORT, NETHEALTH_GATEWAY_TIMEOUT_MS);
+    gwMs = millis() - t0;
+    lan.stop();
+  }
+  if (gwOk) {
+    FUNCTIONLOG("Network", "stack probe: gateway ok %lums - our stack can connect", (unsigned long)gwMs);
+    return NET_STACK_OK;
+  }
+
+  // Gateway silent: one bare-IP TCP connect (no DNS, no TLS) exercises netif, route and socket pool at once
+  WiFiClient probe;
+  const uint32_t t0 = millis();
+  const bool netOk = probe.connect(IPAddress(1, 1, 1, 1), 53, NETHEALTH_TIMEOUT_MS);
+  const uint32_t netMs = millis() - t0;
+  probe.stop();
+  FUNCTIONLOG("Network", "stack probe: gateway %s %lums, internet TCP %s %lums",
+      gwIp ? "FAIL" : "unknown", (unsigned long)gwMs, netOk ? "ok" : "FAIL", (unsigned long)netMs);
+
+  return netOk ? NET_STACK_OK : NET_STACK_WEDGED;
+}
+
 void retryStreamConnection(void * pvParameters) {
-  const uint8_t maxAttempts = 40;  // 40 attempts * 15 seconds = 10 minutes
-  uint8_t attemptCount = 0;
-  while (attemptCount < maxAttempts) {
-    delay(15000);  // Wait 15 seconds between attempts
+  const uint16_t fastAttempts = 40;  // after this many the cadence slows down; it never gives up
+  const uint8_t maxResets = 3;       // link resets are the brute-force rung, capped across the outage
+  uint16_t attemptCount = 0;
+  bool slowed = false;
+  for (;;) {
+    /* attemptCount is the number of attempts DONE, so it is also this attempt's index. */
+    delay(streamRetryWaitMs(attemptCount));
     // Check if we should still be retrying
     if (network.lostPlaying && WiFi.status() == WL_CONNECTED && !player.isRunning()) {
       attemptCount++;
-      SERIALLOG("Stream reconnect attempt %d/%d", attemptCount, maxAttempts);
+      // The budget slows the cadence, it never ends the attempt: a LOST screen with a task still trying recovers by itself
+      if (!slowed && attemptCount > fastAttempts) {
+        slowed = true;
+        FUNCTIONLOG("Network", "Stream retry budget spent - continuing every %u s while the stream is down", (unsigned)STREAM_RETRY_SLOW_S);
+      }
+      // A link reset costs a scan, a reassociation and DHCP, so it is spent only on evidence (see the
+      // verdict below); eraseap stays false on every path or the saved credentials are erased.
+      if (attemptCount <= fastAttempts) FUNCTIONLOG("Network", "Stream reconnect fast attempt %d/%d", attemptCount, fastAttempts);
+      // The connect runs on the main loop, so wait on the connect TIMESTAMP changing, not a fixed sleep:
+      // a fixed wait could expire early and the verdict would use the previous attempt's duration.
+      const uint32_t connectBefore = player.lastConnectMs;
       player.resumeLastWebSource();
-      delay(3000);  // Give it a moment to try connecting
+      for (uint16_t waited = 0; waited < 2500 && !player.isRunning() && player.lastConnectMs == connectBefore; waited += 100) {
+        delay(100);
+      }
       // Check if it worked
       if (player.isRunning()) {
-        SERIALLOG("Stream reconnected successfully!");
+        FUNCTIONLOG("Network", "Stream reconnected successfully!");
+        streamResetsUsed = 0;   // a working stream means the next outage starts with a full budget
         network.lostPlaying = false;
         streamRetryTaskHandle = NULL;
+        vTaskDelete(NULL);
+        return;
+      }
+
+      // The LINK never dropped, so WiFiLostConnection never ran and nothing told the user: from the
+      // second failure this is a LOST screen
+      if (attemptCount == 1) startup.deferBootStable("stream lost");   // no-op unless the boot is unproven
+      if (attemptCount == 2) display.putRequest(NEWMODE, LOST);
+
+      // The connect DURATION is itself a verdict: a refusal returns in tens of ms and proves the path
+      // works, a timeout means it is stale.  Only ambiguity probes further - see probeNetworkStack().
+      const uint32_t connectMs = player.lastConnectMs;
+      const netVerdict_e verdict = (connectMs && connectMs < NET_REFUSAL_MS) ? NET_STACK_OK : probeNetworkStack();
+      FUNCTIONLOG("Network", "attempt %d/%d failed (connect %lums): %s", attemptCount, fastAttempts, (unsigned long)connectMs, netVerdictName(verdict));
+      if (verdict == NET_STACK_WEDGED && streamResetsUsed < maxResets &&
+          network.status == CONNECTED && !network.beginReconnect) {
+        streamResetsUsed++;
+        FUNCTIONLOG("Network", "forcing a link reset %d/%d", streamResetsUsed, maxResets);
+        streamRetryTaskHandle = NULL;   // WiFiReconnected restarts this task, so it must look stopped
+        WiFi.disconnect(true, false);   // wifioff: fires STA_DISCONNECTED, which runs the recovery chain
         vTaskDelete(NULL);
         return;
       }
@@ -181,15 +275,14 @@ void retryStreamConnection(void * pvParameters) {
       return;
     }
   }
-  // Max attempts reached - give up
-  SERIALLOG("Stream reconnection failed after 10 minutes. User intervention required.");
-  network.lostPlaying = false;
-  streamRetryTaskHandle = NULL;
-  vTaskDelete(NULL);
 }
 
 void MyNetwork::WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
   network.beginReconnect = false;
+  // Runs at GOT_IP after any path found an AP, so this is where the truth about where we landed is kept
+  network.captureCurrentAp();
+  // A link was just rebuilt, so the boot-stable countdown restarts from here, not from before the outage
+  startup.deferBootStable("wifi reconnected");
   player.lockOutput = false;
   delay(100);
   display.putRequest(NEWMODE, PLAYER);
@@ -199,9 +292,12 @@ void MyNetwork::WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
   } else {
     display.putRequest(NEWMODE, PLAYER);
     if (network.lostPlaying) {
-      player.resumeLastWebSource();
-      // Launch retry task if not already running
-      if (streamRetryTaskHandle == NULL) {
+      if (streamRetryTaskHandle != NULL) {
+        // The running task cannot see this GOT_IP, so kick it once and let its cadence continue
+        player.resumeLastWebSource();
+      } else {
+        // The task owns the resume and only it can verify it: resuming here too queued a second play
+        // command mid-connect, costing a second TLS handshake and ~2 s of silence (measured).
         xTaskCreatePinnedToCore(retryStreamConnection, "streamRetry", NETWORK_TASK_STACK_BYTES, NULL, NET_TASK_PRIORITY, &streamRetryTaskHandle, NETWORK_CORE);
       }
     }
@@ -213,11 +309,15 @@ void MyNetwork::WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 void MyNetwork::WiFiLostConnection(WiFiEvent_t event, WiFiEventInfo_t info) {
   if (!network.beginReconnect) {
-    SERIALLOG("WiFiLost: %lu ms, event=%d, SSID=%s, RSSI=%d", millis(), (int)event, config.ssids[config.store.lastSSID-1].ssid, WiFi.RSSI());
+   // SSID is bounds-checked because this can fire before a first connection. */
+    const char* lostSsid = (config.store.lastSSID > 0 && config.store.lastSSID <= config.ssidsCount) ? config.ssids[config.store.lastSSID - 1].ssid : "?";
+    FUNCTIONLOG("Network", "WiFi Lost: %lu ms, event=%d, SSID=%s, RSSI=%d", millis(), (int)event, lostSsid, WiFi.RSSI());
     if (config.getMode()==PM_SDCARD) {
       display.putRequest(NEWIP, 0);
     } else {
-      network.lostPlaying = player.isRunning();
+      // OR, not assign: a forced reset arrives here with a resume already owed, and assigning
+      // player.isRunning() (false) would clear it - WiFi back, radio silent.
+      network.lostPlaying = network.lostPlaying || player.isRunning();
       if (network.lostPlaying) { player.lockOutput = true; player.sendCommand({PR_STOP, 0}); }
       // when we're in the middle of an update, keep the UPDATING dialog active
       if (display.mode() != UPDATING) {
@@ -225,17 +325,55 @@ void MyNetwork::WiFiLostConnection(WiFiEvent_t event, WiFiEventInfo_t info) {
       }
     }
     network.beginReconnect = true;
+    // A link teardown inside the boot window proves nothing: re-arm the countdown instead of marking it stable
+    startup.deferBootStable("wifi lost");
     // Spawn background task to run the full scan-best + sequential fallback strategy
     // instead of just retrying the same AP via WiFi.reconnect()
     xTaskCreatePinnedToCore(wifiReconnectionTask, "wifiReconn", NETWORK_TASK_STACK_BYTES, NULL, NET_TASK_PRIORITY, NULL, NETWORK_CORE);
   }
 }
 
+// Remember the AP we are on so the next forced reset can reconnect to it directly (GOT_IP, end of begin)
+void MyNetwork::captureCurrentAp() {
+  const uint8_t* bssid = WiFi.BSSID();
+  if (bssid) {
+    memcpy(lastBssid, bssid, sizeof(lastBssid));
+    lastChannel = (uint8_t)WiFi.channel();
+    lastBssidValid = true;
+  }
+}
+
+// Directed reconnect to the AP we were last on, by BSSID and channel - the case a forced reset creates
+// A failed directed attempt falls back to the full wifiBegin(), which is what a moved AP or a real dropout needs
+bool MyNetwork::wifiBeginFast(bool silent) {
+  if (network.lastBssidValid && config.store.lastSSID > 0 && config.store.lastSSID <= config.ssidsCount) {
+    if (WiFi.mode(WIFI_STA) != WIFI_STA) delay(WIFI_SETTLE_MS);
+    const uint8_t idx = config.store.lastSSID - 1;
+    // Not gated on silent: this line proves the scan-free path ran (the task always passes silent)
+    FUNCTIONLOG("Network", "direct reconnect to %s | Ch: %u", config.ssids[idx].ssid, network.lastChannel);
+    WiFi.begin(config.ssids[idx].ssid, config.ssids[idx].password, network.lastChannel, network.lastBssid);
+    uint8_t errcnt = 0;
+    while (WiFi.status() != WL_CONNECTED) {
+      if (!silent) SERIALLOGDOT();
+      delay(500);
+      network.loopImprov();
+      // Deliberately impatient: a directed association takes a second or two, so past WIFI_FAST_ATTEMPTS
+      // the AP has moved or gone and every extra second delays the scan that would find it.
+      if (++errcnt > WIFI_FAST_ATTEMPTS) { SERIALLOG(""); break; }
+    }
+    if (WiFi.status() == WL_CONNECTED) { SERIALLOG(""); return true; }
+    FUNCTIONLOG("Network", "direct reconnect failed, falling back to a scan");
+  }
+  return wifiBegin(silent);
+}
+
 bool MyNetwork::wifiBegin(bool silent) {
   uint8_t ls = (config.store.lastSSID == 0 || config.store.lastSSID > config.ssidsCount) ? 0 : config.store.lastSSID - 1;
   uint8_t startedls = ls;
   uint8_t errcnt = 0;
-  WiFi.mode(WIFI_STA);
+  // The station needs a moment before a scan returns anything - after a reset the first scan finds nothing
+  // WiFi.mode() reports the mode it replaced, so this waits only when the station starts.
+  if (WiFi.mode(WIFI_STA) != WIFI_STA) delay(WIFI_SETTLE_MS);
 
   if (config.store.wifiscanbest) {
     struct MatchedNetwork {
@@ -250,6 +388,13 @@ bool MyNetwork::wifiBegin(bool silent) {
     if (!silent) BOOTLOG("Scanning for best available network...");
     int n = WiFi.scanNetworks();
     if (!silent) BOOTLOG("Scan complete: %d networks found", n);
+    if (n == 0) {
+      /* An empty scan means it ran too soon after the radio started, so scan once more rather than size
+         WIFI_SETTLE_MS for the worst case. */
+      delay(WIFI_SETTLE_MS);
+      n = WiFi.scanNetworks();
+      if (!silent) BOOTLOG("Scan retry: %d networks found", n);
+    }
     if (n > 0) {
       // Find all matching networks and build sorted list
       for (int i = 0; i < n; i++) {
@@ -401,21 +546,34 @@ void MyNetwork::ehDPinit() {
   }
 }
 
+// Rounds get further apart as an outage drags on: the first is unchanged at 5 s, so a brief drop still recovers
+static uint16_t wifiReconnectWaitS(uint8_t round) {
+  switch (round) {
+    case 0:  return 5;
+    case 1:  return 10;
+    case 2:  return 30;
+    default: return 60;   // the cap
+  }
+}
+
 void wifiReconnectionTask(void * pvParameters) {
-  SERIALLOG("WiFiReconnectionTask: starting smart reconnection (scan + sequential fallback)");
+  FUNCTIONLOG("Network", "WiFi.reconnect: starting smart reconnection (scan + sequential fallback)");
+  uint8_t round = 0;
   while (network.beginReconnect && network.status != SOFT_AP) {
     // Run the full wifiBegin strategy: scan, match against saved SSIDs, sort by RSSI,
     // connect to strongest by BSSID, fall back to sequential trial of all saved SSIDs
-    if (network.wifiBegin(true)) {
+    if (network.wifiBeginFast(true)) {
       // Connection established. The ARDUINO_EVENT_WIFI_STA_GOT_IP event fires,
       // WiFiReconnected() handles display restore, stream resume, MQTT reconnect, etc.
-      SERIALLOG("WiFiReconnectionTask: reconnected successfully");
+      FUNCTIONLOG("Network", "WiFi.reconnect: reconnected successfully");
       break;
     }
-    // Full cycle failed — wait 5 seconds (checking periodically if we should abort)
-    // before scanning and retrying from scratch
-    SERIALLOG("WiFiReconnectionTask: no known networks available, retrying in 5s...");
-    for (int i = 0; i < 5; i++) {
+    // Full cycle failed: wait the round's interval, polled each second so the task still aborts when the
+    // link returns by another route or the user goes to AP mode
+    const uint16_t waitS = wifiReconnectWaitS(round);
+    if (round < 255) round++;
+    FUNCTIONLOG("Network", "WiFi.reconnect: no known networks available, retrying in %u s", (unsigned)waitS);
+    for (uint16_t i = 0; i < waitS; i++) {
       if (!network.beginReconnect || network.status == SOFT_AP) {
         vTaskDelete(NULL);
         return;
@@ -465,6 +623,8 @@ void MyNetwork::begin() {
     }
     status = CONNECTED;
     setWifiParams();
+    // setWifiParams() registers the handlers after this boot connect, so capture here too or the first reset scans
+    captureCurrentAp();
   }
   BOOTLOG("Wifi done");
   ehDPinit();

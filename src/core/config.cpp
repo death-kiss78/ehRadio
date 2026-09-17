@@ -392,11 +392,11 @@ void Config::defaultSettings(const char *val, uint8_t clientId) {
     display.applyLayout(0);
     saveValue(&store.numplaylist, (bool)NUMBERED_PLAYLIST);
     saveValue(&store.clock12, (bool)CLOCK_TWELVE);
+    saveValue(&store.volumepage, (bool)VOLUME_PAGE);
     saveValue(&store.bufferbar, (bool)SHOW_BUFFERBAR);
     saveValue(&store.vumeter, (bool)SHOW_VU_METER);
     saveValue(&store.vupeak, (bool)SHOW_VU_PEAK);
     saveValue(&store.vustyle, (uint8_t)VU_STYLE_DEFAULT);
-    saveValue(&store.volumepage, (bool)VOLUME_PAGE);
     saveValue(&store.dspon, true);
     store.brightness = (uint8_t)SCREEN_BRIGHTNESS; setBrightness(false);
     saveValue(&store.contrast, (uint8_t)SCREEN_CONTRAST);
@@ -909,11 +909,11 @@ const configKeyMap Config::keyMap[] = {
   CONFIG_KEY_ENTRY(dspon, "dspon"),
   CONFIG_KEY_ENTRY(numplaylist, "numplaylist"),
   CONFIG_KEY_ENTRY(clock12, "clock12"),
+  CONFIG_KEY_ENTRY(volumepage, "volpage"),
   CONFIG_KEY_ENTRY(bufferbar, "audioinfo"),
   CONFIG_KEY_ENTRY(vumeter, "vumeter"),
   CONFIG_KEY_ENTRY(vupeak, "vupeak"),
   CONFIG_KEY_ENTRY(vustyle, "vustyle"),
-  CONFIG_KEY_ENTRY(volumepage, "volpage"),
   CONFIG_KEY_ENTRY(brightness, "bright"),
   CONFIG_KEY_ENTRY(contrast, "contrast"),
   CONFIG_KEY_ENTRY(screensaverEnabled, "scrnsvren"),

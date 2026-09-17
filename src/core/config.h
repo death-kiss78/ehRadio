@@ -121,11 +121,11 @@ struct config_t // specify defaults here (and macros in options.h) (defaults are
   bool      dspon = true;
   bool      numplaylist = NUMBERED_PLAYLIST;
   bool      clock12 = CLOCK_TWELVE;
+  bool      volumepage = VOLUME_PAGE;
   bool      bufferbar = SHOW_BUFFERBAR;
   bool      vumeter = SHOW_VU_METER;
   bool      vupeak = SHOW_VU_PEAK;
   uint8_t   vustyle = VU_STYLE_DEFAULT;   // which visualiser the VU box draws; see vuStyle_e
-  bool      volumepage = VOLUME_PAGE;
   uint8_t   brightness = SCREEN_BRIGHTNESS;
   uint8_t   contrast = SCREEN_CONTRAST;
   bool      screensaverEnabled = SS_NOTPLAYING;
@@ -329,6 +329,7 @@ class Config {
       if (entry) prefs.getBytes(entry->key, field, entry->size);
     }
     bool saveRawValue(const configKeyMap* entry, const void* value, size_t size) {
+      const uint32_t _t0 = millis();
       prefs.begin("ehradio", false);
       size_t existingLen = prefs.getBytesLength(entry->key);
       bool keyExists = (existingLen == size);
@@ -355,6 +356,9 @@ class Config {
         }
       }
       prefs.end();
+      // An NVS commit can block when it has to compact a page, evidence is a long write time
+      const uint32_t _dt = millis() - _t0;
+      if (_dt > NVS_SLOW_WRITE_MS) FUNCTIONLOG("Prefs", "NVS write took %lums (%s)", (unsigned long)_dt, entry->key);
       return needSave;
     }
     template <typename T>

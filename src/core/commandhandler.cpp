@@ -142,11 +142,11 @@ bool CommandHandler::exec(const char *command, const char *value, uint8_t cid, C
   if (cmdIs(command, "theme"))         { uint8_t id = constrain(atoi(value), 0, display.getThemeCount() - 1); config.saveValueButWait(&config.store.themeId, id, 5000); display.applyTheme(id); return true; }
   if (cmdIs(command, "numplaylist"))   { config.saveValueButWait(&config.store.numplaylist, static_cast<bool>(atoi(value)), 5000); display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER); return true; }
   if (cmdIs(command, "clock12"))       { config.saveValueButWait(&config.store.clock12, static_cast<bool>(atoi(value)), 5000); display.putRequest(CLOCK); return true; }
+  if (cmdIs(command, "volumepage"))    { config.saveValueButWait(&config.store.volumepage, static_cast<bool>(atoi(value)), 5000); display.putRequest(NEWMODE, PLAYER); return true; }
   if (cmdIs(command, "bufferbar"))     { config.saveValueButWait(&config.store.bufferbar, static_cast<bool>(atoi(value)), 5000); display.putRequest(SHOWBUFFERBAR); return true; }
   if (cmdIs(command, "vumeter"))       { config.saveValueButWait(&config.store.vumeter, static_cast<bool>(atoi(value)), 5000); display.putRequest(SHOWVUMETER); return true; }
   if (cmdIs(command, "vupeaks"))       { config.saveValueButWait(&config.store.vupeak, static_cast<bool>(atoi(value)), 5000); return true; }
   if (cmdIs(command, "vustyle"))       { uint8_t id = constrain(atoi(value), 0, VU_STYLE_COUNT - 1); config.saveValueButWait(&config.store.vustyle, id, 5000); display.putRequest(SHOWVUMETER); return true; }
-  if (cmdIs(command, "volumepage"))    { config.saveValueButWait(&config.store.volumepage, static_cast<bool>(atoi(value)), 5000); display.putRequest(NEWMODE, PLAYER); return true; }
   if (cmdIs(command, "brightness", "dim")) {
     if (!config.store.dspon) netserver.requestOnChange(DSPON, 0);
     int bri=atoi(value);

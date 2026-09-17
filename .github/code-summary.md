@@ -327,12 +327,53 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - weather cache and formatting logic
   - centralized runtime logging for reconnect/weather/boot progress/time-sync via `FUNCTIONLOG`/`SERIALLOG`/`BOOTLOGX`
   - web-stream reconnect now resumes through `player.resumeLastWebSource()` so direct URL sources can recover via `/data/laststation.url` instead of always falling back to `lastStation`
-  - `retryStreamConnection` task (40 attempts × 15 s) is cancelled through `MyNetwork::cancelStreamRetry()`, the single owner of `streamRetryTaskHandle` (called by commandhandler on playback-changing commands, by `player.prev()`/`next()`/`toggle()`, and by `utility.turnoff()`); the task also cleans itself up when conditions change (user stops, WiFi drops, or playback resumes)
+  - `retryStreamConnection` task (40 fast attempts, then a slow infinite tail) is cancelled through `MyNetwork::cancelStreamRetry()`, the single owner of `streamRetryTaskHandle` (called by commandhandler on playback-changing commands, by `player.prev()`/`next()`/`toggle()`, and by `utility.turnoff()`); the task also cleans itself up when conditions change (user stops, WiFi drops, or playback resumes)
 - Coupling:
   - pushes display updates (`display.putRequest(...)`)
   - calls player/netserver hooks
   - reads/writes `config.store`
 - Successful connect handling now stays internal to `network.cpp`; there is no remaining app-level weak `network_on_connect` callback.
+
+## Network Recovery (the stall, the reset ladder, and the boot-stable marker)
+
+Everything follows from one measured fact: **`Audio::connecttohost()` runs on the main task**, so a failing
+stream connect blocks `loop()` for its whole timeout and the WebUI looks dead meanwhile.
+
+**Two routines, not one.** `wifiReconnectionTask()` owns the *link* (`WIFI_STA_DISCONNECTED`, gated by
+`network.beginReconnect`, cadence 5/10/30 then 60 s capped); `retryStreamConnection()` owns the *stream*
+(stream died with the link up, gated by `network.lostPlaying`, cadence 1/3/6/12/15 s for 40 attempts then
+60 s forever). Neither gives up, and a wedged stack raises no disconnect event - so the Wi-Fi routine never
+runs, the stream task can only replay the same failing connect, and that is why the forced reset exists.
+
+**The traps around that reset.** It is `WiFi.disconnect(true, false)` - never `eraseap = true` - and its budget
+must be a **file-static**, because `WiFiReconnected` recreates the task and a local gives each instance a fresh
+budget (four back-to-back teardowns, measured). The handle must be cleared before `vTaskDelete`, and
+`WiFiLostConnection` must use `network.lostPlaying || player.isRunning()`, never an assignment: during a reset
+nothing is playing, so an assignment wrote `false` and the Wi-Fi returned to a silent radio.
+
+**Refusal vs wedge is decided by duration.** At or past the connect bound means a stale path; far below it means
+the peer refused and the link has just proved itself. Only the ambiguous case probes, and only
+`NET_STACK_WEDGED` resets: no link means the Wi-Fi routine owns it, a gateway TCP answer means the stack is fine
+and the host refused, and both probes silent while the driver reports connected means **WEDGED - reset at the
+first failure**. DNS is not part of it - it goes through the same stack, so it is the same evidence.
+
+**Manual Wi-Fi and the boot marker.** `captureCurrentAp()` runs at GOT_IP *and* at the end of
+`MyNetwork::begin()` (the handlers register after the boot connect), letting `wifiBeginFast()` reconnect by
+BSSID/channel with no scan and giving up after `WIFI_FAST_ATTEMPTS`, since a moved AP needs the scan and a reset
+does not. `WIFI_SETTLE_MS` applies only when `WiFi.mode()` reports a change, and an empty scan is retried once.
+`Startup::deferBootStable()` re-stamps the countdown while unproven, and no-ops once settled.
+
+**Instruments, all unconditional.** `MAIN_LOOP_STALL_MS` names the worst stage of a slow `loop()` (this is what
+identified `player+saves`), `NVS_SLOW_WRITE_MS` logs a slow NVS commit, `[Heap]` gives internal free **and the
+largest contiguous block** (what a TLS handshake needs), recovery logs under `Network`, and `Telnet::loop()`
+must never block. Every cadence and threshold above is a macro in `options.h`, **except the connect bound**:
+`m_connectTimeout_ms` / `_ssl` in `src/libraries/I2S_Audio/Audio.h` (1200 ms), separate from
+`CONNECT_HTTP_HTTPS_TIMEOUT`, which doubles as the socket READ timeouts and must stay patient for slow streams.
+
+**The reload storm is the trigger, and the guard was withdrawn.** A reload opens a new websocket before the old
+closes (22 clients, 3 KB heap); the `MIN_MALLOC` guard in `onWsEvent()` went away because that websocket carries
+every setting to `script.js` (`setupElement`), so a refused client shows the page its defaults and the user
+thinks the radio forgot everything. The loader-side wait (`plans/network-recovery.md` §F11) was not built.
 
 ## `src/core/player.h` / `player.cpp`
 - `player.h` declares player command queue, playback API, and status.

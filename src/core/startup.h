@@ -13,6 +13,7 @@ public:
   void checkSafeMode();
   void sdOfflineMode();
   void loop();
+  void deferBootStable(const char* reason); // restart boot stable countdown
   void getDefaultPlaylist();
   void cleanStaleSearchResults();
   bool servicesBusy() const { return _servicesBusy; } // true only while the services task is actually downloading

@@ -1235,6 +1235,9 @@ void Display::_applyState() {
      volume overlay, so a layout switch cannot drop the weather back onto the IP row mid-overlay. */
   lockIfChanged(_weather, _weatherHidden());
   if (_bufferbar) _bufferbar->lock(!bufferbarInLayout() || !config.store.bufferbar);
+  /* The clock's feature lock must be re-applied too, or a `{}` clockMove layout stays visible. */
+  lockIfChanged(_clock, _clockHidden());
+  if (_clock && _clock->locked()) _clock->clear();
   _volume();
   if (_battery) _updateBattery();
   if (_weather && config.store.showweather && network.weatherBuf) _weather->setText(network.weatherBuf);

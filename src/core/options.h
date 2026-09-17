@@ -1,4 +1,4 @@
-#ifndef options_h
+ #ifndef options_h
 #define options_h
 #pragma once
 
@@ -787,6 +787,33 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #if WIFI_ATTEMPTS < 1
   #error define error in myoptions.h: WIFI_ATTEMPTS must be at least 1
 #endif
+#ifndef WIFI_SETTLE_MS
+  #define WIFI_SETTLE_MS 1000 // ms to wait after network stack started to attempt connection
+#endif
+#ifndef WIFI_FAST_ATTEMPTS
+  #define WIFI_FAST_ATTEMPTS 4 // ~2 s: how long a directed reconnect to a known BSSID is given before a scan
+#endif
+#ifndef MAIN_LOOP_STALL_MS
+  #define MAIN_LOOP_STALL_MS 500 // ms an iteration of loop() may take before it reports which stage blocked
+#endif
+#ifndef NVS_SLOW_WRITE_MS
+  #define NVS_SLOW_WRITE_MS 50 // ms a single NVS commit may take before FUNCTIONLOG names the key
+#endif
+#ifndef STREAM_RETRY_SLOW_S
+  #define STREAM_RETRY_SLOW_S 60 // s between stream retries once the fast attempt budget is spent
+#endif
+#ifndef NET_REFUSAL_MS
+  #define NET_REFUSAL_MS 700 // a failed connect faster than this was refused, so the link is fine
+#endif
+#ifndef NETHEALTH_TIMEOUT_MS
+  #define NETHEALTH_TIMEOUT_MS 700 // ms the stack probe waits for the bare-IP internet TCP connect
+#endif
+#ifndef NETHEALTH_GATEWAY_TIMEOUT_MS
+  #define NETHEALTH_GATEWAY_TIMEOUT_MS 400 // ms for the gateway probe: a LAN connect is normally tens of ms
+#endif
+#ifndef NETHEALTH_GATEWAY_PORT
+  #define NETHEALTH_GATEWAY_PORT 80 // TCP port tried on the router to tell a WAN outage from a wedged stack
+#endif
 // How many seconds to wait after boot completed to Start the Async Services (other services are starting and too soon can crash netserver stack).  The less-important services started here (can take a full minute to complete if server connection issues):
 // verifies/downloads locale JSON file, checks for new version (triggers autoupdate), downloads PLAYLIST_DEFAULT_URL (if set), updates timezones.json.gz and rb_srvrs.json, cleans up stale search results
 #ifndef STARTUP_ASYNC_SERVICES_DELAY
@@ -839,6 +866,14 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef CONNECT_HTTP_HTTPS_TIMEOUT
   #define CONNECT_HTTP_HTTPS_TIMEOUT 1700, 3700
 #endif
+// The connect() bound is deliberately NOT a macro here: it lives with the audio library that uses it
+// (m_connectTimeout_ms / m_connectTimeout_ms_ssl in I2S_Audio/Audio.h, 1200 ms), because it is
+// per-library and the VS1053 copy would need its own.  It is separate from CONNECT_HTTP_HTTPS_TIMEOUT
+// above on purpose - that pair doubles as the socket READ timeouts and has to stay patient enough for a
+// slow stream to trickle in, while the connect bound is a UI freeze, because connecttohost() runs on the
+// MAIN task: no button sampled and no WebUI request answered for as long as it lasts.  A WiFi TCP
+// handshake is normally tens of ms, so 1200 is already generous.  Raising the pair above does not raise
+// it, and lowering it does not lower it.
 // Timeout in ms for receiving HTTP response headers (server redirects, slow streams).
 // Separate from socket-level timeouts above and only includes final hop in redirects
 #ifndef STREAM_TIMEOUT_MS

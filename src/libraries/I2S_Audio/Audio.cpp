@@ -552,7 +552,7 @@ bool Audio::openai_speech(const String& api_key, const String& model, const Stri
 
     uint32_t t = millis();
     AUDIO_INFO("connect to %s on port %d path %s", host, port, path);
-    res = _client->connect(host, port, m_timeout_ms_ssl);
+    res = _client->connect(host, port, m_connectTimeout_ms_ssl);
     if (res) {
         uint32_t dt = millis() - t;
         x_ps_free(&m_lastHost);
@@ -678,7 +678,9 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     timestamp = millis();
 
     AUDIO_INFO("connect to: \"%s\" on port %d path \"/%s\"", h_host + hostwoext_begin, port, h_host + pos_slash + 1);
-    res = _client->connect(h_host + hostwoext_begin, port, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms);
+    /* Bounded by the connect timeouts, not the read timeouts: this call blocks the main task, and the
+       read timeouts have to stay generous for the stream itself. */
+    res = _client->connect(h_host + hostwoext_begin, port, m_f_ssl ? m_connectTimeout_ms_ssl : m_connectTimeout_ms);
 
     if(pos_slash > 0) h_host[pos_slash] = '/';
     if(pos_colon > 0) h_host[pos_colon] = ':';
@@ -801,7 +803,7 @@ bool Audio::httpPrint(const char* host) {
          if(m_f_ssl) { _client = static_cast<WiFiClient*>(&clientsecure); if(m_f_ssl && port == 80) port = 443;}
          else        { _client = static_cast<WiFiClient*>(&client); }
         AUDIO_INFO("The host has disconnected, reconnecting");
-        if(!_client->connect(hostwoext, port, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms)) {
+        if(!_client->connect(hostwoext, port, m_f_ssl ? m_connectTimeout_ms_ssl : m_connectTimeout_ms)) {
             log_e("connection lost");
             stopSong();
             return false;
@@ -915,7 +917,7 @@ log_e("%s", rqh);
     if(m_f_ssl) { _client = static_cast<WiFiClient*>(&clientsecure); if(m_f_ssl && port == 80) port = 443;}
     else        { _client = static_cast<WiFiClient*>(&client); }
     AUDIO_INFO("The host has disconnected, reconnecting");
-    if(!_client->connect(hostwoext, port, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms)) {
+    if(!_client->connect(hostwoext, port, m_f_ssl ? m_connectTimeout_ms_ssl : m_connectTimeout_ms)) {
         log_e("connection lost");
         stopSong();
         return false;

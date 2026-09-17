@@ -58,10 +58,6 @@ Order and sections match that file.
 | Command(s) | Action |
 | --- | --- |
 | `smartstart` | Enable/disable smartstart. |
-| `bufferbar` | Enable/disable the buffer bar on the display. |
-| `vumeter` | Enable/disable VU meter and refresh display state. |
-| `vupeaks` | Enable/disable the VU meter peak markers. |
-| `vustyle` | Select the VU meter visualisation style (a `vuStyle_e` id, clamped to the known range, and the display is refreshed). |
 | `wifiscan` | Enable/disable best-RSSI WiFi scan behavior. |
 | `autoupdate` | Enable/disable auto update checks. |
 | `ehdp` | Enable/disable eHDP service. |
@@ -85,6 +81,10 @@ Order and sections match that file.
 | `numplaylist` | Toggle numbered playlist display and redraw player view. |
 | `clock12` | Toggle 12-hour clock display and refresh clock. |
 | `volumepage` | Toggle dedicated volume page behavior and refresh player view. |
+| `bufferbar` | Enable/disable the buffer bar on the display. |
+| `vumeter` | Enable/disable VU meter and refresh display state. |
+| `vupeaks` | Enable/disable the VU meter peak markers (or XY axis lines). |
+| `vustyle` | Select the VU meter visualisation style (the id is numeric, clamped to the known range). |
 | `brightness`, `dim` | Set brightness (0..100), ensure screen-on state, clamp dimmed brightness if needed, and apply brightness. |
 | `screenon`, `dspon` | Turn display on/off and reset dimming state. |
 | `contrast` | Set contrast (0..100) and apply to display. |

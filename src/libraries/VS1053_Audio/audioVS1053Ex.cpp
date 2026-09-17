@@ -2898,7 +2898,9 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
 
     uint32_t t = millis();
     if(m_f_Log) AUDIO_INFO("connect to %s on port %d path %s", hostwoext, port, extension);
-    res = _client->connect(hostwoext, port, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms);
+    /* Bounded by the connect timeouts, not the read timeouts: this call blocks the main task, and the
+       read timeouts have to stay generous for the stream itself. */
+    res = _client->connect(hostwoext, port, m_f_ssl ? m_connectTimeout_ms_ssl : m_connectTimeout_ms);
     
     if(res){
         uint32_t dt = millis() - t;

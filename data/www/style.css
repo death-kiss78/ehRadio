@@ -196,6 +196,10 @@ section .reset { position: absolute; cursor: pointer; background-color: var(--ma
 section .reset svg.fill{ fill: var(--section-border); stroke: none; width: 22px; }
 .inputwrap { flex: 1; position: relative; padding: 0px 1% 0px 1%; }
 .inputwrap.pad { padding-top: 20px; }
+/* For a control that should not span its row: a 25% pad either side leaves half the row for the
+   control itself and keeps it centred, since the wrapper is still flex: 1. Reusable anywhere a
+   full-width select or input looks wrong. */
+.inputwrap.centerpad { padding-left: 25%; padding-right: 25%; }
 .inputwrap.center { display: flex; flex-direction: column; align-items: center; }
 .inputwrap.center .inputtitle { text-align: center; }
 .inputtitle { display: inline-block; padding-bottom: 7px; text-transform: var(--tt-lowercase); }

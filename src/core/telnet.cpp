@@ -296,7 +296,6 @@ void Telnet::loop() {
       }
       resetInputBuffer(clientInputBuffer[i], clientInputLength[i]);
     }
-    delay(1000);
   }
   handleSerial();
 }

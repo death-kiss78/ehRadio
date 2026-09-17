@@ -1,5 +1,15 @@
 # Frankenstein Surgery Notes — VS1053 Library
 
+## ehRadio Additions After the Graft (read this first)
+
+Recorded for the same reason as the graft itself: so a future migration does not quietly lose them.
+
+| Addition | Where | Why |
+|----------|-------|-----|
+| Separate connect timeout | `audioVS1053Ex.h`: `m_connectTimeout_ms` / `m_connectTimeout_ms_ssl` (1200 ms), applied at the `connect()` inside `connecttohost()` | Parity with the I2S library. `connecttohost()` runs on the MAIN task, so a long timeout is a UI freeze - no button sampled, no WebUI request answered - rather than merely a slow reconnect. Deliberately separate from `m_timeout_ms` / `m_timeout_ms_ssl`, which double as the socket READ timeouts and must stay patient for a slow stream. |
+
+Deliberately *not* carried over: the second `connect()` inside the FreeRTOS worker path (`_client->connect(params->hostwoext, params->port)`) stays as found - it is commented out in the original, and giving it a timeout would change behaviour that has never been exercised.
+
 ## Purpose
 This document records the complete process of grafting Maleksm's anti-skip FreeRTOS task infrastructure into the PR226 audio core (which handles VS1053 patches correctly). It serves as both a record and a template for future library migrations.
 

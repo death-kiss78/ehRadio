@@ -27,6 +27,7 @@ class Player: public Audio {
     bool resumeAfterUrl = false;
     uint32_t sd_min, sd_max;
     bool remoteStationName = false;
+    uint32_t lastConnectMs = 0;
     char burl[MQTT_URL_SIZE + 1];  /* buffer for browseUrl  */
   public:
     Player();

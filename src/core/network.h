@@ -15,6 +15,9 @@ class MyNetwork {
     struct tm timeinfo = {0};
     bool firstRun = true, forceTimeSync = true, forceWeather = true;
     volatile bool lostPlaying = false, beginReconnect = false;  // volatile: accessed from multiple tasks/cores (WiFi callbacks, player loop, retry task)
+    uint8_t lastBssid[6] = {0}; // captured for reconnect later
+    uint8_t lastChannel = 0;
+    bool lastBssidValid = false;
     //uint8_t tsFailCnt, wsFailCnt;
     Ticker ctimer;
     char *weatherBuf = nullptr;
@@ -23,6 +26,7 @@ class MyNetwork {
   public:
     MyNetwork() : improv(nullptr) {};
     bool wifiBegin(bool silent=false);
+    bool wifiBeginFast(bool silent=false); // for reconnect
     void begin();
     void loopImprov();
     void setWifiParams();
@@ -34,6 +38,7 @@ class MyNetwork {
     void cancelStreamRetry();
   private:
     Ticker rtimer;
+    void captureCurrentAp();
     static void WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info);
     static void WiFiLostConnection(WiFiEvent_t event, WiFiEventInfo_t info);
 };

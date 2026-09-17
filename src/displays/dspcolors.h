@@ -23,6 +23,7 @@
   #define BOOT_TXT_COLOR    WHITE
   #define TFT_BG            BLACK
   #define TFT_FG            WHITE
+  // looking for other SSD1322 colors?  They are in the library!
 
 #elif DSP_MODEL==DSP_NOKIA5110
   #define BOOT_PRG_COLOR    BLACK
@@ -31,10 +32,10 @@
   #define TFT_FG            BLACK
 
 #elif DSP_MODEL==DSP_SSD1327
-  #define BOOT_PRG_COLOR    0x07
-  #define BOOT_TXT_COLOR    0x3f
+  #define BOOT_PRG_COLOR    0x7F
+  #define BOOT_TXT_COLOR    0x7F
   #define TFT_BG            0x00
-  #define TFT_FG            0x08
+  #define TFT_FG            0x7F
 
 #elif DSP_MODEL==DSP_1602 || DSP_MODEL==DSP_2004
   #define BOOT_PRG_COLOR    0x1

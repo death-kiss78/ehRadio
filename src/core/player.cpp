@@ -285,10 +285,8 @@ void Player::_play(uint16_t stationId) {
   if (config.getMode()==PM_WEB) {
     uint32_t _t_cth = millis();
     isConnected=connecttohost(config.station.url);
-    FUNCTIONLOG("SD", "connecttohost: %lums", millis() - _t_cth);
-    // Note: Removed blind retry - if connection fails (timeout/404/refused), retrying 1.5s later
-    // won't help and just adds 20+ seconds of delay. Stream reconnection is now handled by the
-    // retryStreamConnection task which monitors for unexpected disconnects during playback.
+    lastConnectMs = millis() - _t_cth;
+    FUNCTIONLOG("Player", "connecttohost: %lums", (unsigned long)lastConnectMs);
   }
   if (isConnected) {
   //if (config.store.play_mode==PM_WEB?connecttohost(config.station.url):connecttoFS(SD,config.station.url,config.sdResumePos==0?_resumeFilePos:config.sdResumePos-player.sd_min)) {
@@ -346,7 +344,10 @@ void Player::playUrl(const char* url) {
   display.putRequest(PSTOP);
   setOutputPins(false);
   config.setTitle(l10n(L10N_MSG_CONNECT));
-  if (connecttohost(url)) {
+  uint32_t _t_ctu = millis();
+  const bool _urlConnected = connecttohost(url);
+  lastConnectMs = millis() - _t_ctu;
+  if (_urlConnected) {
     _status = PLAYING;
     config.saveLastStationUrl(url);
     config.setTitle("");
