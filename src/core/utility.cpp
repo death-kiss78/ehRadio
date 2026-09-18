@@ -631,12 +631,9 @@ void Utility::standbyon() {
 
 void Utility::standbyoff() {
   network.cancelStreamRetry();
-  bool sst = config.store.smartstart;
   config.setDspOn(false);
   backlightControls.restart();
   player.sendCommand({PR_STOP, 0});
-  delay(100);
-  config.saveValue(&config.store.smartstart, sst);
 }
 
 void Utility::togglestandby() {

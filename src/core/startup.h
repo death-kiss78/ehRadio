@@ -17,6 +17,7 @@ public:
   void getDefaultPlaylist();
   void cleanStaleSearchResults();
   bool servicesBusy() const { return _servicesBusy; } // true only while the services task is actually downloading
+  bool safeMode() const { return _safeMode; }
 
 private:
   void markBootStable(const char* reason);
@@ -35,6 +36,8 @@ private:
   volatile uint32_t _servicesDoneMs = 0;
   volatile bool _servicesBusy = false;
   bool _bootStablePending = false;
+  /* Declared last on purpose: it lands in the struct's existing tail padding, so sizeof(Startup) does not grow. */
+  bool _safeMode = false;  // set by checkSafeMode(); suppresses this session's automatic autoupdate/smartstart
 };
 
 extern Startup startup;

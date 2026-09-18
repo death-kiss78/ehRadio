@@ -79,6 +79,8 @@ Repeat for other buttons.
 
 Each button stores up to 3 alternative IR codes (the three slots in the recorder).
 
+Learning a code that is already stored elsewhere moves it: any other slot holding the same code is cleared, so only the newest copy is kept.
+
 #### Power Toggle
 
 This is not a real power control. It is not actually possible in code to wake up the radio with an IR signal.

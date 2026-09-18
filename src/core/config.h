@@ -281,6 +281,7 @@ class Config {
       void saveIR(uint8_t button);
       uint64_t* irCodes(uint8_t button);
       void clearIR(uint8_t button, uint8_t slot);
+      uint8_t clearDuplicateIR(uint8_t button, uint8_t slot);
       int irButtonByName(const char* name);
       uint8_t irButtonCount();
       const char* irButtonKey(uint8_t button);

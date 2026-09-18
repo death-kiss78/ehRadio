@@ -602,6 +602,25 @@ void Config::clearIR(uint8_t button, uint8_t slot) {
   irCodes(button)[slot] = 0;
 }
 
+// After learning a code, drop that same code from every other slot so only the newest copy is kept.
+uint8_t Config::clearDuplicateIR(uint8_t button, uint8_t slot) {
+  if (button >= irKeyMapCount || slot > 2) return 0;
+  const uint64_t* keep = irCodes(button);
+  if (keep == nullptr) return 0;
+  const uint64_t code = keep[slot];
+  if (code == 0) return 0;  // never match empty slots - a 0 would wipe everything
+  uint8_t cleared = 0;
+  for (uint8_t b = 0; b < irKeyMapCount; ++b) {
+    uint64_t* codes = irCodes(b);
+    if (codes == nullptr) continue;
+    for (uint8_t s = 0; s < 3; ++s) {
+      if (b == button && s == slot) continue;  // keep the newest copy
+      if (codes[s] == code) { codes[s] = 0; ++cleared; }
+    }
+  }
+  return cleared;
+}
+
 int Config::irButtonByName(const char* name) {
   if (name == nullptr || name[0] == '\0') return -1;
   for (size_t i = 0; i < irKeyMapCount; ++i) {

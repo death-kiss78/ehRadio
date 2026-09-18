@@ -52,8 +52,9 @@ class VuWidget: public Widget {
 
        The bar family is the only one that cares how a layout arranges its two channels: it draws two
        strips where bandsConf says they are.  Every other style draws time or frequency along the
-       AREA's width and splits the area's height between the channels, on every layout family, which is
-       what makes the OLED, the portrait TFT box and the BoomBox ribbon show the same picture. */
+       AREA's width and splits the area between the channels - its height, or its width for Spectrum
+       Long's side-by-side pair - so the OLED, the portrait TFT box and the BoomBox ribbon all get the
+       same picture. */
     bool _fillLocal(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);
     /* Thickness of a reference line and of a trace, from the peak marker's own formula.  Not used for
        bar widths, and not retrofitted onto the segmented VU, or the look would change. */
@@ -72,7 +73,8 @@ class VuWidget: public Widget {
     void _synthBands(uint8_t *out, uint8_t n, uint16_t lvl);
     void _drawBars(bool led);
     void _drawHistory();
-    void _drawSpectrum();
+    void _drawSpectrumReflect();
+    void _drawSpectrumMirror();
     void _drawWave();
     void _drawLissajous();
 
@@ -80,7 +82,7 @@ class VuWidget: public Widget {
        .bss instead of the heap - widgets are heap-allocated, and the heap is what the boot-time services
        exhaust.  The spectrum's per-band caps lived here too and are gone: on review they were too faint
        to read inside a bar and cost pixels the bars need, so the vupeak switch now means something else
-       in that style (see _drawSpectrum). */
+       in that style (see _drawSpectrumReflect). */
 
     /* History strip: one column per VU_REFRESH_MS of wall clock, oldest first, each level scaled to
        0..255 (0 = silent) so that even a 404 px level axis fits in a byte. */

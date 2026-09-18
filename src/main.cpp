@@ -93,7 +93,7 @@ void setup() {
   #endif
   if (config.getMode()==PM_SDCARD) player.initHeaders(config.station.url);
   player.lockOutput=false;
-  if (config.store.smartstart) {  // If smart start is enabled
+  if (!startup.safeMode() && config.store.smartstart) {  // If smart start is enabled (suppressed on a safe-mode boot)
     delay(1000);  // Allow DNS/TCP/SSL stack to stabilize after WiFi connect (esp. after soft restart)
     if (config.getMode() == PM_WEB) {
       player.resumeLastWebSource();

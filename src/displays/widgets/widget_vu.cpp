@@ -75,7 +75,17 @@ static inline uint16_t vuSnapClear(uint16_t meas, uint16_t step) {
 bool VuWidget::_fillLocal(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
   /* TFT renders into the canvas that is blitted at the end; OLED has no canvas, writes straight to
      the panel buffer, and so needs the widget origin added.  A zero dimension is a no-op, which keeps
-     the callers from each testing for degenerate rects. */
+     the callers from each testing for degenerate rects.
+
+     Everything is CLIPPED to the box here.  This is the one place that knows the pixel surface, and
+     the per-frame fill covers exactly _cw x _ch - so a fill that reaches outside is painted once per
+     frame and erased by nothing, leaving a permanent mark on the panel (an even-height history strip
+     did exactly that, one row below its box).  Clipping here rather than in each painter's arithmetic
+     also keeps a style from writing past the TFT canvas. */
+  if (!w || !h) return false;
+  if (x >= _cw || y >= _ch) return false;
+  if ((uint32_t)x + w > _cw) w = (uint16_t)(_cw - x);
+  if ((uint32_t)y + h > _ch) h = (uint16_t)(_ch - y);
   if (!w || !h) return false;
   #ifdef WIDGET_DEBUG
     _fills++;                  // only a real fill counts; the early return above is not one
@@ -106,11 +116,12 @@ void VuWidget::_draw(){
   _frame++;
 
   switch (static_cast<vuStyle_e>(config.store.vustyle)) {
-    case VU_STYLE_BARS_LED:   _drawBars(true);      break;
-    case VU_STYLE_HISTORY:    _drawHistory();       break;
-    case VU_STYLE_SPECTRUM:   _drawSpectrum();      break;
-    case VU_STYLE_WAVE:       _drawWave();          break;
-    case VU_STYLE_LISSAJOUS:  _drawLissajous();     break;
+    case VU_STYLE_DIGITAL_LED:      _drawBars(true);        break;
+    case VU_STYLE_HISTORY:          _drawHistory();         break;
+    case VU_STYLE_SPECTRUM_REFLECT: _drawSpectrumReflect(); break;
+    case VU_STYLE_SPECTRUM_MIRROR:  _drawSpectrumMirror();  break;
+    case VU_STYLE_WAVE:             _drawWave();            break;
+    case VU_STYLE_LISSAJOUS:        _drawLissajous();       break;
     /* Only an unknown id, or a style this build cannot draw, reaches the bars - including a stored id
        from before Spectrum A was removed.  The two sample styles are deliberately not a fallback from a
        painter that has no data: a dropped capture frame (a torn seqlock read) must leave the frame
@@ -314,8 +325,8 @@ uint8_t VuWidget::_bandCount(uint16_t span, uint16_t *barW, uint16_t *gap) const
 }
 
 /* The synthesised spectrum: the level spread across the bands with a fixed tilt plus a deterministic
-   wobble so it does not look frozen.  This is NOT a measurement, which is why /visuals.json labels it
-   "(simulated)" on a VS1053 build.
+   wobble so it does not look frozen.  This is NOT a measurement, and it is no longer labelled as one:
+   the style is called Spectrum Reflect on every backend.
    The bands are in the same units the real source returns - 0..255, where 255 is a full-height bar -
    so the painter has one conversion and the two sources are interchangeable.  There are no
    frequencies here to place, so the tilt runs across the band index; the log edges live with the
@@ -338,8 +349,14 @@ void VuWidget::_drawHistory(){
   const uint16_t th = _stroke();
   const uint16_t half = hgt / 2;
   const uint16_t lineY = (half > th / 2) ? (uint16_t)(half - th / 2) : 0;
-  /* Space a channel has, measured outward from the divider's outer edge. */
-  const uint16_t band = (half > th / 2) ? (uint16_t)(half - th / 2) : 1;
+  /* Space a channel has, measured outward from the divider's outer edge.  It is the SMALLER of the two
+     halves, not half the height: on an even height the divider row and its thickness come out of the
+     lower half, so the R trace was drawn one row past the bottom of the box - a line the area fill
+     never reaches.  An even 10 px box showed it; the 15 px boxes were fine, which is why only one
+     layout did. */
+  const uint16_t below = (hgt > (uint16_t)(lineY + th)) ? (uint16_t)(hgt - lineY - th) : 0;
+  uint16_t band = (lineY < below) ? lineY : below;
+  if (!band) band = 1;
 
   uint16_t nb = full / (VU_HISTORY_MIN_PX ? VU_HISTORY_MIN_PX : 1);
   if (nb < 1) nb = 1;
@@ -434,18 +451,22 @@ void VuWidget::_drawHistory(){
   }
 }
 
-/* ---- Spectrum ---------------------------------------------------------------------------------
+/* ---- Spectrum Reflect ---------------------------------------------------------------------------
    Frequency along the area's width, both channels ascending left to right, and the divider between
    them is the baseline: L's bands rise above it, R's descend below it.  Both grow OUTWARD from it,
-   which is what makes the two halves read as one instrument mirrored about the line. */
+   which is what makes the two halves read as one instrument reflected about the line. */
 
-void VuWidget::_drawSpectrum(){
+void VuWidget::_drawSpectrumReflect(){
   const uint16_t full = _cw;
   const uint16_t th = _stroke();
   const uint16_t half = _ch / 2;
   const uint16_t lineY = (half > th / 2) ? (uint16_t)(half - th / 2) : 0;
-  /* Space a channel has, measured outward from the baseline's outer edge. */
-  const uint16_t band = (half > th / 2) ? (uint16_t)(half - th / 2) : 1;
+  /* Space a channel has, measured outward from the baseline's outer edge - the SMALLER of the two
+     halves, for the same reason as the history strip: on an even height the divider row and its
+     thickness come out of the descending half, so R's bars would be drawn one row past the bottom. */
+  const uint16_t below = (_ch > (uint16_t)(lineY + th)) ? (uint16_t)(_ch - lineY - th) : 0;
+  uint16_t band = (lineY < below) ? lineY : below;
+  if (!band) band = 1;
 
   uint16_t barW = 1, gap = 1;
   const uint8_t n = _bandCount(full, &barW, &gap);
@@ -503,6 +524,85 @@ void VuWidget::_drawSpectrum(){
         /* Plain: no baseline, and the bar is one colour - vumax once it reaches the hot zone. */
         const uint16_t y = ch ? base : (uint16_t)(base - h);
         _fillLocal(x, y, barW, h, _hotColor(h, band));
+      }
+    }
+  }
+}
+
+/* ---- Spectrum Mirror ----------------------------------------------------------------------------
+   The same two measurements laid out the other way round: a half of the width each instead of one
+   above the other, and the whole height instead of half of it.  Both channels run low-to-high away
+   from the divider, so the bass meets in the middle: R is the right half and already runs that way,
+   L is the left half drawn backwards.  Both low ends sit against the divider. */
+
+void VuWidget::_drawSpectrumMirror(){
+  const uint16_t th = _stroke();
+  const uint16_t halfW = _cw / 2;
+  /* The height the bars grow into: above the bottom line when it is drawn, the whole box when it is
+     not - the same reservation _drawSpectrumReflect() makes at its baseline, moved to the bottom edge. */
+  const uint16_t avail = (config.store.vupeak && _ch > th) ? (uint16_t)(_ch - th) : _ch;
+  const uint16_t axis = avail ? avail : 1;
+  /* The divider and the daylight around it.  The blocks are placed from the DIVIDER outwards rather
+     than centred in their own halves: centring each half looks even-handed, but the line's own pixel
+     comes out of the right half, so the left kept two pixels of daylight and the right only one.
+     Anchoring on the line gives it the same clearance on both sides - 1 + the line + 1, so 3 px of
+     clear space where the line is one pixel thick and 4 px where it is two. */
+  const uint16_t day = 1;
+  const uint16_t xd = (uint16_t)(halfW - th / 2);            // the divider's left edge
+  const uint16_t innerGap = config.store.vupeak ? day : 0;   // no line drawn, no reservation made
+  const uint16_t leftRoom  = (xd > innerGap) ? (uint16_t)(xd - innerGap) : 0;
+  const uint16_t rightRoom = (_cw > (uint16_t)(xd + th + innerGap)) ? (uint16_t)(_cw - xd - th - innerGap) : 0;
+  /* The tighter of the two, so one block width fits on both sides of the line. */
+  const uint16_t bandSpan = (leftRoom < rightRoom) ? leftRoom : rightRoom;
+
+  uint16_t barW = 1, gap = 1;
+  const uint8_t n = _bandCount(bandSpan, &barW, &gap);   // `bandSpan`, not `span`: that is the level span
+  const uint16_t used = (uint16_t)((uint32_t)n * barW + (uint32_t)((n > 1) ? (n - 1) : 0) * gap);
+
+  /* The two reference lines this style reads against: the bottom edge the bars grow from, and the
+     divider the two halves meet on.  Painted first, so a bar overdraws them where it touches. */
+  if (config.store.vupeak) {
+    if (_ch > th) _fillLocal(0, (uint16_t)(_ch - th), _cw, th, _vupeakcolor);
+    _fillLocal(xd, 0, th, _ch, _vupeakcolor);
+  }
+
+  const uint16_t seg = (_bands.perheight && axis) ? (uint16_t)(axis / _bands.perheight) : 1;
+  const uint16_t hot = (uint16_t)(seg * 3);   // the outer HOTSEG segments, as everywhere else
+  const uint16_t span = _len ? _len : 1;
+  const uint16_t lvL = span - _measL, lvR = span - _measR;
+  uint8_t bands[VU_SPECTRUM_MAX_CHANNELS];
+  uint8_t realBands[VU_SPECTRUM_MAX_CHANNELS * 2];
+  const bool haveReal = player.getSpectrum(realBands, n);
+
+  for (uint8_t ch = 0; ch < 2; ch++) {
+    if (haveReal) {
+      for (uint8_t b = 0; b < n; b++) bands[b] = realBands[ch * n + b];
+    } else {
+      _synthBands(bands, n, (ch ? lvR : lvL));
+    }
+    const bool mirrored = (ch == 0);                  // L is the left half, drawn back to front
+    /* Placed from the line: the left block ends innerGap before it and the right one starts innerGap
+       after it, both the same width, so the daylight around the line matches. */
+    const uint16_t xStart = mirrored
+        ? ((xd > (uint16_t)(innerGap + used)) ? (uint16_t)(xd - innerGap - used) : 0)
+        : (uint16_t)(xd + th + innerGap);
+    const uint32_t limit = mirrored ? (uint32_t)xd : (uint32_t)_cw;
+    for (uint8_t col = 0; col < n; col++) {
+      const uint16_t x = (uint16_t)(xStart + (uint16_t)col * (barW + gap));
+      if ((uint32_t)x + barW > limit) break;
+      const uint8_t b = mirrored ? (uint8_t)(n - 1 - col) : col;
+      uint16_t h = (uint16_t)(((uint32_t)bands[b] * axis) / 255);
+      if (!h) h = 1;
+      if (config.store.vupeak) {
+        /* Annotated like the Spectrum: the bottom line is drawn, so each bar is a vumin body with the
+           outer HOTSEG segments of the axis in vumax. */
+        const uint16_t tipStart = (axis > hot) ? (uint16_t)(axis - hot) : 0;
+        const uint16_t tip = (h > tipStart) ? (uint16_t)(h - tipStart) : 0;
+        const uint16_t body = (uint16_t)(h - tip);
+        if (body) _fillLocal(x, (uint16_t)(axis - body), barW, body, _vumincolor);
+        if (tip)  _fillLocal(x, (uint16_t)(axis - h), barW, tip, _vumaxcolor);
+      } else {
+        _fillLocal(x, (uint16_t)(axis - h), barW, h, _hotColor(h, axis));
       }
     }
   }

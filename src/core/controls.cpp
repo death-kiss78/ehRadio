@@ -226,6 +226,12 @@ void Controls::irLoop() {
           FUNCTIONLOG("Controls.IR", "%s", irText.c_str());
           FUNCTIONLOG("Controls.IR", "--------------------------");
           irSlot[config.irchck] = irResults.value;
+          // Only one slot can win at match time, so drop this code from every other slot.
+          uint8_t deduped = config.clearDuplicateIR(static_cast<uint8_t>(config.irindex), config.irchck);
+          if (deduped > 0) {
+            FUNCTIONLOG("Controls.IR", "Removed %u duplicate code(s) from other buttons/slots", deduped);
+            netserver.irValsToWs();  // refresh the three visible slots if one of them was cleared
+          }
           netserver.irToWs(typeToString(irResults.decode_type, irResults.repeat).c_str(), irResults.value);
         }
         return;

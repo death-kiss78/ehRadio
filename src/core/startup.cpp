@@ -18,9 +18,8 @@ Startup startup;
 
 void Startup::checkSafeMode() {
   if (!config.store.bootStableMarker) {
-    FUNCTIONLOG("SAFE MODE", "Smartstart and Autoupdate disabled for this session; Web mode saved to NVS.");
-    config.store.smartstart = false;
-    config.store.autoupdate = false;
+    _safeMode = true;
+    FUNCTIONLOG("SAFE MODE", "Smartstart and Autoupdate suppressed for this session; Web mode saved to NVS.");
     config.saveValue(&config.store.play_mode, static_cast<uint8_t>(PM_WEB));
   }
   // Mark this boot as in-progress (not yet proven stable)
@@ -408,7 +407,7 @@ wait_for_online:
   #ifdef UPDATEURL
     utility.updateFile(param, "/data/new_ver.txt", CHECKUPDATEURL, CHECKUPDATEURL_TIME, "New version check");
     startup.checkNewVersionFile();
-    if (config.store.autoupdate && netserver.newVersionAvailable) {
+    if (!startup.safeMode() && config.store.autoupdate && netserver.newVersionAvailable) {
       FUNCTIONLOG("AutoUpdate", "New version detected - starting online update");
       startOnlineUpdate();
     }

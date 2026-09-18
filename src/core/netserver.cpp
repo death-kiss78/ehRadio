@@ -1680,27 +1680,26 @@ void handleNotFound(AsyncWebServerRequest * request) {
   if (request->url() == "/visuals.json") {
     /* Which visualisers this build can actually draw, as an id -> label map for the WebUI select.
        The ids are vuStyle_e, the same numbers that travel in vustyle=<n> and come back in GETSCREEN,
-       so the select is generated from the device rather than hard-coded in the page.  A null label
-       means "this build cannot do it" and the entry is omitted - that is how the sample-based styles
-       disappear on a VS1053, which never sees PCM. */
-    static const struct { uint8_t id; const char *i2s; const char *vs; } vuStyleNames[] = {
-      { VU_STYLE_BARS,       "Bars",                   "Bars"                    },
-      { VU_STYLE_BARS_LED,   "Bars (segments)",        "Bars (segments)"         },
-      { VU_STYLE_HISTORY,    "History",                "History"                 },
-      { VU_STYLE_SPECTRUM,   "Spectrum",               "Spectrum (simulated)"    },
-      { VU_STYLE_WAVE,       "Waveform",               nullptr                   },
-      { VU_STYLE_LISSAJOUS,  "Lissajous",              nullptr                   },
+       so the select is generated from the device rather than hard-coded in the page.  A style that needs
+       PCM is omitted by a backend that has none - a VS1053 never sees samples - so needsPcm is the only
+       capability test here.  The labels are the same on every backend: the spectrum a VS1053 synthesises
+       is deliberately not called out any more. */
+    static const struct { uint8_t id; const char *label; bool needsPcm; } vuStyleNames[] = {
+      { VU_STYLE_BARS,             "Bars",             false },
+      { VU_STYLE_DIGITAL_LED,      "Digital LED",      false },
+      { VU_STYLE_HISTORY,          "History",          false },
+      { VU_STYLE_SPECTRUM_REFLECT, "Spectrum Reflect", false },
+      { VU_STYLE_SPECTRUM_MIRROR,  "Spectrum Mirror",  false },
+      { VU_STYLE_WAVE,             "Waveform",         true  },
+      { VU_STYLE_LISSAJOUS,        "Lissajous",        true  },
     };
     char visualsbuf[320];
     int n = snprintf(visualsbuf, sizeof(visualsbuf), "{");
     for (uint8_t i = 0; i < sizeof(vuStyleNames) / sizeof(vuStyleNames[0]); i++) {
-      #if defined(USE_AUDIO_I2S)
-        const char *lbl = vuStyleNames[i].i2s;
-      #else
-        const char *lbl = vuStyleNames[i].vs;
+      #if !defined(USE_AUDIO_I2S)
+        if (vuStyleNames[i].needsPcm) continue;
       #endif
-      if (!lbl) continue;
-      n += snprintf(visualsbuf + n, sizeof(visualsbuf) - n, "%s\"%u\":\"%s\"", (n > 1) ? "," : "", vuStyleNames[i].id, lbl);
+      n += snprintf(visualsbuf + n, sizeof(visualsbuf) - n, "%s\"%u\":\"%s\"", (n > 1) ? "," : "", vuStyleNames[i].id, vuStyleNames[i].label);
     }
     snprintf(visualsbuf + n, sizeof(visualsbuf) - n, "}");
     AsyncWebServerResponse *response = request->beginResponse(200, "application/json", visualsbuf);
