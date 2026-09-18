@@ -5521,10 +5521,29 @@ bool Audio::getSpectrum(uint8_t *bands, uint8_t n) {
   if (gain > 32.0f) gain = 32.0f;
   const float floorDb = VU_SPECTRUM_DB_FLOOR ? (float)VU_SPECTRUM_DB_FLOOR : 60.0f;
 
+  /* The held frame: fast attack, slow fall, one time base for both channels.  A single 512-sample
+     window is a noisy estimate - a band can swing 10 dB from one window to the next, so the ends of the
+     range pop in and out and a quiet window dims the whole display - so a band keeps the highest value
+     it has seen and falls at VU_SPECTRUM_FALL_MS, the same shape VU_FADE_MS gives the level bars.  It is
+     also the answer to a dropped frame below. */
+  static uint8_t  hold[VU_SPECTRUM_MAX_CHANNELS * 2];
+  static uint8_t  holdN = 0;
+  static uint32_t holdMs = 0;
+  static bool     holdValid = false;
+
   for (int ch = 0; ch < 2; ch++) {
     const int16_t *src = &_capPub[ch][0];
     for (int i = 0; i < N; i++) { buf[i * 2] = (float)src[i]; buf[i * 2 + 1] = 0.0f; }
-    if (_capSeq != seq) return false;                   // staged mid-publish: drop the frame
+    if (_capSeq != seq) {
+      /* The publisher moved under us.  The transform is still available, so this is one refresh lost,
+         not a backend without a spectrum: repeat the held frame rather than reporting a failure, which
+         would make the painter switch to its SIMULATED source for that one frame - and on a sparse real
+         spectrum that reads as the whole thing suddenly filling in.  The strict check is what the
+         WAVEFORM needs, where a spliced window is visible; a spliced spectrum is not. */
+      if (!holdValid || holdN != n) return false;       // nothing held yet: let the caller simulate
+      memcpy(bands, hold, (size_t)n * 2);
+      return true;
+    }
     for (int i = 0; i < N; i++) buf[i * 2] *= hann[i];  // Hann in place, so the bin leakage is bounded
     vuFft(buf, N, tw);
     for (uint8_t b = 0; b < n; b++) {
@@ -5549,6 +5568,31 @@ bool Audio::getSpectrum(uint8_t *bands, uint8_t n) {
       if (db < -floorDb) db = -floorDb;
       if (db > 0.0f)     db = 0.0f;
       bands[ch * n + b] = (uint8_t)((db + floorDb) * (255.0f / floorDb));
+    }
+  }
+
+  /* Fast attack, slow fall.  The elapsed time is clamped to the fall time, so a stall cannot drop the
+     bars in one step, and the floor is the value this frame actually measured - a band never reads
+     lower than the measurement it came from. */
+  const uint32_t now = millis();
+  const uint16_t fall = VU_SPECTRUM_FALL_MS ? (uint16_t)VU_SPECTRUM_FALL_MS : 1;
+  uint32_t dt = holdMs ? (now - holdMs) : fall;
+  if (dt > fall) dt = fall;
+  holdMs = now;
+  const uint16_t step = (uint16_t)(((uint32_t)255 * dt) / fall);
+  if (!holdValid || holdN != n) {
+    memcpy(hold, bands, (size_t)n * 2);                 // a different band count starts the hold over
+    holdN = n;
+    holdValid = true;
+  } else {
+    for (uint8_t i = 0; i < (uint8_t)(n * 2); i++) {
+      if (bands[i] >= hold[i]) {
+        hold[i] = bands[i];                             // rise at once
+      } else {
+        const uint16_t fallen = (hold[i] > step) ? (uint16_t)(hold[i] - step) : 0;
+        hold[i] = (fallen > bands[i]) ? (uint8_t)fallen : bands[i];
+      }
+      bands[i] = hold[i];
     }
   }
   return true;

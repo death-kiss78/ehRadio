@@ -1090,6 +1090,9 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef VU_SPECTRUM_MAX_CHANNELS
   #define VU_SPECTRUM_MAX_CHANNELS 15 // maximum number of channels each R/L
 #endif
+#ifndef VU_SPECTRUM_FALL_MS
+  #define VU_SPECTRUM_FALL_MS 400 // ms for a spectrum band to fall from full to empty (the rise is instant)
+#endif
 #ifndef VU_HISTORY_MIN_PX
   #define VU_HISTORY_MIN_PX 2 // minimum pixels of a history strip column
 #endif

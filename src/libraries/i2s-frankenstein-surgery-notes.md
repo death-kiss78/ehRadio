@@ -30,7 +30,7 @@ The I2S library has far fewer ehRadio changes than VS1053:
 | Config include | `../../core/config.h` | `../core/config.h` | Same reason |
 
 The include-path and attribution rows above were the only differences from Maleksm **as it was when the
-library was adopted**. Since then ehRadio has added three things of its own, recorded here so that a
+library was adopted**. Since then ehRadio has added four things of its own, recorded here so that a
 future graft does not quietly lose them:
 
 | Addition | Where | Why |
@@ -38,6 +38,8 @@ future graft does not quietly lose them:
 | VU capture window | `Audio.h` / `Audio.cpp`: `_capWin`, `_capPub`, `_capPos`, `_capSeq`, `_capturePublish()`, `getWaveform()`, and a self-contained radix-2 `vuFft()` | The VU widget's waveform, Lissajous and real-spectrum styles need PCM that the level meter does not provide. The window is `VU_CAPTURE_SAMPLES` (512), appended in `computeVUlevel()` and published on the `f_vu` tick behind a sequence counter, so a torn read is dropped rather than drawn. |
 | PSRAM scratch for the transform | `vuScratchAlloc()` plus `vuPsramBytes` (declared in `core/config.h`) | The transform's working set is 8 KB and taking it from the internal heap during boot was enough to tip the device over - the boot services hold three TLS sessions at the same time. It is allocated lazily, which is why the core monitor's `VU FFT` field reads 0 until a spectrum frame has been drawn. |
 | Separate connect timeout | `m_connectTimeout_ms` / `m_connectTimeout_ms_ssl` (1200 ms), used at the four `connect()` sites in `connecttohost()` and the mid-stream reconnects | `connecttohost()` runs on the MAIN task, so its timeout is a UI freeze - no button sampled, no WebUI request answered - and not merely a slow reconnect. It must stay separate from `m_timeout_ms` / `m_timeout_ms_ssl`, which double as the socket READ timeouts and have to remain patient for a slow stream to trickle in. Merging them re-breaks slow streams. |
+
+| Fast-attack / slow-fall hold | `getSpectrum()`: a static `hold[]` per band with `holdN`, `holdMs`, `holdValid`, and the dropped-frame branch | Two reasons, both measured on hardware. A single 512-sample window is a noisy estimate, so a band keeps the highest value it has seen and falls at `VU_SPECTRUM_FALL_MS` - the same shape `VU_FADE_MS` gives the level bars. And the seqlock drops a frame whenever the publisher moves during the staging copy (7% of frames at 30 Hz), which used to be reported as `false`; a painter reads `false` as "this backend has no transform" and switches to its simulated source, which is exactly what the visible flicker was. A dropped frame now repeats the hold, and only "never computed" answers `false`. |
 
 ---
 

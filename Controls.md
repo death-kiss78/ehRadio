@@ -81,10 +81,11 @@ Each button stores up to 3 alternative IR codes (the three slots in the recorder
 
 Learning a code that is already stored elsewhere moves it: any other slot holding the same code is cleared, so only the newest copy is kept.
 
-#### Power Toggle
+#### Power Toggle (Standby)
 
 This is not a real power control. It is not actually possible in code to wake up the radio with an IR signal.
-This merely fakes power control by stopping audio, blanking the display, and turning off the display backlight (if possible).
+
+It is a standby mode that stops audio, blanking the display, and turning off the display backlight (if possible).
 
 ### Touchscreen
 
