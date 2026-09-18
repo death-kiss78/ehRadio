@@ -180,6 +180,10 @@ playlist page is built on the playlist line. Everything else may be omitted.
 Three things decide the VU: `vuConf` (where), `bandsConf` (what it looks like) and the two
 switches `rotateVU` and `boomboxVU`.
 
+Note that the design of the VU Meter applies directly to the "Bars" and "Digital (LED)" style.
+Other VU Styles are derived from this in the code. Design with this in mind.
+
+
 ```c
 .vuConf    = { TFT_FRAMEWDT, 38+FONTSHIFT, 1, WA_LEFT },
 .bandsConf = { 7, 44, 1, 1, 10 },

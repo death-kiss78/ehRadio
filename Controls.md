@@ -66,7 +66,7 @@ Repeat for other buttons.
 
 | Button  | Action                 | Longpress Action |
 | ------  | ---------------------- | ---------------- |
-| Power   | toggle the display/radio on and off | - |
+| Power   | toggle standby mode | - |
 | Mute    | toggle mute (volume 0 and back) | - |
 | &#9199; | start/stop playing     | - |
 | &#9664; | previous station/track | - |
@@ -83,9 +83,11 @@ Learning a code that is already stored elsewhere moves it: any other slot holdin
 
 #### Power Toggle (Standby)
 
-This is not a real power control. It is not actually possible in code to wake up the radio with an IR signal.
+This is not a real power control. It is not possible to wake up the radio with an IR signal.
 
-It is a standby mode that stops audio, blanking the display, and turning off the display backlight (if possible).
+It is a standby mode that stops audio, blanks the display, and turns off the display backlight (if configured).
+
+If Smart Start is enabled, audio will automatically play after exiting standby mode.
 
 ### Touchscreen
 
