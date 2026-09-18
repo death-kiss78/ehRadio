@@ -61,9 +61,9 @@ enum vuStyle_e : uint8_t {
   VU_STYLE_DIGITAL_LED,       // the same painter, lit boundary snapped to whole segments - "Digital LED"
   VU_STYLE_HISTORY,           // level over time, both channels
   VU_STYLE_SPECTRUM_REFLECT,  // bands across the width, L above the baseline and R below it
+  VU_STYLE_SPECTRUM_MIRROR,   // half the width each, full height, L mirrored on the left and R on the right
   VU_STYLE_WAVE,              // waveform, I2S only
   VU_STYLE_LISSAJOUS,         // vectorscope, I2S only
-  VU_STYLE_SPECTRUM_MIRROR,   // half the width each, full height, L mirrored on the left and R on the right
   VU_STYLE_COUNT
 };
 
