@@ -20,6 +20,7 @@ const BootData _bootConfig PROGMEM = {
         .apPassConf          = { 0, 17, 1, WA_LEFT },
         .apPass2Conf         = { 0, 17, 1, WA_RIGHT },
         .bootWdtConf         = { 0, 32-8*2-5, 1, WA_CENTER },
+        /* BOOT PROGRESS       { frame interval, line character width, progress characters } */
         .bootPrgConf         = { 90, 10, 4 },
 };
 

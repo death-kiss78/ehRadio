@@ -172,20 +172,40 @@ class NumWidget: public TextWidget {
 class ProgressWidget: public TextWidget {
   public:
     ProgressWidget() {}
-    ProgressWidget(WidgetConfig conf, ProgressConfig pconf, uint16_t fgcolor, uint16_t bgcolor) { 
-      init(conf, pconf, fgcolor, bgcolor);
+    /* pconf.width is the whole line budget in characters, frame included: the dot runway is what remains of it
+       after the frame, so a conf author only has to know how many characters this line may occupy on their
+       panel. Both glyphs are used exactly as given and must outlive the widget - each is a string literal, the
+       speaker from display.cpp and the boot-mode glyph from startup.icon(). */
+    ProgressWidget(WidgetConfig conf, ProgressConfig pconf, uint16_t fgcolor, uint16_t bgcolor,
+                   const char* frameLeft = nullptr, const char* frameGlyph = nullptr) {
+      init(conf, pconf, fgcolor, bgcolor, frameLeft, frameGlyph);
     }
     using Widget::init;
-    void init(WidgetConfig conf, ProgressConfig pconf, uint16_t fgcolor, uint16_t bgcolor){
-      TextWidget::init(conf, pconf.width, false, fgcolor, bgcolor);
-      _speed = pconf.speed; _width = pconf.width; _barwidth = pconf.barwidth;
-      _pg = 0; 
-    }
+    void init(WidgetConfig conf, ProgressConfig pconf, uint16_t fgcolor, uint16_t bgcolor,
+              const char* frameLeft = nullptr, const char* frameGlyph = nullptr);
     void loop();
+  protected:
+    /* Full paint, and the only path that draws the two static glyphs: activation, layout changes and screensaver
+       restarts come through here, while the animation itself paints single cells in _progress(). That split is
+       what keeps a TFT from flashing the whole line - the glyphs never change, so they are never redrawn. */
+    void _draw();
   private:
+    /* The two glyphs framing the line. Both are string literals owned by the caller - the speaker from
+       display.cpp and the boot-mode glyph from startup.icon() - so no copy of either is kept here. */
+    const char* _frameL = nullptr;
+    const char* _frameR = nullptr;
+    /* The runway in CHARACTERS. Both glyphs count as one character each however many bytes they are: the SD pair
+       renders one column wider than the rest and that is invisible on a single row of pixels. The buffer is sized
+       separately in BYTES, because a U+00B7 dot is two of them and a character count cuts the line mid-dot. */
+    uint16_t _runway = 0;
+    uint16_t _fieldX = 0;                  // x of the first dot column, recorded by the last full paint
+    uint16_t _oldLead = 0, _oldDots = 0;   // what the last painted frame showed, for the cell delta
+    bool _painted = false;                 // false until _draw() has put a known picture on the panel
     uint8_t _pg;
     uint16_t _speed, _barwidth;
     uint32_t _scrolldelay;
+    void _blob(uint16_t& lead, uint16_t& dots) const;
+    void _dotCell(uint16_t col, bool on);
     void _progress();
     bool _checkDelay(int m, uint32_t &tstamp);
 };

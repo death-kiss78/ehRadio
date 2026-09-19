@@ -549,11 +549,102 @@ void NumWidget::_draw() {
 /**************************
       PROGRESS WIDGET
  **************************/
+/* One blob element, appended one at a time so no format string ever has to reason about byte precision.
+   \026 is the VOL_75 wave glyph from icons.h: an ICON codepoint, so it is drawn on the same seven-row grid as
+   the speaker and the boot glyph at either end, unlike a font bullet whose own vertical metrics sit off centre
+   against them. One byte, so characters and bytes coincide here. */
+static const char PROGRESS_DOT[] = "\026";
+#define PROGRESS_DOT_BYTES 1
+
+void ProgressWidget::init(WidgetConfig conf, ProgressConfig pconf, uint16_t fgcolor, uint16_t bgcolor,
+                          const char* frameLeft, const char* frameGlyph) {
+  _frameL = (frameLeft != nullptr) ? frameLeft : "";
+  _frameR = (frameGlyph != nullptr) ? frameGlyph : "";
+  _speed = pconf.speed;
+  _barwidth = pconf.barwidth;
+  _scrolldelay = 0;    // read by _checkDelay() and not set anywhere else
+  _pg = 0;
+  _fieldX = 0;
+  _oldLead = _oldDots = 0;
+  _painted = false;
+  _runway = (pconf.width > 2) ? (uint16_t)(pconf.width - 2) : 1;
+  /* BYTES, not characters: every dot in the runway costs one byte more than the column it occupies. The size has
+     to be right before this call and nothing may be assigned after it - TextWidget::init() ends in
+     Widget::init(), which zeroes _width. */
+  const uint16_t bufbytes = (uint16_t)(strlen(_frameL) + _runway + strlen(_frameR)
+                                       + _barwidth * (PROGRESS_DOT_BYTES - 1) + 1);
+  TextWidget::init(conf, bufbytes, false, fgcolor, bgcolor);
+}
+
+/* Where the blob sits on this frame: it grows in at the speaker, slides right one column per frame, and then its
+   head is eaten at the far end - the dots disappearing into the boot glyph. */
+void ProgressWidget::_blob(uint16_t& lead, uint16_t& dots) const {
+  lead = (_pg <= _barwidth) ? 0 : (uint16_t)(_pg - _barwidth);
+  if (lead > _runway) lead = _runway;
+  dots = (_pg <= _barwidth) ? _pg : _barwidth;
+  if (dots > (uint16_t)(_runway - lead)) dots = (uint16_t)(_runway - lead);
+}
+
+/* One column of the runway: the middle dot, or the background that erases one. Deliberately cell sized, because
+   this is what stops a TFT flashing the whole line eleven times a second. */
+void ProgressWidget::_dotCell(uint16_t col, bool on) {
+  const uint16_t x = (uint16_t)(_fieldX + col * _charWidth);
+  if (on) {
+    dsp.setTextColor(_fgcolor, _bgcolor);
+    dsp.setFont();
+    dsp.setTextSize(_config.textsize);
+    dsp.setCursor(x, _config.top);
+    for (uint8_t i = 0; i < PROGRESS_DOT_BYTES; i++) dsp.write((uint8_t)PROGRESS_DOT[i]);
+  } else {
+    dsp.fillRect(x, _config.top, _charWidth, _textheight, _bgcolor);
+  }
+}
+
+/* Full paint: the speaker, the runway with the blob where it belongs, the boot glyph. Only activation and layout
+   changes come through here, so the two static glyphs are drawn once and then left alone. Character columns are
+   placed exactly as _dotCell() places them - _realLeft() plus one _charWidth per character - which is what keeps
+   the dots from shifting when a full paint replaces a delta one. */
+void ProgressWidget::_draw() {
+  if (!_active || _text == nullptr || _buffsize == 0) return;
+  uint16_t lead = 0, dots = 0;
+  _blob(lead, dots);
+  int n = snprintf(_text, _buffsize, "%s%*s", _frameL, (int)lead, "");
+  for (uint16_t i = 0; i < dots && (n + PROGRESS_DOT_BYTES) < (int)_buffsize; i++) {
+    memcpy(_text + n, PROGRESS_DOT, PROGRESS_DOT_BYTES);
+    n += PROGRESS_DOT_BYTES;
+  }
+  _text[n] = '\0';
+  snprintf(_text + n, _buffsize - n, "%*s%s", (int)(_runway - lead - dots), "", _frameR);
+  _textwidth = (uint16_t)(utf8_strlen(_text) * _charWidth);
+  _fieldX = (uint16_t)(_realLeft() + strlen(_frameL) * _charWidth);
+  /* The erase below covers the whole line, so it does not need the old bounds - but keep TextWidget's own
+     bookkeeping in step for anything that reads it */
+  _oldtextwidth = _textwidth;
+  _oldleft = _realLeft();
+  dsp.fillRect(_realLeft(), _config.top, _textwidth, _textheight, _bgcolor);
+  TextWidget::_draw();
+  _oldLead = lead;
+  _oldDots = dots;
+  _painted = true;
+}
+
 void ProgressWidget::_progress() {
-  char buf[_width + 1];
-  snprintf(buf, _width, "%*s%.*s%*s", _pg <= _barwidth ? 0 : _pg - _barwidth, "", _pg <= _barwidth ? _pg : 5, ".....", _width - _pg, "");
-  _pg++; if (_pg >= _width + _barwidth) _pg = 0;
-  setText(buf);
+  if (_buffsize == 0 || _runway == 0) return;   // init() has not run: stay inert
+  if (!_painted) { _draw(); return; }           // never delta-paint against a picture we did not paint
+  _pg++;
+  /* The single dot at the far end is the last frame of the cycle, so the next one is the blank frame - stopping a
+     frame earlier than the runway would is what keeps that to ONE blank frame instead of two. */
+  if (_pg > (uint8_t)(_runway + _barwidth - 1)) _pg = 0;
+  uint16_t lead = 0, dots = 0;
+  _blob(lead, dots);
+  /* Only the cells this frame and the last one disagree about are touched: at most two of them, against a
+     whole-line erase plus fourteen glyph writes before. The static glyphs are never part of this. */
+  for (uint16_t c = _oldLead; c < (uint16_t)(_oldLead + _oldDots); c++)
+    if (c < lead || c >= (uint16_t)(lead + dots)) _dotCell(c, false);
+  for (uint16_t c = lead; c < (uint16_t)(lead + dots); c++)
+    if (c < _oldLead || c >= (uint16_t)(_oldLead + _oldDots)) _dotCell(c, true);
+  _oldLead = lead;
+  _oldDots = dots;
 }
 
 bool ProgressWidget::_checkDelay(int m, uint32_t &tstamp) {

@@ -474,6 +474,12 @@ def create_target_file(out_path, data, name, dry_run):
         if btype == 'ScrollConfig' and 'SCROLLS' not in boot_section_done:
             boot_lines.append('        /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */')
             boot_section_done.add('SCROLLS')
+        elif bf == 'bootPrgConf':
+            # Ahead of the WIDGETS branch on purpose: bootPrgConf is a ProgressConfig, so it must never be the
+            # member that emits the shared WIDGETS header, whatever order BOOT_FIELDS ends up in. Emitted here
+            # rather than through SECTION_COMMENTS because that table only serves the layout pass, and
+            # bootPrgConf is never a layout field.
+            boot_lines.append('        /* BOOT PROGRESS       { frame interval, line character width, progress characters } */')
         elif btype in ('WidgetConfig', 'ProgressConfig') and 'WIDGETS' not in boot_section_done:
             boot_lines.append('        /* WIDGETS             { left, top, fontsize, align } */')
             boot_section_done.add('WIDGETS')

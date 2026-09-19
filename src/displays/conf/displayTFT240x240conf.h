@@ -23,6 +23,7 @@ const BootData _bootConfig PROGMEM = {
         .apPassConf          = { TFT_FRAMEWDT, 130, 2, WA_CENTER },
         .apPass2Conf         = { TFT_FRAMEWDT, 154, 2, WA_CENTER },
         .bootWdtConf         = { 0, 162, 1, WA_CENTER },
+        /* BOOT PROGRESS       { frame interval, line character width, progress characters } */
         .bootPrgConf         = { 90, 14, 4 },
 };
 

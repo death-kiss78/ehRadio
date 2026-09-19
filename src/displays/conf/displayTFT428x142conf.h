@@ -31,7 +31,8 @@ const BootData _bootConfig PROGMEM = {
         .apPassConf          = { 0, 83, 2, WA_CENTER },
         .apPass2Conf         = { 0, 103, 2, WA_CENTER },
         .bootWdtConf         = { 0, DSP_HEIGHT-30, 1, WA_CENTER },
-        .bootPrgConf         = { 90, 10, 4 },
+        /* BOOT PROGRESS       { frame interval, line character width, progress characters } */
+        .bootPrgConf         = { 90, 14, 4 },
 };
 
 const char _layoutNames[][64] PROGMEM = {

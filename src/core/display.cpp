@@ -11,6 +11,7 @@
 #include "player.h"
 #include <SD.h>
 #include "sdmanager.h"
+#include "startup.h"
 #include "utility.h"
 #include "backlightcontrols.h"
 #include "rgbled.h"
@@ -258,17 +259,13 @@ uint16_t Display::height() { return dsp.height(); }
 
 void Display::_bootScreen() {
   _boot = new Page();
-  _boot->addWidget(new ProgressWidget(_bootConfig.bootWdtConf, _bootConfig.bootPrgConf, BOOT_PRG_COLOR, 0));
+  /* The animated dots run between a pinned speaker and the pinned boot glyph, hard against both - see
+     ProgressWidget::_progress() for the shape. startup.icon() is read here, while the boot screen is built and
+     before checkSafeMode() clears bootStableMarker; the widget keeps the literal for the session. */
+  _boot->addWidget(new ProgressWidget(_bootConfig.bootWdtConf, _bootConfig.bootPrgConf, BOOT_PRG_COLOR, 0,
+                                      "\023", startup.icon()));
   _bootstring = (TextWidget*) &_boot->addWidget(new TextWidget(_bootConfig.bootstrConf, 50, true, BOOT_TXT_COLOR, 0));
-  const char* icon;
-  if ((network.offlineMode || config.store.SDoffline))
-                                             icon = "\030\031";  // SD_A + SD_B
-  else if (!config.store.bootStableMarker)   icon = "\034";      // PAUSE (safe mode)
-  else if (config.store.smartstart)          icon = "\035";      // PLAY (smart start)
-  else                                       icon = "\026";      // VOL_75 (default)
-  char buf[64];
-  snprintf(buf, sizeof(buf), "\023 %s %s", RADIOVERSION, icon);
-  _bootstring->setText(buf);
+  _bootstring->setText(RADIOVERSION);
   _pager->addPage(_boot);
   _pager->setPage(_boot, true);
   dsp.drawLogo(BOOTLOGOTOP);

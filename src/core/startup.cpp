@@ -27,6 +27,16 @@ void Startup::checkSafeMode() {
   _bootStablePending = true;
 }
 
+/* The boot-mode glyph for the boot screen line. Deliberately a plain read of the state, with no caching here:
+   the caller samples it once, before checkSafeMode() above clears bootStableMarker, so the glyph reports how
+   the previous boot ended rather than "in progress". Moving this call earlier or later changes what it means. */
+const char* Startup::icon() const {
+  if (network.offlineMode || config.store.SDoffline) return "\030\031";  // SD_A + SD_B
+  if (!config.store.bootStableMarker)                return "\034";      // PAUSE (safe mode)
+  if (config.store.smartstart)                       return "\035";      // PLAY (smart start)
+  return "\026";                                                         // VOL_75 (default)
+}
+
 void Startup::sdOfflineMode() {
   network.status = SDOFFLINE;
   WiFi.mode(WIFI_OFF);
