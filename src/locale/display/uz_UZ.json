@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Firmware yangilanmoqda",
   "msg_upd_files": "Fayllar yangilanmoqda",
   "msg_upd_failed": "Yangilanish muvaffaqiyatsiz tugadi",
+  "msg_formatting": "SPIFFlarni formatlash",
   "msg_offline_15char": "Oflayn",
   "msg_no_sd_card": "SD karta yo'q",
   "lbl_w_feelslike": "his qilish:",

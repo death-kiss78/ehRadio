@@ -78,9 +78,13 @@ class TextWidget: public Widget {
     ~TextWidget();
     using Widget::init;
     void init(WidgetConfig wconf, uint16_t buffsize, bool uppercase, uint16_t fgcolor, uint16_t bgcolor);
-    void setText(const char* txt);
-    void setText(int val, const char *format);
-    void setText(const char* txt, const char *format);
+    /* Virtual because a subclass held as a TextWidget* must still be entered through its own overloads. The boot
+       line is exactly that case: it is a ScrollWidget kept in a TextWidget*, and only ScrollWidget::setText() sets
+       _doscroll and measures with its own _charWidth. Bound statically, the base ran instead, so the scroll state
+       was never initialised and an over-long string was painted at the underflowed centre offset - invisible. */
+    virtual void setText(const char* txt);
+    virtual void setText(int val, const char *format);
+    virtual void setText(const char* txt, const char *format);
     bool uppercase() { return _uppercase; }
   protected:
     char *_text = nullptr;
@@ -115,8 +119,8 @@ class ScrollWidget: public TextWidget {
     using Widget::init;
     void init(const char* separator, ScrollConfig conf, uint16_t fgcolor, uint16_t bgcolor);
     void loop();
-    void setText(const char* txt);
-    void setText(const char* txt, const char *format);
+    void setText(const char* txt) override;
+    void setText(const char* txt, const char *format) override;
   private:
     char *_sep = nullptr;
     char *_window = nullptr;
@@ -162,8 +166,8 @@ class NumWidget: public TextWidget {
   public:
     using Widget::init;
     void init(WidgetConfig wconf, uint16_t buffsize, bool uppercase, uint16_t fgcolor, uint16_t bgcolor);
-    void setText(const char* txt);
-    void setText(int val, const char *format);
+    void setText(const char* txt) override;
+    void setText(int val, const char *format) override;
   protected:
     void _getBounds();
     void _draw();

@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Firmware güncelleniyor",
   "msg_upd_files": "Dosyalar güncelleniyor",
   "msg_upd_failed": "Güncelleme başarısız oldu",
+  "msg_formatting": "SPIFF'lerin Biçimlendirilmesi",
   "msg_offline_15char": "Çevrimdışı",
   "msg_no_sd_card": "SD Kart Yok",
   "lbl_w_feelslike": "hissedilen:",

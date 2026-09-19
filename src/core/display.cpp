@@ -257,6 +257,10 @@ void Display::init() {
 uint16_t Display::width() { return dsp.width(); }
 uint16_t Display::height() { return dsp.height(); }
 
+/* Longest boot line we can build: a locale label plus a 32 character SSID plus the icon pair, which is what the
+   Wi-Fi message can come to - and then some. The old 50 bytes cut those short before they could ever scroll. */
+#define BOOTSTR_LEN 128
+
 void Display::_bootScreen() {
   _boot = new Page();
   /* The animated dots run between a pinned speaker and the pinned boot glyph, hard against both - see
@@ -264,7 +268,29 @@ void Display::_bootScreen() {
      before checkSafeMode() clears bootStableMarker; the widget keeps the literal for the session. */
   _boot->addWidget(new ProgressWidget(_bootConfig.bootWdtConf, _bootConfig.bootPrgConf, BOOT_PRG_COLOR, 0,
                                       "\023", startup.icon()));
-  _bootstring = (TextWidget*) &_boot->addWidget(new TextWidget(_bootConfig.bootstrConf, 50, true, BOOT_TXT_COLOR, 0));
+  /* The boot line is a ScrollWidget fed from the conf's plain WidgetConfig: a string that fits is drawn statically
+     at the conf's align (so WA_CENTER still rules), and one too long for the panel parks at the edge and scrolls
+     instead - ScrollWidget::setText() picks between the two. Leaving bootstrConf a WidgetConfig is deliberate: it
+     costs no conf or importer change, and only these scroll settings are derived here. */
+  ScrollConfig bootScroll;
+  bootScroll.widget = _bootConfig.bootstrConf;  // left, top, textsize and align straight from the conf
+  bootScroll.buffsize = BOOTSTR_LEN;
+  bootScroll.uppercase = true;
+  bootScroll.width = MAX_WIDTH;
+  /* The cadence is borrowed from the panel's own message line rather than hardcoded, because apSettConf is the same
+     species of line - message text, no start delay - and its step is tuned to the panel: 1px on the OLEDs and the
+     small TFTs, 2px on the 220x176 and every panel 240px and up, 4px on the 428x142, and 5/6px on the mono LCDs
+     where dspconf.h notes that a step is a whole character because the refresh cannot take per-pixel repaints.  Its
+     scrolltime is SCROLLTIME everywhere except the 428x142, which deliberately overrides it to a raw 30ms.  Only
+     these three fields are taken: apSettConf's left/top/width/buffsize/fontsize belong to its own line, and the
+     round TFT and the 220x176 give it different ones.  LCD16x2 and LCD20x4 leave apSettConf as { }, which
+     zero-initialises it and would leave the boot line standing still - textsize 0 is this codebase's "not present"
+     marker (see _buildPager) - so fall back to a 1px step on the display's default tick. */
+  const bool apSettUsable = _bootConfig.apSettConf.widget.textsize > 0;
+  bootScroll.startscrolldelay = apSettUsable ? _bootConfig.apSettConf.startscrolldelay : 0;
+  bootScroll.scrolldelta      = apSettUsable ? _bootConfig.apSettConf.scrolldelta : 1;
+  bootScroll.scrolltime       = apSettUsable ? _bootConfig.apSettConf.scrolltime : SCROLLTIME;
+  _bootstring = (TextWidget*) &_boot->addWidget(new ScrollWidget(" ", bootScroll, BOOT_TXT_COLOR, 0));
   _bootstring->setText(RADIOVERSION);
   _pager->addPage(_boot);
   _pager->setPage(_boot, true);
@@ -812,6 +838,12 @@ void Display::loop() {
         }
         case WAITFORSD: {
           if (_bootstring) _bootstring->setText(l10n(L10N_LBL_WAITFORSD));
+          break;
+        }
+        /* Same shape as WAITFORSD: a fixed message on the boot line, asked for by whoever is doing the slow work.
+           SPIFFS formatting is the case that needs it - it blocks for seconds with nothing else to show. */
+        case FORMATTING: {
+          if (_bootstring) _bootstring->setText(l10n(L10N_MSG_FORMATTING));
           break;
         }
         case SDFILEINDEX: {

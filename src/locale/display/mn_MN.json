@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Фирмварыг шинэчлэж байна",
   "msg_upd_files": "Файлуудыг шинэчлэж байна",
   "msg_upd_failed": "Шинэчлэлт амжилтгүй боллоо",
+  "msg_formatting": "SPIFFS-ийн форматлалт",
   "msg_offline_15char": "Онлайн биш",
   "msg_no_sd_card": "SD карт байхгүй",
   "lbl_w_feelslike": "мэдрэх:",

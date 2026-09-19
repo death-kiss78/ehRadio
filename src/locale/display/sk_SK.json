@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Aktualizuje sa firmware",
   "msg_upd_files": "Aktualizujú sa súbory",
   "msg_upd_failed": "Aktualizácia zlyhala",
+  "msg_formatting": "Formátovanie súborov SPIFFS",
   "msg_offline_15char": "Offline",
   "msg_no_sd_card": "Chýba SD karta",
   "lbl_w_feelslike": "pocit:",

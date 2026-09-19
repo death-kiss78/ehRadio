@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Aktualizace firmwaru",
   "msg_upd_files": "Aktualizace souborů",
   "msg_upd_failed": "Aktualizace neúspěšná",
+  "msg_formatting": "Formátování souborů SPIFF",
   "msg_offline_15char": "Offline",
   "msg_no_sd_card": "Žádná SD karta",
   "lbl_w_feelslike": "pocit:",

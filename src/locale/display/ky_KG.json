@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Фирма жаңылануусу",
   "msg_upd_files": "Талап кылынган файлдар жаңыланууда",
   "msg_upd_failed": "Жаңылоо ийгиликсиз аяктады",
+  "msg_formatting": "SPIFFтерди форматтоо",
   "msg_offline_15char": "Офлайн",
   "msg_no_sd_card": "SD картасы жок",
   "lbl_w_feelslike": "сезилет:",

@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Обновление прошивки",
   "msg_upd_files": "Обновление файлов",
   "msg_upd_failed": "Обновление не удалось",
+  "msg_formatting": "Форматирование SPIFFS",
   "msg_offline_15char": "Офлайн-режим",
   "msg_no_sd_card": "SD-карта отсутствует",
   "lbl_w_feelslike": "ощущается:",

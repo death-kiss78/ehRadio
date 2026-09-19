@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Uppdaterar firmware",
   "msg_upd_files": "Uppdaterar filer",
   "msg_upd_failed": "Uppdatering misslyckades",
+  "msg_formatting": "Formatering av SPIFFS",
   "msg_offline_15char": "Offline",
   "msg_no_sd_card": "Inget SD-kort",
   "lbl_w_feelslike": "känns som:",

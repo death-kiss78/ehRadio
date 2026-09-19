@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Actualizare firmware",
   "msg_upd_files": "Actualizare fișiere",
   "msg_upd_failed": "Actualizare eșuată",
+  "msg_formatting": "Formatarea fișierelor SPIFF",
   "msg_offline_15char": "Offline",
   "msg_no_sd_card": "Fără card SD",
   "lbl_w_feelslike": "resimțit:",

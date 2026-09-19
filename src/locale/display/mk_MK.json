@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Ажурирање на фирмвер",
   "msg_upd_files": "Ажурирање на датотеки",
   "msg_upd_failed": "Ажурирање не успеа",
+  "msg_formatting": "Форматирање на SPIFFS",
   "msg_offline_15char": "Офлајн",
   "msg_no_sd_card": "Нема SD картичка",
   "lbl_w_feelslike": "чувствува:",

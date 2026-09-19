@@ -122,6 +122,11 @@ void Startup::checkSpiffsandVer() {
   bool spiffsReady = SPIFFS.begin(false); // Try mounting without formatting first; if that fails, format explicitly.
   if (!spiffsReady) {
     BOOTLOG("SPIFFS not formatted, formatting now (please be patient)...");
+    /* Say so on the panel before the format starts. display.init() has already run in setup() and the boot screen
+       is up, so the request is handled by the display task while this one blocks on flash erases. putRequest()
+       only queues, hence the pause: without it the format can start first and the message is never seen. */
+    display.putRequest(FORMATTING, 0);
+    delay(50);
     spiffsReady = SPIFFS.begin(true);
   }
   esp_log_level_set("SPIFFS", ESP_LOG_ERROR); // allow SPIFFS logging again

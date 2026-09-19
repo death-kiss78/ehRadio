@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Ažuriranje firmvera",
   "msg_upd_files": "Ažuriranje datoteka",
   "msg_upd_failed": "Neuspjelo ažuriranje",
+  "msg_formatting": "Formatiranje SPIFF-ova",
   "msg_offline_15char": "Izvan mreže",
   "msg_no_sd_card": "Nema SD kartice",
   "lbl_w_feelslike": "osjeća se:",

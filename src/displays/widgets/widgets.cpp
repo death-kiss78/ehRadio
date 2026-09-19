@@ -103,10 +103,14 @@ void TextWidget::setText(const char* txt, const char *format){
 
 uint16_t TextWidget::_realLeft(bool w_fb) {
   uint16_t realwidth = (_width>0 && w_fb)?_width:dsp.width();
+  uint16_t offset = w_fb?0:_config.left;
+  /* Text wider than the space it is being placed in would wrap these subtractions to ~65500 and paint the string
+     clean off the panel - which reads as "nothing was drawn" rather than as "drawn in the wrong place".  Park it
+     at the edge instead.  A ScrollWidget with a too-long string never reaches here: it scrolls in _draw(). */
   switch (_config.align) {
-    case WA_CENTER: return (realwidth - _textwidth) / 2; break;
-    case WA_RIGHT: return (realwidth - _textwidth - (!w_fb?_config.left:0)); break;
-    default: return !w_fb?_config.left:0; break;
+    case WA_CENTER: return (_textwidth >= realwidth)?0:(uint16_t)((realwidth - _textwidth) / 2); break;
+    case WA_RIGHT: return ((uint32_t)_textwidth + offset >= realwidth)?0:(uint16_t)(realwidth - _textwidth - offset); break;
+    default: return offset; break;
   }
 }
 

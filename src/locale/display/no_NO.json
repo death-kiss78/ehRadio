@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Oppdaterer fastvare",
   "msg_upd_files": "Oppdaterer filer",
   "msg_upd_failed": "Oppdatering mislyktes",
+  "msg_formatting": "Formatering av SPIFFS",
   "msg_offline_15char": "Offline",
   "msg_no_sd_card": "Ingen SD-kort",
   "lbl_w_feelslike": "føles som:",

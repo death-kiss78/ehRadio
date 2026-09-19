@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Uppfæri firmware",
   "msg_upd_files": "Uppfæri skrár",
   "msg_upd_failed": "Uppfærsla mistókst",
+  "msg_formatting": "Sniða SPIFF-skrár",
   "msg_offline_15char": "Ekki tengdur",
   "msg_no_sd_card": "Engin SD-kort",
   "lbl_w_feelslike": "finnst:",

@@ -57,6 +57,7 @@
   "msg_upd_firmware": "Ενημέρωση υλικολογισμικού",
   "msg_upd_files": "Ενημέρωση αρχείων",
   "msg_upd_failed": "Αποτυχία ενημέρωσης",
+  "msg_formatting": "Μορφοποίηση αρχείων SPIFF",
   "msg_offline_15char": "Εκτός σύνδεσης",
   "msg_no_sd_card": "Δεν υπάρχει κάρτα SD",
   "lbl_w_feelslike": "αίσθηση:",
