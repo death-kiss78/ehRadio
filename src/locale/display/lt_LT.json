@@ -53,6 +53,7 @@
   "lbl_appass": "BE SLAPTAŽODŽIO",
   "lbl_apnopass": "NĖRA SLAPTAŽODŽIO",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "„Wi-Fi“ tinklų paieška",
   "msg_connect_open": "PRISIJUNKITE IR ATIDARYKITE HTTP://%s/",
   "msg_upd_firmware": "Atnaujinama programinė įranga",
   "msg_upd_files": "Atnaujinami failai",

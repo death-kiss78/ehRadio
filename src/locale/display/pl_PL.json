@@ -53,6 +53,7 @@
   "lbl_appass": "BRAK HASŁA",
   "lbl_apnopass": "BRAK HASŁA",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Wyszukiwanie sieci Wi-Fi",
   "msg_connect_open": "POŁĄCZ I OTWÓRZ HTTP://%s/",
   "msg_upd_firmware": "Aktualizacja oprogramowania",
   "msg_upd_files": "Aktualizacja plików",

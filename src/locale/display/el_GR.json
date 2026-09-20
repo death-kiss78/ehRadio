@@ -53,6 +53,7 @@
   "lbl_appass": "ΧΩΡΙΣ ΚΩΔΙΚΟ",
   "lbl_apnopass": "ΧΩΡΙΣ ΚΩΔΙΚΟ ΠΡΟΣΒΑΣΗΣ",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Ανίχνευση δικτύων Wi-Fi",
   "msg_connect_open": "ΣΥΝΔΕΘΕΙΤΕ & ΑΝΟΙΞΤΕ HTTP://%s/",
   "msg_upd_firmware": "Ενημέρωση υλικολογισμικού",
   "msg_upd_files": "Ενημέρωση αρχείων",

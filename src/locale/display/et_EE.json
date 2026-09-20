@@ -53,6 +53,7 @@
   "lbl_appass": "ILMA PAROOLITA",
   "lbl_apnopass": "PAROOL PUUDUB",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Wi-Fi-võrkude otsimine",
   "msg_connect_open": "ÜHENDAGE JA AVAGE HTTP://%s/",
   "msg_upd_firmware": "Püsivara värskendamine",
   "msg_upd_files": "Failide värskendamine",

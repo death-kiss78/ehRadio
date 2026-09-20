@@ -641,7 +641,76 @@ void Utility::togglestandby() {
   else standbyon();
 }
 
-void Utility::cleanupSpiffs() {
+bool Utility::verifySpiffs() {
+  const size_t n = Config::wwwFilesCount;
+  if (n == 0 || n > 64) return false;  // nothing to verify, or wider than the bitmask below
+
+  #ifdef BOOTLOG_TIME
+    const uint32_t t0 = millis();  // measured for the summary line below, and only printed with BOOTLOG_TIME
+  #endif
+  uint64_t plainSeen = 0, gzSeen = 0;
+  File root = SPIFFS.open("/");
+  if (root && root.isDirectory()) {
+    File f = root.openNextFile();
+    while (f) {
+      if (!f.isDirectory()) {
+        String path = f.path();
+        if (path.startsWith("/www/")) {
+          path.remove(0, 5);
+          const bool gz = path.endsWith(".gz");
+          if (gz) path.remove(path.length() - 3);
+          for (size_t i = 0; i < n; i++) {
+            if (path == Config::wwwFiles[i]) {
+              if (gz) gzSeen |= (1ULL << i); else plainSeen |= (1ULL << i);
+              break;
+            }
+          }
+        }
+      }
+      f = root.openNextFile();
+    }
+    root.close();
+  }
+
+  // Both forms of one file is a leftover from an update that switched to the compressed copy
+  const uint64_t bothSeen = plainSeen & gzSeen;
+  for (size_t i = 0; i < n; i++) {
+    if (bothSeen & (1ULL << i)) {
+      char fullPath[64];
+      snprintf(fullPath, sizeof(fullPath), "/www/%s", Config::wwwFiles[i]);
+      SPIFFS.remove(fullPath);
+      FUNCTIONLOG("Cleanup", "Removed duplicate (compressed version exists): %s", fullPath);
+    }
+  }
+
+  const uint64_t have = plainSeen | gzSeen;
+  const uint64_t need = (n >= 64) ? ~0ULL : ((1ULL << n) - 1);
+  uint16_t present = 0, asPlain = 0, asGz = 0;
+  for (size_t i = 0; i < n; i++) {
+    const uint64_t bit = 1ULL << i;
+    if (have & bit) present++;
+    if (plainSeen & bit) asPlain++;
+    if (gzSeen & bit) asGz++;
+  }
+  const bool ok = (have == need);
+  // The listing pass is the interesting part of this line, but its cost is a diagnostic like the boot-stage markers:
+  // printed with BOOTLOG_TIME, omitted without it.
+  char tookStr[16] = "";
+  #ifdef BOOTLOG_TIME
+    snprintf(tookStr, sizeof(tookStr), ", %lums", (unsigned long)(millis() - t0));
+  #endif
+  FUNCTIONLOG("Cleanup", "verifySpiffs: %u/%u present (%u plain, %u gz)%s%s",
+              (unsigned)present, (unsigned)n, (unsigned)asPlain, (unsigned)asGz,
+              tookStr, ok ? "" : ", MISSING FILES");
+  if (!ok) {
+    for (size_t i = 0; i < n; i++) {
+      if (!(have & (1ULL << i))) { FUNCTIONLOG("Cleanup", "  missing: %s", Config::wwwFiles[i]); break; }
+    }
+  }
+  return ok;
+}
+
+void Utility::pruneSpiffs() {
   FUNCTIONLOG("Cleanup", "Scanning SPIFFS for unwanted files...");
   File root = SPIFFS.open("/");
   if (!root || !root.isDirectory()) return;

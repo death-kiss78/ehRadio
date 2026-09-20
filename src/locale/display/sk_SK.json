@@ -53,6 +53,7 @@
   "lbl_appass": "BEZ HESLA",
   "lbl_apnopass": "BEZ HESLA",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Vyhľadávanie Wi-Fi sietí",
   "msg_connect_open": "PRIPOJTE SA A OTVORTE HTTP://%s/",
   "msg_upd_firmware": "Aktualizuje sa firmware",
   "msg_upd_files": "Aktualizujú sa súbory",

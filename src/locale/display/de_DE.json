@@ -53,6 +53,7 @@
   "lbl_appass": "KEIN PASSWORT",
   "lbl_apnopass": "KEIN PASSWORT",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "WLAN-Netzwerke suchen",
   "msg_connect_open": "CONNECT & OPEN HTTP://%s/",
   "msg_upd_firmware": "Firmware wird aktualisiert",
   "msg_upd_files": "Dateien werden aktualisiert",

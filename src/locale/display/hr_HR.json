@@ -53,6 +53,7 @@
   "lbl_appass": "BEZ LOZINKE",
   "lbl_apnopass": "NEMA LOZINKE",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Skener Wi-Fi mreža",
   "msg_connect_open": "POVEŽI SE I OTVORI HTTP://%s/",
   "msg_upd_firmware": "Ažuriranje firmvera",
   "msg_upd_files": "Ažuriranje datoteka",

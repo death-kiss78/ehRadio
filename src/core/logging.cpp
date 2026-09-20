@@ -1,5 +1,7 @@
+#include "options.h"
 #include "logging.h"
 #include <stdarg.h>
+#include <string.h>
 #include "telnet.h"
 
 namespace {
@@ -23,17 +25,33 @@ void emitLogMessage(const char* category, bool appendNewline, const char* fmt, v
     }
   }
 
+  #ifdef BOOTLOG_TIME
+    if (appendNewline && category && (strcmp(category, "BOOT") == 0 && prefixLen < sizeof(logBuffer))) {
+      int written = snprintf(logBuffer + prefixLen, sizeof(logBuffer) - prefixLen, "%05lums: ", (unsigned long)millis());
+      if (written > 0) {
+        prefixLen += static_cast<size_t>(written);
+        if (prefixLen >= sizeof(logBuffer)) {
+          prefixLen = sizeof(logBuffer) - 1;
+        }
+      }
+    }
+  #endif
+
   if (prefixLen < sizeof(logBuffer)) {
     vsnprintf(logBuffer + prefixLen, sizeof(logBuffer) - prefixLen, fmt, args);
   }
 
   if (appendNewline) {
     logToTelnetLine(logBuffer);
-    Serial.print(logBuffer);
-    Serial.print("\r\n");
+    size_t outLen = strlen(logBuffer);
+    if (outLen + 2 < sizeof(logBuffer)) {
+      logBuffer[outLen++] = '\r';
+      logBuffer[outLen++] = '\n';
+    }
+    Serial.write(reinterpret_cast<const uint8_t*>(logBuffer), outLen);
   } else {
     logToTelnetRaw(logBuffer);
-    Serial.print(logBuffer);
+    Serial.write(reinterpret_cast<const uint8_t*>(logBuffer), strlen(logBuffer));
   }
 }
 
@@ -91,4 +109,57 @@ void errorLog(const char* fmt, ...) {
 
 void serialLogDot() {
   Serial.print(".");
+}
+
+/* Boot stage timing - see logging.h.  Three separate stamps on purpose: each helper measures against its own previous
+   call, so the config and SPIFFS markers that appear inside a setup() stage do not disturb the setup() deltas (a single
+   shared stamp would silently redefine every number in the log).  Both the log line and the stamp sit inside the
+   #ifdef, so without BOOTLOG_TIME these are empty calls: the boot log carries no stage lines at all and nothing else
+   changes.  This file includes options.h, which is the only route by which the define reaches a translation unit. */
+#ifdef BOOTLOG_TIME
+  static uint32_t _bootTimeAt = 0;    // last BOOTTIMELOG   marker
+  static uint32_t _spiffsTimeAt = 0;  // last SPIFFSTIMELOG marker
+  static uint32_t _configTimeAt = 0;  // last CONFIGTIMELOG marker
+#endif
+
+void bootTimeLog(const char* name) {
+  #ifdef BOOTLOG_TIME
+    const uint32_t now = millis();
+    BOOTLOG("Boot: %-30s %6lums", name, (unsigned long)(now - _bootTimeAt));
+    _bootTimeAt = now;
+  #else
+    (void)name;
+  #endif
+}
+
+void spiffsTimeLog(const char* name) {
+  #ifdef BOOTLOG_TIME
+    const uint32_t now = millis();
+    BOOTLOG("SPIFFS: %-30s %6lums", name, (unsigned long)(now - _spiffsTimeAt));
+    _spiffsTimeAt = now;
+  #else
+    (void)name;
+  #endif
+}
+
+void configTimeLog(const char* name) {
+  #ifdef BOOTLOG_TIME
+    const uint32_t now = millis();
+    BOOTLOG("Config: %-30s %6lums", name, (unsigned long)(now - _configTimeAt));
+    _configTimeAt = now;
+  #else
+    (void)name;
+  #endif
+}
+
+void spiffsTimeLogReset() {
+  #ifdef BOOTLOG_TIME
+    _spiffsTimeAt = millis();
+  #endif
+}
+
+void configTimeLogReset() {
+  #ifdef BOOTLOG_TIME
+    _configTimeAt = millis();
+  #endif
 }

@@ -84,18 +84,6 @@ void Startup::loop() {
 
 namespace {
 
-bool requiredWebFilesExist() {
-  char fullPath[64];
-  for (size_t i = 0; i < Config::wwwFilesCount; i++) {
-    snprintf(fullPath, sizeof(fullPath), "/www/%s", Config::wwwFiles[i]);
-    String gzPath = String(fullPath) + ".gz";
-    bool plainExists = SPIFFS.exists(fullPath);
-    bool gzExists = SPIFFS.exists(gzPath);
-    if (gzExists && plainExists) SPIFFS.remove(fullPath);
-    if (!plainExists && !gzExists) return false;
-  }
-  return true;
-}
 
 } // namespace
 
@@ -118,6 +106,7 @@ void Startup::deassertCsPins() {
 }
 
 void Startup::checkSpiffsandVer() {
+  SPIFFSTIMELOGRESET();
   esp_log_level_set("SPIFFS", ESP_LOG_NONE); // Suppress ESP-IDF "SPIFFS: mount failed, -10025" on first boot.
   bool spiffsReady = SPIFFS.begin(false); // Try mounting without formatting first; if that fails, format explicitly.
   if (!spiffsReady) {
@@ -135,6 +124,7 @@ void Startup::checkSpiffsandVer() {
     return;
   }
   BOOTLOG("SPIFFS mounted");
+  SPIFFSTIMELOG("SPIFFS mount & Health setup");
 
   // Health check: verify SPIFFS is readable AND writable (can be corrupted after crash).
   // Retry up to 3 times with remount; reboot if still broken.
@@ -206,6 +196,7 @@ void Startup::checkSpiffsandVer() {
       ESP.restart();
     }
   }
+  SPIFFSTIMELOG("Health check");
 
   String storedVersion = "";
   if (SPIFFS.exists(VERSION_PATH)) {
@@ -216,12 +207,13 @@ void Startup::checkSpiffsandVer() {
       verFile.close();
     }
   }
+  SPIFFSTIMELOG("Version file read");
 
   if (storedVersion == String(RADIOVERSION)) {
-    config.wwwFilesExist = requiredWebFilesExist();
+    config.wwwFilesExist = utility.verifySpiffs();
   } else if (!SPIFFS.exists(VERSION_PATH)) {
     BOOTLOG("New install detected.");
-    config.wwwFilesExist = requiredWebFilesExist();
+    config.wwwFilesExist = utility.verifySpiffs();
     // New install — prevent false Safe Mode on first boot
     { Preferences prefs; prefs.begin("ehradio", false);
     prefs.putBool("bootstablemark", true);
@@ -230,9 +222,10 @@ void Startup::checkSpiffsandVer() {
     BOOTLOG("Version mismatch detected (stored: %s, current: %s)", storedVersion.c_str(), RADIOVERSION);
     config.wwwFilesExist = false;
   }
+  SPIFFSTIMELOG("wwwFilesExist branch (verifySpiffs)");
 
   if (!config.wwwFilesExist || !SPIFFS.exists(VERSION_PATH)) {
-    utility.cleanupSpiffs();
+    utility.pruneSpiffs();
     File verFile = SPIFFS.open(VERSION_PATH, "w");
     if (verFile) {
       verFile.println(RADIOVERSION);
@@ -249,6 +242,7 @@ void Startup::checkSpiffsandVer() {
       BOOTLOG("SPIFFS is missing files.  Will attempt to get files from online...");
     #endif
   }
+  SPIFFSTIMELOG("Cleanup and write branches");
 }
 
 void Startup::initNetwork() {
@@ -360,7 +354,7 @@ void Startup::getRequiredFiles() {
       }
     }
     delete updater;
-    utility.cleanupSpiffs();
+    utility.pruneSpiffs();
     FUNCTIONLOG("REBOOT", "Required Files done. Reboot.");
     config.saveValue(&config.store.bootStableMarker, true);
     delay(250);

@@ -846,6 +846,10 @@ void Display::loop() {
           if (_bootstring) _bootstring->setText(l10n(L10N_MSG_FORMATTING));
           break;
         }
+        case SCANNINGWIFI: {
+          if (_bootstring) _bootstring->setText(l10n(L10N_MSG_SCANNING_WIFI));
+          break;
+        }
         case SDFILEINDEX: {
           if (_mode == SDCHANGE) _nums->setText(request.payload, "%d");
           break;

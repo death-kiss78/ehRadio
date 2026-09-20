@@ -53,6 +53,7 @@
   "lbl_appass": "SIN CONTRASEÑA",
   "lbl_apnopass": "SIN CONTRASEÑA",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Búsqueda de redes Wi-Fi",
   "msg_connect_open": "CONECTA Y ABRE HTTP://%s/",
   "msg_upd_firmware": "Actualizando firmware",
   "msg_upd_files": "Actualizando archivos",

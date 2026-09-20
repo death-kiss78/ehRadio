@@ -791,6 +791,12 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef WIFI_SETTLE_MS
   #define WIFI_SETTLE_MS 1000 // ms to wait after network stack started to attempt connection
 #endif
+#ifndef WIFI_SCAN_DWELL_MS // max ms per channel during scan - too short means failure, will fallback to wifi.begin scan with 300ms
+  #define WIFI_SCAN_DWELL_MS 120 // * 13 channels 1560ms (+5000ms timeout)
+#endif
+#ifndef WIFI_CONNECT_POLL_MS
+  #define WIFI_CONNECT_POLL_MS 100 // how often the connect loop checks the station status
+#endif
 #ifndef WIFI_FAST_ATTEMPTS
   #define WIFI_FAST_ATTEMPTS 4 // ~2 s: how long a directed reconnect to a known BSSID is given before a scan
 #endif
@@ -1240,18 +1246,29 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 
 /* Enable all the debug logs with #define ALL_DEBUG_LOGS */
 #ifdef ALL_DEBUG_LOGS
-  #ifndef ESPFILEUPDATER_DEBUG
-    #define ESPFILEUPDATER_DEBUG // This enables ESPFileUpdater's debug log in serial.  Only add if you really want to watch serial log for what may be causing fetch errors.
-  #endif
   #ifndef NETSERVER_DEBUG
    #define NETSERVER_DEBUG // This enables Netserver logging: GET client requests and sending files in chunks
   #endif
   #ifndef CORE_MONITOR
     #define CORE_MONITOR // This shows the ESP32 CPU Core Monitor in serial and telnet (updated every 5s), includes SPIFFS information
   #endif
+  #ifndef BOOTLOG_TIME
+    #define BOOTLOG_TIME // Prefixes every BOOT log line with the time since boot, e.g. "[BOOT]          00600ms: ..." (the bootLogX progress lines the dots extend are left alone)
+  #endif
   #ifndef WIDGET_DEBUG
     #define WIDGET_DEBUG // This shows the Widget's Text (and the VU draw cost) in logging
   #endif
+#endif
+#ifndef ESPFILEUPDATER_VERBOSE
+  #ifdef ALL_DEBUG_LOGS
+    #define ESPFILEUPDATER_VERBOSE true // This enables ESPFileUpdater's debug log in serial.  Only add if you really want to watch serial log for what may be causing fetch errors.
+  #else
+    #define ESPFILEUPDATER_VERBOSE false // it needs a value
+  #endif
+#endif
+
+#ifndef BOOTLOG_TX_TIMEOUT_MS
+  #define BOOTLOG_TX_TIMEOUT_MS 5 // ms one log write may wait for the USB CDC host before giving up (the core's default is 100, and HWCDC burns that timeout per write, 1ms at a time, before declaring the host gone)
 #endif
 #ifndef CORE_MONITOR_ETC_LOOPS
   #define CORE_MONITOR_ETC_LOOPS 5 // Show SPIFFS + PSRAM info every N core monitor cycles (default: 5, every 25s)

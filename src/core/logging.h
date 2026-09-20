@@ -5,12 +5,6 @@
 #include <Arduino.h>
 #include <stdio.h>
 
-#ifdef ESPFILEUPDATER_DEBUG
-  #define ESPFILEUPDATER_VERBOSE true
-#else
-  #define ESPFILEUPDATER_VERBOSE false
-#endif
-
 #define LOG_BUF_LEN 256
 
 #if defined(__GNUC__)
@@ -29,6 +23,21 @@ void bootLogX(const char* fmt, ...) LOG_PRINTF_ATTR(1, 2);
 void errorLog(const char* fmt, ...) LOG_PRINTF_ATTR(1, 2);
 void serialLogDot();
 void audioLog(const char* category, const char* fmt, ...) LOG_PRINTF_ATTR(2, 3);
+
+/* Boot stage timing.  Each of the three prints a stage name and the time since ITS OWN previous call, so consecutive
+   deltas attribute a slow boot to its stages with no temporary instrumentation.  They are declared here whatever the
+   build - only their bodies are compiled out when BOOTLOG_TIME is undefined - so a translation unit that cannot see
+   options.h still gets one consistent signature instead of a macro that quietly means something else (the trap
+   ESPFILEUPDATER_VERBOSE fell into, see the notes).
+     BOOTTIMELOG   - setup() in main.cpp; the first call measures from power-on.
+     SPIFFSTIMELOG - the SPIFFS path in startup.cpp.  SPIFFSTIMELOGRESET() starts a fresh measurement at the entry to a
+                     function whose first stage would otherwise be measured from the previous marker.
+     CONFIGTIMELOG - the config path in config.cpp, same idea, with CONFIGTIMELOGRESET() at each entry point. */
+void bootTimeLog(const char* name);
+void spiffsTimeLog(const char* name);
+void configTimeLog(const char* name);
+void spiffsTimeLogReset();
+void configTimeLogReset();
 
 #define SERIALLOG(fmt, ...) \
   do { \
@@ -63,6 +72,32 @@ void audioLog(const char* category, const char* fmt, ...) LOG_PRINTF_ATTR(2, 3);
 #define SERIALLOGDOT() \
   do { \
     serialLogDot(); \
+  } while (0)
+
+/* Boot stage timing - no-ops without BOOTLOG_TIME, since the functions compile to empty bodies. */
+#define BOOTTIMELOG(name) \
+  do { \
+    bootTimeLog(name); \
+  } while (0)
+
+#define SPIFFSTIMELOG(name) \
+  do { \
+    spiffsTimeLog(name); \
+  } while (0)
+
+#define CONFIGTIMELOG(name) \
+  do { \
+    configTimeLog(name); \
+  } while (0)
+
+#define SPIFFSTIMELOGRESET() \
+  do { \
+    spiffsTimeLogReset(); \
+  } while (0)
+
+#define CONFIGTIMELOGRESET() \
+  do { \
+    configTimeLogReset(); \
   } while (0)
 
 #endif

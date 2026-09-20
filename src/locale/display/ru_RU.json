@@ -53,6 +53,7 @@
   "lbl_appass": "НЕТ ПАРОЛЯ",
   "lbl_apnopass": "БЕЗ ПАРОЛЯ",
   "msg_wifi": "Соединяюсь с %s",
+  "msg_scanning_wifi": "Сканирование сетей Wi-Fi",
   "msg_connect_open": "ПОДКЛЮЧИТЕСЬ И ОТКРОЙТЕ HTTP://%s/",
   "msg_upd_firmware": "Обновление прошивки",
   "msg_upd_files": "Обновление файлов",

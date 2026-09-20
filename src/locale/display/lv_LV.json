@@ -53,6 +53,7 @@
   "lbl_appass": "BEZ PAROLES",
   "lbl_apnopass": "BEZ PAROLES",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Wi-Fi tīklu skenēšana",
   "msg_connect_open": "PIESLĒDZIES UN ATVERI HTTP://%s/",
   "msg_upd_firmware": "Atjaunina programmaparatūru",
   "msg_upd_files": "Atjaunina failus",

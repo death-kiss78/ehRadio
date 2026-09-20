@@ -53,6 +53,7 @@
   "lbl_appass": "EI SALASANAA",
   "lbl_apnopass": "EI SALASANAA",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Wi-Fi-verkkojen etsiminen",
   "msg_connect_open": "YHDISTÄ JA Avaa HTTP://%s/",
   "msg_upd_firmware": "Päivitetään laiteohjelmistoa",
   "msg_upd_files": "Päivitetään tiedostot",

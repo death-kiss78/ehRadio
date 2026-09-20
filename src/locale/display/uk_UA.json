@@ -53,6 +53,7 @@
   "lbl_appass": "БЕЗ ПАРОЛЯ",
   "lbl_apnopass": "ПАРОЛЬ ВІДСУТНІЙ",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Пошук мереж Wi-Fi",
   "msg_connect_open": "ПІДКЛЮЧІТЬСЯ ТА ВІДКРИЙТЕ HTTP://%s/",
   "msg_upd_firmware": "Оновлення прошивки",
   "msg_upd_files": "Оновлення файлів",

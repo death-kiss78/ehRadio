@@ -53,6 +53,7 @@
   "lbl_appass": "НУУЦ ҮГГҮЙ",
   "lbl_apnopass": "Нөгөө нууц үг байхгүй",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Wi-Fi скан хийх",
   "msg_connect_open": "ХОЛБОГДОЖ HTTP://%s/ -г НЭЭ",
   "msg_upd_firmware": "Фирмварыг шинэчлэж байна",
   "msg_upd_files": "Файлуудыг шинэчлэж байна",

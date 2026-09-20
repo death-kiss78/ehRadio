@@ -53,6 +53,7 @@
   "lbl_appass": "БЕЗ ЛОЗИНКЕ",
   "lbl_apnopass": "НЕМА ЛОЗИНКЕ",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Скенирање Wi-Fi",
   "msg_connect_open": "ПОВЕЖИТЕ СЕ И ОТВОРИТЕ HTTP://%s/",
   "msg_upd_firmware": "Ажурирање фирмвера",
   "msg_upd_files": "Ажурирање фајлова",

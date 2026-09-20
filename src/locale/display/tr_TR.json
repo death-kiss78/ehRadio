@@ -53,6 +53,7 @@
   "lbl_appass": "PAROLASIZ",
   "lbl_apnopass": "ŞİFRE YOK",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Wi-Fi taraması",
   "msg_connect_open": "BAĞLAN & AÇ HTTP://%s/",
   "msg_upd_firmware": "Firmware güncelleniyor",
   "msg_upd_files": "Dosyalar güncelleniyor",

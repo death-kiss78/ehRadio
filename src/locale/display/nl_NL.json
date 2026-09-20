@@ -53,6 +53,7 @@
   "lbl_appass": "ZONDER WACHTWOORD",
   "lbl_apnopass": "GEEN WACHTWOORD",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Wifi scannen",
   "msg_connect_open": "VERBIND & OPEN HTTP://%s/",
   "msg_upd_firmware": "Firmware bijwerken",
   "msg_upd_files": "Bestanden bijwerken",

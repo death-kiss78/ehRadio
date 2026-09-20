@@ -53,6 +53,7 @@
   "lbl_appass": "INGET LÖSENORD",
   "lbl_apnopass": "INGET LÖSENORD",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Söker efter Wi-Fi-nätverk",
   "msg_connect_open": "ANSLUT OCH ÖPPNA HTTP://%s/",
   "msg_upd_firmware": "Uppdaterar firmware",
   "msg_upd_files": "Uppdaterar filer",

@@ -60,23 +60,14 @@ void u8fix(char *src) {
   if ((uint8_t)last >= 0xC2) src[strlen(src)-1]='\0';
 }
 
-bool Config::_wwwFilesExist() {
-  char fullpath[64];
-  for (size_t i = 0; i < Config::wwwFilesCount; i++) {
-    sprintf(fullpath, "/www/%s", Config::wwwFiles[i]);
-    String gzPath = String(fullpath) + ".gz";
-    bool plainExists = SPIFFS.exists(fullpath);
-    bool gzExists = SPIFFS.exists(gzPath);
-    if (gzExists && plainExists) SPIFFS.remove(fullpath);
-    if (!plainExists && !gzExists) return false;
-  }
-  return true;
-}
-
 void Config::init() {
+  CONFIGTIMELOGRESET();
   loadPreferences();
+  CONFIGTIMELOG("loadPreferences");
   if (!config.store.bootStableMarker) delay(1000);  // Allow serial monitor to connect before logging in Safe mode
+  CONFIGTIMELOG("Safe mode delay 1000ms");
   bootInfo();
+  CONFIGTIMELOG("bootInfo");
   #if RTCSUPPORTED
     if (rtc.init()) {
       BOOTLOG("RTC.init\tdone");
@@ -93,7 +84,9 @@ void Config::init() {
   #endif
   store.play_mode = store.play_mode & 0b11;
   if (store.play_mode>1) store.play_mode=PM_WEB;
+  CONFIGTIMELOG("RTC & SPI.begin & play_mode");
   _initHW();
+  CONFIGTIMELOG("_initHW");
   #ifdef USE_SD
     _SDplaylistFS = getMode()==PM_SDCARD?&sdman:(true?&SPIFFS:_SDplaylistFS);
   #else
@@ -102,6 +95,7 @@ void Config::init() {
 }
 
 void Config::loadPreferences() {
+  CONFIGTIMELOGRESET();
   prefs.begin("ehradio", false);
   // Check config_set_magic first
   uint16_t configSetValue = 0;
@@ -117,14 +111,24 @@ void Config::loadPreferences() {
     setDefaults();
     return;
   }
+  CONFIGTIMELOG("prefs.begin & sentinel");
   // Load all fields in keyMap
+  size_t keyCount = 0;
   for (size_t i = 0; keyMap[i].key != nullptr; ++i) {
     uint8_t* field = (uint8_t*)&store + keyMap[i].fieldOffset;
     size_t sz = keyMap[i].size;
     size_t read = prefs.getBytes(keyMap[i].key, field, sz);
+    keyCount++;
+  }
+  {
+    char nm[40];
+    snprintf(nm, sizeof(nm), "keyMap reads (%u keys)", (unsigned)keyCount);
+    CONFIGTIMELOG(nm);
   }
   deleteOldKeys();
+  CONFIGTIMELOG("deleteOldKeys");
   prefs.end();
+  CONFIGTIMELOG("prefs.end");
 }
 
 void Config::saveLastStationUrl(const char* url, uint16_t waitMs) {
@@ -266,8 +270,10 @@ void Config::initSDPlaylist(bool force) {
 }
 
 void Config::initPlaylistMode() {
+  CONFIGTIMELOGRESET();
   uint16_t _lastStation = 0;
   uint16_t cs = utility.playlistLength();
+  CONFIGTIMELOG("PlaylistLength #1");
   #ifdef USE_SD
     if (getMode()==PM_SDCARD) {
       #if SD_CARD_DETECT_PIN!=255
@@ -313,9 +319,14 @@ void Config::initPlaylistMode() {
     store.play_mode=PM_WEB;
     _lastStation = store.lastStation;
   #endif //ifdef USE_SD
-  if (getMode()==PM_WEB && _wwwFilesExist()) {
+  CONFIGTIMELOG("SD/WEB mode branch");
+  const bool wwwOk = (getMode()==PM_WEB) && config.wwwFilesExist;
+  CONFIGTIMELOG("wwwFilesExist (cached)");
+  if (wwwOk) {
     utility.initPlaylist();
+    CONFIGTIMELOG("initPlaylist");
     cs = utility.playlistLength();
+    CONFIGTIMELOG("PlaylistLength #2");
   }
   log_i("%d" ,_lastStation);
   // Validate station number is within range
@@ -334,8 +345,10 @@ void Config::initPlaylistMode() {
       _lastStation = _randomStation();  // SD mode: pick a random track
     }
   }
+  CONFIGTIMELOG("Station validation & findStationByUrl");
   lastStation(_lastStation);
   saveValue(&store.play_mode, store.play_mode);
+  CONFIGTIMELOG("lastStation & saveValue");
   _bootDone = true;
   if (_lastStation == 0 && cs > 0) {
     // Playlist exists but we couldn't determine the last station:
@@ -739,12 +752,16 @@ void Config::bootInfo() {
   BOOTLOG("************************************************");
   BOOTLOG("*               ehRadio %s             *", RADIOVERSION);
   BOOTLOG("************************************************");
-  BOOTLOG("------------------------------------------------");
   BOOTLOG("Arduino API:\t%d.%d.%d", ARDUINO / 10000, (ARDUINO / 100) % 100, ARDUINO % 100);
   BOOTLOG("Arduino Core:\t%d.%d.%d", ESP_ARDUINO_VERSION_MAJOR, ESP_ARDUINO_VERSION_MINOR, ESP_ARDUINO_VERSION_PATCH);
   BOOTLOG("GCC Toolchain:\t%s", __VERSION__);
   BOOTLOG("%s:\trev: %d, Cores: %d, PSRAM: %dMB, ID: %d", ESP.getChipModel(), ESP.getChipRevision(), ESP.getChipCores(), (ESP.getPsramSize() + 524288) / 1048576, ({uint64_t _m=ESP.getEfuseMac(); (((_m>>40)&0xFF)<<16)|(((_m>>32)&0xFF)<<8)|((_m>>24)&0xFF);}));
-  BOOTLOG("Core Processes:\tMain: 1, Audio: %d, Network: %d, Display: %d", AUDIO_CORE, NETWORK_CORE, DSP_TASK_CORE_ID);
+  #if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+    BOOTLOG("Serial:\tUSB CDC (ARDUINO_USB_CDC_ON_BOOT=%d), TX timeout %u ms", ARDUINO_USB_CDC_ON_BOOT, BOOTLOG_TX_TIMEOUT_MS);
+  #else
+    BOOTLOG("Serial:\tUART0 at 115200 (ARDUINO_USB_CDC_ON_BOOT is not defined)");
+  #endif
+  BOOTLOG("Process: Core:\tMain: 1, Audio: %d, Network: %d, Display: %d", AUDIO_CORE, NETWORK_CORE, DSP_TASK_CORE_ID);
   BOOTLOG("Stack Sizes:\tLoop: %dKB, Display: %dKB, Netserver: %dKB, Network: %dKB", LOOP_TASK_STACK_SIZE, DSP_TASK_STACK_SIZE, NETSERVER_TASK_STACK_SIZE, NETWORK_TASK_STACK_SIZE);
   BOOTLOG("Task Priority:\tDisplay: %d, Netserver: %d, Playback: %d, Network: %d, Low: %d", DSP_TASK_PRIORITY, NETSERVER_TASK_PRIORITY, PLAYBACK_TASK_PRIORITY, NET_TASK_PRIORITY, LOW_TASK_PRIORITY);
   #ifdef SPIA_SCK

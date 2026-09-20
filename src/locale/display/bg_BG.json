@@ -53,6 +53,7 @@
   "lbl_appass": "БЕЗ ПАРОЛА",
   "lbl_apnopass": "БЕЗ ПАРОЛА",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Сканиране на Wi-Fi мрежи",
   "msg_connect_open": "СВЪРЖЕТЕ СЕ & ОТВОРЕТЕ HTTP://%s/",
   "msg_upd_firmware": "Актуализиране на фърмуера",
   "msg_upd_files": "Актуализиране на файлове",

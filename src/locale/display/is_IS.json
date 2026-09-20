@@ -53,6 +53,7 @@
   "lbl_appass": "ENGIN LYKILORÐ",
   "lbl_apnopass": "Engin lykilorð",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Skanna Wi-Fi",
   "msg_connect_open": "TENGIÐ & OPIÐ HTTP://%s/",
   "msg_upd_firmware": "Uppfæri firmware",
   "msg_upd_files": "Uppfæri skrár",

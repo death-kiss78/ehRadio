@@ -53,6 +53,7 @@
   "lbl_appass": "BREZ GESLA",
   "lbl_apnopass": "BREZ GESLA",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Iskanje Wi-Fi omrežij",
   "msg_connect_open": "POVEŽITE SE IN ODPRITE HTTP://%s/",
   "msg_upd_firmware": "Posodablja se firmware",
   "msg_upd_files": "Posodabljajo se datoteke",

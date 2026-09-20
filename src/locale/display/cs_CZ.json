@@ -53,6 +53,7 @@
   "lbl_appass": "ŽÁDNÉ HESLO",
   "lbl_apnopass": "BEZ HESLA",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Vyhledávání Wi-Fi sítí",
   "msg_connect_open": "PŘIPOJTE SE A OTEVŘETE HTTP://%s/",
   "msg_upd_firmware": "Aktualizace firmwaru",
   "msg_upd_files": "Aktualizace souborů",

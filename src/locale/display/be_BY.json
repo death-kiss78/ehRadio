@@ -53,6 +53,7 @@
   "lbl_appass": "НЕТ ПАРОЛЯ",
   "lbl_apnopass": "Няма пароля",
   "msg_wifi": "Злучаюся з %s",
+  "msg_scanning_wifi": "Сканванне Wi-Fi",
   "msg_connect_open": "ПАДКЛЮЧЫЦЕСЯ І АДКРЫЙЦЕ HTTP://%s/",
   "msg_upd_firmware": "Абнаўленне прашыўкі",
   "msg_upd_files": "Абнаўленне файлаў",

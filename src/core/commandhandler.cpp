@@ -115,7 +115,7 @@ bool CommandHandler::exec(const char *command, const char *value, uint8_t cid, C
   /* Hidden Websockets */
   if (cmdIs(command, "getindex"))    { netserver.requestOnChange(GETINDEX, cid); return true; }
   if (cmdIs(command, "getactive"))   { netserver.requestOnChange(GETACTIVE, cid); return true; }
-  if (cmdIs(command, "clearspiffs")) { utility.cleanupSpiffs(); config.saveValue(&config.store.play_mode, static_cast<uint8_t>(PM_WEB)); return true; }
+  if (cmdIs(command, "clearspiffs")) { utility.pruneSpiffs(); config.saveValue(&config.store.play_mode, static_cast<uint8_t>(PM_WEB)); return true; }
 
   /* Options: Load Settings */
   if (cmdIs(command, "getcontrols")) { netserver.requestOnChange(GETCONTROLS, cid); return true; }

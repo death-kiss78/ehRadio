@@ -53,6 +53,7 @@
   "lbl_appass": "FĂRĂ PAROLĂ",
   "lbl_apnopass": "FĂRĂ PAROLĂ",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Scanarea rețelelor Wi-Fi",
   "msg_connect_open": "CONECTAȚI-VĂ ȘI DESCHIDEȚI HTTP://%s/",
   "msg_upd_firmware": "Actualizare firmware",
   "msg_upd_files": "Actualizare fișiere",

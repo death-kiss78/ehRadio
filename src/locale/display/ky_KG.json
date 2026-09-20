@@ -53,6 +53,7 @@
   "lbl_appass": "КУПИЯСЫЗ",
   "lbl_apnopass": "Сыйрма сөз жок",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Wi-Fiни сканерлөө",
   "msg_connect_open": "ТУТАШЫҢЫЗ ЖАНА HTTP://%s/ АЧЫҢЫЗ",
   "msg_upd_firmware": "Фирма жаңылануусу",
   "msg_upd_files": "Талап кылынган файлдар жаңыланууда",

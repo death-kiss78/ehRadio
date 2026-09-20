@@ -53,6 +53,7 @@
   "lbl_appass": "INGEN PASSORD",
   "lbl_apnopass": "INGEN PASSORD",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Søker etter Wi-Fi-nettverk",
   "msg_connect_open": "KOBLE TIL & ÅPNE HTTP://%s/",
   "msg_upd_firmware": "Oppdaterer fastvare",
   "msg_upd_files": "Oppdaterer filer",

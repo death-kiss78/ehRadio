@@ -3,6 +3,7 @@ in the default 4MB partition scheme.
 
 Please note that the special partition scheme is untested with recent versions of ehradio.
 SPIFFS must be about 500KB to reliably run Search and Curated Lists and file updates.
+And you MUST gzip the www files!
 
 If you really must tinker, try building with 4MBflash_ehRadio.csv first with
 #define CORE_MONITOR in your myoptions.h file.  This will show SPIFFS space used and free.

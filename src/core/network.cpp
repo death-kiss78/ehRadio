@@ -370,7 +370,6 @@ bool MyNetwork::wifiBeginFast(bool silent) {
 bool MyNetwork::wifiBegin(bool silent) {
   uint8_t ls = (config.store.lastSSID == 0 || config.store.lastSSID > config.ssidsCount) ? 0 : config.store.lastSSID - 1;
   uint8_t startedls = ls;
-  uint8_t errcnt = 0;
   // The station needs a moment before a scan returns anything - after a reset the first scan finds nothing
   // WiFi.mode() reports the mode it replaced, so this waits only when the station starts.
   if (WiFi.mode(WIFI_STA) != WIFI_STA) delay(WIFI_SETTLE_MS);
@@ -385,15 +384,22 @@ bool MyNetwork::wifiBegin(bool silent) {
     };
     MatchedNetwork matches[20];
     int matchCount = 0;
+    // Two passes at most: the first at WIFI_SCAN_DWELL_MS, the second at the Arduino/IDF default.  The scan cost is
+    //   dominated by the dwell (13 channels measured 6609-7010 ms at the default 300), and a dwell that is too short costs
+    //   time rather than connectivity, because the old behaviour is always the last resort - only a failure there reaches
+    //   the SoftAP.  This is one of only two things kept from the join-timing work; see the connect loops below.
+    display.putRequest(SCANNINGWIFI, 0);
+    delay(50);
     if (!silent) BOOTLOG("Scanning for best available network...");
-    int n = WiFi.scanNetworks();
-    if (!silent) BOOTLOG("Scan complete: %d networks found", n);
-    if (n == 0) {
-      /* An empty scan means it ran too soon after the radio started, so scan once more rather than size
-         WIFI_SETTLE_MS for the worst case. */
-      delay(WIFI_SETTLE_MS);
-      n = WiFi.scanNetworks();
-      if (!silent) BOOTLOG("Scan retry: %d networks found", n);
+    int n = 0;
+    for (int pass = 0; pass < 2 && n < 1; pass++) {
+      if (pass > 0) {
+        // An empty scan means it ran too soon or the dwell was too short, so scan once more rather than size WIFI_SETTLE_MS for the worst case.
+        delay(WIFI_SETTLE_MS);
+        if (!silent) BOOTLOG("Scan retry at the default dwell...");
+      }
+      n = WiFi.scanNetworks(false, false, false, pass == 0 ? WIFI_SCAN_DWELL_MS : 300);
+      if (!silent) BOOTLOG("Scan complete: %d networks found", n);
     }
     if (n > 0) {
       // Find all matching networks and build sorted list
@@ -450,16 +456,16 @@ bool MyNetwork::wifiBegin(bool silent) {
         BOOTLOGX("\t");
         display.putRequest(BOOTSTRING, configIdx);
       }
-      WiFi.begin(config.ssids[configIdx].ssid, config.ssids[configIdx].password, 
+      WiFi.begin(config.ssids[configIdx].ssid, config.ssids[configIdx].password,
                  matches[attempt].channel, matches[attempt].bssid); // Connect to specific AP by BSSID
-      errcnt = 0;
+      // Time-based rather than attempt-based
+      const uint32_t tCandidate = millis();
       while (WiFi.status() != WL_CONNECTED) {
         if (!silent) SERIALLOGDOT();
-        delay(500);
+        delay(WIFI_CONNECT_POLL_MS);
         network.loopImprov();
         if (LED_PIN!=255 && !silent) digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-        errcnt++;
-        if (errcnt > WIFI_ATTEMPTS) {
+        if (millis() - tCandidate > (uint32_t)WIFI_ATTEMPTS * 500UL) {
           SERIALLOG("");
           break;  // Failed, try next match
         }
@@ -485,14 +491,14 @@ bool MyNetwork::wifiBegin(bool silent) {
         display.putRequest(BOOTSTRING, ls);
       }
       WiFi.begin(config.ssids[ls].ssid, config.ssids[ls].password);
+      // Same ceiling, same poll and the same reason as the scanned loop above: 8 s at 100 ms, not 16 polls at 500 ms.
+      const uint32_t tCandidate = millis();
       while (WiFi.status() != WL_CONNECTED) {
         if (!silent) SERIALLOGDOT();
-        delay(500);
+        delay(WIFI_CONNECT_POLL_MS);
         network.loopImprov();
         if (LED_PIN!=255 && !silent) digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-        errcnt++;
-        if (errcnt > WIFI_ATTEMPTS) {
-          errcnt = 0;
+        if (millis() - tCandidate > (uint32_t)WIFI_ATTEMPTS * 500UL) {
           ls++;
           if (ls > config.ssidsCount - 1) ls = 0;
           break;
@@ -501,13 +507,11 @@ bool MyNetwork::wifiBegin(bool silent) {
       if (WiFi.status() != WL_CONNECTED && ls == startedls) {
         SERIALLOG("");
         return false;
-        break;
       }
       if (WiFi.status() == WL_CONNECTED) {
         SERIALLOG("");
         config.setLastSSID(ls + 1);
         return true;
-        break;
       }
     }
   }

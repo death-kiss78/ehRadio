@@ -53,6 +53,7 @@
   "lbl_appass": "БЕ РАҲЗАНД",
   "lbl_apnopass": "ПАРОЛ НЕСТ",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Сканкунии Wi-Fi",
   "msg_connect_open": "ПАЙВАСТ ШАВД ВА HTTP://%s/-ро БИВОЗЕД",
   "msg_upd_firmware": "Навсозии фирмвар",
   "msg_upd_files": "Навсозии файлҳо",

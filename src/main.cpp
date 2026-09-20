@@ -36,6 +36,9 @@ size_t psramFrameBufferBytes = 0;
 #endif
 
 void setup() {
+  #if !defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+    Serial.setTxBufferSize(4096); // activate ring-buffer
+  #endif
   Serial.begin(115200);
   #if (CORE_DEBUG_LEVEL > 0) || defined(ALL_DEBUG_LOGS)
     if (esp_reset_reason() == ESP_RST_POWERON || esp_reset_reason() == ESP_RST_EXT) { // checking if this is a poweron boot
@@ -43,55 +46,80 @@ void setup() {
       BOOTLOG("1 second delay after cold boot to ensure serial logs are available (CORE_DEBUG_LEVEL > 0 or ALL_DEBUG_LOGS)...");
     }
   #endif
+  #if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+    Serial.setTxTimeoutMs(BOOTLOG_TX_TIMEOUT_MS);
+  #endif
 
   startup.deassertCsPins();
   if (LED_PIN!=255) pinMode(LED_PIN, OUTPUT);
   rgbled.init();
   battery.init();
+  BOOTTIMELOG("serial & deassert & rgbled & battery");
   config.init();
   controls.checkButtonsHeldOnBoot();  // check for hold-to-SD before network decision
   backlightControls.init();
+  BOOTTIMELOG("config.init & controls & backlight");
   display.init();
+  BOOTTIMELOG("display.init");
+  const bool offlineBoot = (network.offlineMode || config.store.SDoffline);
   startup.checkSpiffsandVer();
+  BOOTTIMELOG("checkSpiffsandVer");
   player.init();
+  BOOTTIMELOG("player.init");
   battery.bootStatus();
-  if ((network.offlineMode || config.store.SDoffline)) {
+  BOOTTIMELOG("battery.bootStatus");
+  if (offlineBoot) {
     startup.sdOfflineMode();
+    BOOTTIMELOG("sdOfflineMode");
   } else {
     startup.checkSafeMode();
     network.begin();
+    BOOTTIMELOG("network.begin (scan & join)");
   }
   if (network.status != CONNECTED && network.status != SDOFFLINE) {
     netserver.begin();
+    BOOTTIMELOG("netserver.begin (AP)");
     netserver.startLoopTask();
     controls.init();
+    BOOTTIMELOG("netserver task & controls.init");
     display.putRequest(DSP_START);
     while(!display.ready()) delay(10);
+    BOOTTIMELOG("display DSP_START");
     netserver.setBootReady(true);
+    BOOTTIMELOG("setBootReady");
     return;
   }
   startup.getDefaultPlaylist();
+  BOOTTIMELOG("getDefaultPlaylist");
   if (SD_CS!=255 && config.store.play_mode==PM_SDCARD) {
     display.putRequest(WAITFORSD, 0);
     BOOTLOG("SD Search");
   }
   startup.cleanStaleSearchResults();
+  BOOTTIMELOG("cleanStaleSearchResults");
   config.initPlaylistMode();
+  BOOTTIMELOG("initPlaylistMode");
   netserver.begin();
+  BOOTTIMELOG("netserver.begin");
   if (network.status != SDOFFLINE) {
     netserver.startLoopTask();
     telnet.begin();
   }
+  BOOTTIMELOG("netserver task & telnet");
   controls.init();
+  BOOTTIMELOG("controls.init");
   display.putRequest(DSP_START);
   while(!display.ready()) delay(10);
+  BOOTTIMELOG("display DSP_START");
   #ifdef MQTT_ENABLE
     if (config.store.mqttenable && network.status != SDOFFLINE) mqtt.init();
   #endif
+  BOOTTIMELOG("mqtt.init");
   #if LED_INVERT
     if (LED_PIN!=255) digitalWrite(LED_PIN, true);
   #endif
   if (config.getMode()==PM_SDCARD) player.initHeaders(config.station.url);
+  BOOTTIMELOG("player.initHeaders");
   player.lockOutput=false;
   if (!startup.safeMode() && config.store.smartstart) {  // If smart start is enabled (suppressed on a safe-mode boot)
     delay(1000);  // Allow DNS/TCP/SSL stack to stabilize after WiFi connect (esp. after soft restart)
@@ -104,9 +132,12 @@ void setup() {
       }
     }
   }
+  BOOTTIMELOG("smartstart (incl. 1s settle)");
   if (network.status != SDOFFLINE) startup.startupServices();  // needs WiFi — skip in offline SD mode
+  BOOTTIMELOG("startupServices kickoff");
   netserver.setBootReady(true);
   config.saveValue(&config.store.SDoffline, false);
+  BOOTTIMELOG("setBootReady");
 }
 
 void loop() {

@@ -439,7 +439,6 @@ class Config {
       }
     }
 
-    bool _wwwFilesExist();
     void _initHW();
     void setDefaults();
 

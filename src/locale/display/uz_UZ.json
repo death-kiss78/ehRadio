@@ -53,6 +53,7 @@
   "lbl_appass": "PAROLSIZ",
   "lbl_apnopass": "Parol yo'q",
   "msg_wifi": "Wi-fi: %s",
+  "msg_scanning_wifi": "Wi-Fini skanerlash",
   "msg_connect_open": "ULANING & OCHING HTTP://%s/",
   "msg_upd_firmware": "Firmware yangilanmoqda",
   "msg_upd_files": "Fayllar yangilanmoqda",
