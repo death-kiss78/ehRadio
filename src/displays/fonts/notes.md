@@ -424,12 +424,26 @@ All font data is stored in flash via PROGMEM:
 
 At runtime, access via `pgm_read_byte()`, `pgm_read_word()`, `pgm_read_ptr()`.
 
-**Font sizes** (approximate):
-| Font | Glyphs | PROGMEM Size |
-|------|--------|-------------|
-| MatrixLight8x6 | ~400 | ~4 KB |
-| MatrixChunky8x6 | ~400 | ~4 KB |
-| UnixX11_6x9 | 1421 | ~12 KB |
+**Font sizes** (measured, not estimated):
+
+| Font | Glyphs (non-empty / slots) | Bitmaps | Glyph table | Total |
+|------|---------------------------|---------|-------------|-------|
+| MatrixLight8x6 | 460 / 1247 (0x21-0x4FF) | 2,760 B | 9,976 B | 12,752 B |
+| MatrixChunky8x6 | 460 / 1247 (0x21-0x4FF) | 2,760 B | 9,976 B | 12,752 B |
+| UnixX11_6x9 (`Fixed`) | 618 / 1248 (0x20-0x4FF) | 3,696 B | 9,984 B | 13,696 B |
+
+Totals include the 16-byte `GFXfont` struct. The glyph table costs
+`slots * 8`, not `slots * 6`: `GFXglyph` is 7 bytes of payload
+(uint16_t + 5 x uint8_t) with 2-byte alignment, so the linker emits one
+padding byte per slot. The `// N bytes glyph table` line that
+bdf2adafruit3.py writes at the end of each font uses `range_size * 6`
+and therefore understates every 1247-slot font by 2,494 bytes.
+
+Only one font is compiled in (`DISPLAYFONT` selects it in dspfont.h);
+the other two cost nothing in the .bin. MatrixLight and MatrixChunky
+differ only in their 2,760-byte bitmap arrays — their glyph tables are
+identical, so a shared-table swap keeps one 9,976-byte table plus
+2,760 bytes per additional font of the same 6x8 metric class.
 
 The font is selected at compile time via `DISPLAYFONT` in `myoptions.h`,
 resolved in [`dspfont.h`](../dspfont.h):

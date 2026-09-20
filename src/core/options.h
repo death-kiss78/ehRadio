@@ -987,6 +987,9 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef DSQ_SEND_DELAY
   #define DSQ_SEND_DELAY 200 // ms; xQueueSend timeout in display.putRequest(). If queue full, calling task blocks up to this long before dropping the request silently — preferable to blocking the audio task
 #endif
+#ifndef DSP_BOOTMSG_DELAY_MS
+  #define DSP_BOOTMSG_DELAY_MS 2000 // ms a deferred boot-line message waits before it is shown (Display::putRequestDelayed)
+#endif
 #ifndef PLQ_SEND_DELAY
   #define PLQ_SEND_DELAY 100 // ms; xQueueSend timeout in player.sendCommand(). Short timeout prevents blocking audio decode while still absorbing brief queue pressure
 #endif

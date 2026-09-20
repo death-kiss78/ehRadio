@@ -388,8 +388,10 @@ bool MyNetwork::wifiBegin(bool silent) {
     //   dominated by the dwell (13 channels measured 6609-7010 ms at the default 300), and a dwell that is too short costs
     //   time rather than connectivity, because the old behaviour is always the last resort - only a failure there reaches
     //   the SoftAP.  This is one of only two things kept from the join-timing work; see the connect loops below.
-    display.putRequest(SCANNINGWIFI, 0);
-    delay(50);
+    // Deferred, not immediate: the boot line still shows the firmware version, and replacing it at once is what made
+    //   that flash past in ~100ms.  No pause needed here (unlike the SPIFFS format message, whose flash erase halts the
+    //   other core) - the display task keeps running throughout the scan.
+    display.putRequestDelayed(SCANNINGWIFI, 0, 2000);
     if (!silent) BOOTLOG("Scanning for best available network...");
     int n = 0;
     for (int pass = 0; pass < 2 && n < 1; pass++) {
@@ -458,14 +460,47 @@ bool MyNetwork::wifiBegin(bool silent) {
       }
       WiFi.begin(config.ssids[configIdx].ssid, config.ssids[configIdx].password,
                  matches[attempt].channel, matches[attempt].bssid); // Connect to specific AP by BSSID
-      // Time-based rather than attempt-based
-      const uint32_t tCandidate = millis();
+      // Time-based rather than attempt-based: 8 s at 100 ms.  That budget covers association AND the lease, since
+      //   WL_CONNECTED is GOT_IP and that arrives 0.5 s or 4.8 s after association on this hardware.
+      uint32_t tCandidate = millis();
+      bool assocLogged = false, retried = false;
       while (WiFi.status() != WL_CONNECTED) {
         if (!silent) SERIALLOGDOT();
+        // Split the wait in the log: RSSI goes non-zero at association, the flag only at GOT_IP.
+        if (!assocLogged && WiFi.RSSI() != 0) {
+          assocLogged = true;
+          if (!silent) {
+            SERIALLOG("");
+            BOOTLOG("Associated after %lums (RSSI %d) - waiting for the address",
+                    (unsigned long)(millis() - tCandidate), WiFi.RSSI());
+            BOOTLOGX("\t");
+          }
+        }
         delay(WIFI_CONNECT_POLL_MS);
         network.loopImprov();
         if (LED_PIN!=255 && !silent) digitalWrite(LED_PIN, !digitalRead(LED_PIN));
         if (millis() - tCandidate > (uint32_t)WIFI_ATTEMPTS * 500UL) {
+          if (!retried) {
+            // One fresh association of the same candidate before it is called failed: the second association reached
+            //   the flag where a first attempt did not often enough to be worth the budget, and one 8 s attempt is
+            //   marginal because of the late GOT_IP mode above.  Safe on the boot path - no event handler is
+            //   registered yet, and in the reconnect context beginReconnect is set so WiFiLostConnection() returns
+            //   early and spawns nothing.
+            retried = true;
+            WiFi.disconnect(false, false);  // keep the station config, leave the radio up
+            for (uint32_t tDisc = millis(); WiFi.RSSI() != 0 && millis() - tDisc < WIFI_SETTLE_MS; ) delay(WIFI_CONNECT_POLL_MS);
+            if (!silent){
+              SERIALLOG("");
+              BOOTLOG("No address after %lums - re-associating with the same AP once",
+                      (unsigned long)(millis() - tCandidate));
+              BOOTLOGX("\t");
+              }
+            WiFi.begin(config.ssids[configIdx].ssid, config.ssids[configIdx].password,
+                       matches[attempt].channel, matches[attempt].bssid);
+            tCandidate = millis();
+            assocLogged = false;
+            continue;
+          }
           SERIALLOG("");
           break;  // Failed, try next match
         }
@@ -488,17 +523,43 @@ bool MyNetwork::wifiBegin(bool silent) {
       if (!silent) {
         BOOTLOG("Attempt to connect to %s", config.ssids[ls].ssid);
         BOOTLOGX("\t");
-        display.putRequest(BOOTSTRING, ls);
+        display.putRequestDelayed(BOOTSTRING, ls, 1000);
       }
       WiFi.begin(config.ssids[ls].ssid, config.ssids[ls].password);
-      // Same ceiling, same poll and the same reason as the scanned loop above: 8 s at 100 ms, not 16 polls at 500 ms.
-      const uint32_t tCandidate = millis();
+      // Same ceiling, same poll and the same reason as the scanned loop above: 8 s at 100 ms, and it has to cover the
+      //   lease as well as the association because WL_CONNECTED is GOT_IP.
+      uint32_t tCandidate = millis();
+      bool assocLogged = false, retried = false;
       while (WiFi.status() != WL_CONNECTED) {
         if (!silent) SERIALLOGDOT();
+        // Split the wait in the log: RSSI goes non-zero at association, the flag only at GOT_IP.
+        if (!assocLogged && WiFi.RSSI() != 0) {
+          assocLogged = true;
+          if (!silent) {
+            SERIALLOG("");
+            BOOTLOG("Associated after %lums (RSSI %d) - waiting for the address",
+                    (unsigned long)(millis() - tCandidate), WiFi.RSSI());
+            BOOTLOGX("\t");
+          }
+        }
         delay(WIFI_CONNECT_POLL_MS);
         network.loopImprov();
         if (LED_PIN!=255 && !silent) digitalWrite(LED_PIN, !digitalRead(LED_PIN));
         if (millis() - tCandidate > (uint32_t)WIFI_ATTEMPTS * 500UL) {
+          if (!retried) {
+            // One fresh association of the same candidate before it is called failed; with a single saved SSID the
+            //   rotation below wraps straight back to this one and returns false, so without this a lone network gets
+            //   exactly one 8 s attempt and then the SoftAP.
+            retried = true;
+            WiFi.disconnect(false, false);  // keep the station config, leave the radio up
+            for (uint32_t tDisc = millis(); WiFi.RSSI() != 0 && millis() - tDisc < WIFI_SETTLE_MS; ) delay(WIFI_CONNECT_POLL_MS);
+            if (!silent) BOOTLOG("No address after %lums - re-associating with %s once",
+                                 (unsigned long)(millis() - tCandidate), config.ssids[ls].ssid);
+            WiFi.begin(config.ssids[ls].ssid, config.ssids[ls].password);
+            tCandidate = millis();
+            assocLogged = false;
+            continue;
+          }
           ls++;
           if (ls > config.ssidsCount - 1) ls = 0;
           break;

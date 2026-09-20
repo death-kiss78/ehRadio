@@ -145,7 +145,7 @@ void loop() {
     cmLoopStart = micros();
   #endif
   // Stage attribution, always on: an iteration over MAIN_LOOP_STALL_MS names the blocking stage, which is
-  // the whole diagnosis (this is what found the stream connect in the player stage). */
+  // the whole diagnosis (this is what found the stream connect in the player stage).
   const uint32_t tStage0 = micros();
 
   if (network.status == SOFT_AP) {

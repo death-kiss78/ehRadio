@@ -36,6 +36,9 @@ class Display {
     void _drawPlaylist();
     void _drawNextStationNum(uint16_t num);
     void putRequest(displayRequestType_e type, int payload=0);
+    /* Same as putRequest(), but the display task holds it until delayMs has passed - for a message that must not
+       replace what is on screen yet (the boot scan would otherwise overwrite the firmware version ~100ms in). */
+    void putRequestDelayed(displayRequestType_e type, int payload=0, uint32_t delayMs=0);
     void _layoutChange(bool played);
     void loop();
     void _setRSSI(int rssi);
@@ -85,6 +88,12 @@ class Display {
     Ticker _returnTicker;
     bool _locked = false;
     uint8_t _bootStep = 0;
+    /* One deferred request.  loop() sends it to displayQueue when its time comes, so it takes the same path an
+       immediate request does; a later boot-line message cancels it, and resetQueue() drops it, so a stale one can
+       never overwrite newer text.  NOPE is the empty slot. */
+    displayRequestType_e _deferredType = NOPE;
+    int _deferredPayload = 0;
+    uint32_t _deferredDueMs = 0;
     void _createDspTask();
     void _reinitWidgets();
     void _setLayoutPointers();

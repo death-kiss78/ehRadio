@@ -1,11 +1,18 @@
 There is no way that ehRadio will build and still fit into a default 1.31 MB space allowed
 in the default 4MB partition scheme.
 
-Please note that the special partition scheme is untested with recent versions of ehradio.
-SPIFFS must be about 500KB to reliably run Search and Curated Lists and file updates.
-And you MUST gzip the www files!
+So this file gives app0 the same amount of space as in the 8MB default partition file, 3.19MB.
+SPIFFS is 768 KB and is plenty for all files, including Search results, Curated Lists, and
+file updates.  Although not currently required, it is recommended to gzip the www files.
+
+What uses SPIFFS?
+
+  - Uncompressed, the www files occupy 266KB but compressed 78KB.
+  - Search, Curated Lists, and file updates may require 300KB.
+  - wifi.csv (1KB) and playlist.csv (75 stations about 6KB, 1000 stations about 125KB)
+  - These estimates current as of 09.20.2026
 
 If you really must tinker, try building with 4MBflash_ehRadio.csv first with
 #define CORE_MONITOR in your myoptions.h file.  This will show SPIFFS space used and free.
 
-And although that build breaks OTA, you will still have a very usable ehRadio.
+Because there is no app1 partition, OTA is simply not possible using the 4MB partition.

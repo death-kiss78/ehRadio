@@ -660,6 +660,15 @@ void Display::_swichMode(displayMode_e newmode) {
 
 void Display::resetQueue() {
   if (displayQueue!=NULL) xQueueReset(displayQueue);
+  _deferredType = NOPE;  // a queue flush takes a stale deferred message with it
+}
+
+/* Queue a request the display task must not apply yet.  delayMs 0 is not deferred at all, it is just putRequest(). */
+void Display::putRequestDelayed(displayRequestType_e type, int payload, uint32_t delayMs) {
+  if (delayMs == 0) { putRequest(type, payload); return; }
+  _deferredType = type;
+  _deferredPayload = payload;
+  _deferredDueMs = millis() + delayMs;
 }
 
 void Display::_drawPlaylist() {
@@ -677,6 +686,12 @@ void Display::_drawNextStationNum(uint16_t num) {
 
 void Display::putRequest(displayRequestType_e type, int payload) {
   if (displayQueue==NULL) return;
+  /* A later boot-line message supersedes a deferred one: without this, a scan message still counting down could
+     overwrite the attempt's own "Wi-fi: <ssid>" line if the scan finished inside the delay. */
+  if (_deferredType != NOPE &&
+      (type == BOOTSTRING || type == FORMATTING || type == WAITFORSD || type == SCANNINGWIFI)) {
+    _deferredType = NOPE;
+  }
   requestParams_t request;
   request.type = type;
   request.payload = payload;
@@ -766,6 +781,15 @@ void Display::loop() {
       config.displayIsInverted = shouldInvert;
       display.invert();
     }
+  }
+  /* Fire a deferred request once its delay has elapsed.  Sent to this same queue rather than handled inline, so it
+     takes the identical path to an immediate request; if the queue is momentarily full the pending slot is kept and
+     retried on the next pass. */
+  if (_deferredType != NOPE && (int32_t)(millis() - _deferredDueMs) >= 0 && displayQueue != NULL && !_locked) {
+    requestParams_t deferred;
+    deferred.type = _deferredType;
+    deferred.payload = _deferredPayload;
+    if (xQueueSend(displayQueue, &deferred, 0) == pdTRUE) _deferredType = NOPE;
   }
   if (displayQueue==NULL || _locked) return;
   _pager->loop();
