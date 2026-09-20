@@ -605,8 +605,6 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
     - `cleanupSpiffs()`
     - `deleteMainwwwFile()`
     - `updateFile(...)`
-    - `updateLocaleFile()`
-    - `updateLocaleFileAsync(...)`
 - Holds small reusable scratch/state buffers (`ipBuf`, `stationBuf`) plus the sleep duration state and sleep `Ticker`; it still does not own playback/artwork runtime state.
 - Current consumers include `audiohandlers.cpp`, `battery.cpp`, `commandhandler.cpp`, `config.cpp`, `display.cpp`, `netserver.cpp`, `network.cpp`, `player.cpp`, and startup/update flows.
 
@@ -997,9 +995,8 @@ A board-aware multiplier scales all five user-configurable FreeRTOS task stacks 
 - All formerly scheduler-assigned (`xTaskCreate`) utility tasks are explicitly pinned to `NETWORK_CORE` via `xTaskCreatePinnedToCore`:
   `vTaskSearchRadioBrowser`, playback task (lambda), radio-browser click task (lambda), `checkForOnlineUpdateTask` (lambda), `startOnlineUpdateTask` (lambda)
 
-#### `src/core/startup.cpp`, `src/core/utility.cpp`, `src/core/commandhandler.cpp` — pinned to `NETWORK_CORE`
+#### `src/core/startup.cpp`, `src/core/commandhandler.cpp` — pinned to `NETWORK_CORE`
 - `src/core/startup.cpp`: `startupServicesAsync`
-- `src/core/utility.cpp`: `updateLocaleFileAsyncWrapper`
 - `src/core/commandhandler.cpp`: `vTaskFetchCuratedIndex`, `vTaskFetchCuratedPlaylist`
 
 #### Arduino `loop()` — implicit Core 1
@@ -1025,7 +1022,6 @@ Stack sizes and priorities are controlled by macros in `src/core/options.h` (`/*
 | `rbClickTask` (lambda) | netserver.cpp | 8192 fixed | `LOW_TASK_PRIORITY` (1) | HTTPS — stack hardcoded |
 | `checkForOnlineUpdateTask` (lambda) | netserver.cpp | 8192 fixed | `LOW_TASK_PRIORITY` (1) | HTTPS — stack hardcoded |
 | `startOnlineUpdateTask` (lambda) | netserver.cpp | 16384 fixed | `NET_TASK_PRIORITY` (3) | OTA — stack hardcoded |
-| `updateLocaleFileAsyncWrapper` | utility.cpp | 8192 fixed | `LOW_TASK_PRIORITY` (1) | HTTPS — stack hardcoded |
 | `startupServicesAsync` | startup.cpp | 8192 fixed | `LOW_TASK_PRIORITY` (1) | HTTPS — stack hardcoded |
 
 ### CORE_MONITOR debug feature (opt-in)

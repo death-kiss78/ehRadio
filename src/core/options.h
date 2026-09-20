@@ -1,4 +1,4 @@
- #ifndef options_h
+#ifndef options_h
 #define options_h
 #pragma once
 
@@ -173,7 +173,7 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 
 /* SSD1322 is a 4-bit / 16-level grayscale panels */
-// Add this to your myoptions.h to use the greyscale palette - untested!
+// Add this to your myoptions.h to use the greyscale palette:
 // #define OLED_GREYSCALE true
 // SSD1327 proved to have issues showing greyscale so it no longer has this option
 #ifndef OLED_GREYSCALE
@@ -426,9 +426,9 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 /* Three volume curves are available on the VS1053 */
 // the original is a perceptual log scale... it's kind of a steep volume on low numbers:
-//#define VS1053_VOL_LOG
+// #define VS1053_VOL_LOG
 // this one follows the I2S polynomial curve exactly (starting at -60dB) but an unamplified VS1053 may be mute for the first 25% of the volume scale:
-//#define VS1053_VOL_CURVE
+// #define VS1053_VOL_CURVE
 // Add one of those to your myoptions.h to override the default which is the same polynomial curve but starts at -35dB
 
 /* --- I2S PCM DAC --- */
@@ -449,10 +449,9 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 
 /* --- I2S ES8311 DECODER --- */
-
-/* a special define for a special decoder */
-/* #define USE_ES8311 activates the ES8311 mono decoder */
-/* requires I2S DOUT BCLK LRC (and MCLK probably too) pins defined */
+// a special define for a special decoder
+// #define USE_ES8311 activates the ES8311 mono decoder
+// requires I2S DOUT BCLK LRC (and MCLK probably too) pins defined
 #ifdef USE_ES8311
   #ifndef ES8311_MAX_I2S
     #define ES8311_MAX_I2S 180 // Maximum I2S value to allow when mapping to ES8311 codec (0..VOLUME_SCALE)
@@ -719,8 +718,12 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 // You can also use a GPIO directly with this
 // #define SDOFFLINE_BTN 2
 // ...and you can manually override how the pin is treated (defaults below)
-// #define SDOFFLINE_BTN_ACTIVE_LOW true
-// #define SDOFFLINE_BTN_PULLUP true
+#ifndef SDOFFLINE_BTN_ACTIVE_LOW
+  #define SDOFFLINE_BTN_ACTIVE_LOW true
+#endif
+#ifndef SDOFFLINE_BTN_PULLUP
+  #define SDOFFLINE_BTN_PULLUP true
+#endif
 
 
 /* --- IR --- */
@@ -848,12 +851,11 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   //#define MAX_PL_READ_BYTES 1024*64 // Makes chunked HTML transfers but only for playlist.csv and wifi.csv... might help I2S decoder with large playlists
 #endif
 /* Maximum lengths of character buffers */
-/* Notes have been made regarding old yoRadio values */
 #ifndef WEATHER_STRING_L
-  #define WEATHER_STRING_L 512 // size of weather string, formerly 254
+  #define WEATHER_STRING_L 512 // size of weather string, increased from yoRadio 254
 #endif
 #ifndef WEBSOCKET_BUFFER
-  #define WEBSOCKET_BUFFER 512 // formerly 340
+  #define WEBSOCKET_BUFFER 512 // increased from yoRadio 340
 #endif
 #ifndef MQTT_URL_SIZE
   #define MQTT_URL_SIZE 512 // shared URL buffer cap for MQTT commands, artwork URLs, and browse URLs
@@ -873,14 +875,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef CONNECT_HTTP_HTTPS_TIMEOUT
   #define CONNECT_HTTP_HTTPS_TIMEOUT 1700, 3700
 #endif
-// The connect() bound is deliberately NOT a macro here: it lives with the audio library that uses it
-// (m_connectTimeout_ms / m_connectTimeout_ms_ssl in I2S_Audio/Audio.h, 1200 ms), because it is
-// per-library and the VS1053 copy would need its own.  It is separate from CONNECT_HTTP_HTTPS_TIMEOUT
-// above on purpose - that pair doubles as the socket READ timeouts and has to stay patient enough for a
-// slow stream to trickle in, while the connect bound is a UI freeze, because connecttohost() runs on the
-// MAIN task: no button sampled and no WebUI request answered for as long as it lasts.  A WiFi TCP
-// handshake is normally tens of ms, so 1200 is already generous.  Raising the pair above does not raise
-// it, and lowering it does not lower it.
 // Timeout in ms for receiving HTTP response headers (server redirects, slow streams).
 // Separate from socket-level timeouts above and only includes final hop in redirects
 #ifndef STREAM_TIMEOUT_MS

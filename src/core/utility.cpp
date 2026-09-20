@@ -21,12 +21,6 @@
 
 namespace {
 
-struct LocaleUpdateParams {
-  ESPFileUpdater* updater;
-  uint8_t clientId;
-  char localeCode[16];
-};
-
 bool readStationEntry(File& playlist, File& index, uint16_t idx, char* name, char* url, int& ovol) {
   index.seek((idx - 1) * 4, SeekSet);
   uint32_t pos = 0;
@@ -88,82 +82,6 @@ void Utility::doSleep() {
     esp_deep_sleep_start();
   #endif
 }
-
-namespace {
-
-bool updateLocaleFileCore(ESPFileUpdater* updater, const char* localeCode) {
-  #ifdef UPDATEURL
-    if (strcmp(localeCode, HARDCODED_WEBUI_LOCALE) == 0) {
-      FUNCTIONLOG("Locale", "Updating locale: %s - no need to download, hardcoded locale uses default.", HARDCODED_WEBUI_LOCALE);
-      return true;
-    }
-
-    char tryFile[64] = "/www/locale.new";
-    char finalFile[64] = {0};
-    char tryUrl[128] = {0};
-    bool success = false;
-    FUNCTIONLOG("Locale Update", "Downloading file for %s...", localeCode);
-    for (size_t j = 0; j < 2; j++) {
-      SPIFFS.remove(tryFile);
-      if (j == 0) {
-        snprintf(finalFile, sizeof(finalFile), "/www/%s.json.gz", localeCode);
-        snprintf(tryUrl, sizeof(tryUrl), "%s%s.json.gz", FILESURL, localeCode);
-      } else {
-        snprintf(finalFile, sizeof(finalFile), "/www/%s.json", localeCode);
-        snprintf(tryUrl, sizeof(tryUrl), "%s%s.json", FILESURL, localeCode);
-      }
-      ESPFileUpdater::UpdateStatus result = updater->checkAndUpdate(
-          tryFile,
-          tryUrl,
-          "",
-          ESPFILEUPDATER_VERBOSE
-      );
-      if (result == ESPFileUpdater::UPDATED) {
-        FUNCTIONLOG("Locale Update", "Download for %s successful, saving as %s", localeCode, finalFile);
-        SPIFFS.remove(finalFile);
-        if (SPIFFS.rename(tryFile, finalFile)) {
-          success = true;
-          break;
-        }
-      }
-    }
-    if (!success) {
-      FUNCTIONLOG("Locale Update", "Failed to fetch file from either .gz or uncompressed URL");
-    }
-    return success;
-  #else
-    return false;
-  #endif
-}
-
-void updateLocaleFileAsyncWrapper(void* param) {
-  LocaleUpdateParams* params = (LocaleUpdateParams*)param;
-  bool success = updateLocaleFileCore(params->updater, params->localeCode);
-  if (success) {
-    char oldLocaleGz[64] = {0};
-    char oldLocale[64] = {0};
-    snprintf(oldLocaleGz, sizeof(oldLocaleGz), "/www/%s.json.gz", config.store.locale_webui);
-    snprintf(oldLocale, sizeof(oldLocale), "/www/%s.json", config.store.locale_webui);
-    SPIFFS.remove(oldLocaleGz);
-    SPIFFS.remove(oldLocale);
-    config.saveValue(config.store.locale_webui, params->localeCode);
-    FUNCTIONLOG("Locale Update", "Successfully updated to %s", params->localeCode);
-    char msg[64] = {0};
-    snprintf(msg, sizeof(msg), "{\"locale_updated\":true,\"locale\":\"%s\"}", params->localeCode);
-    websocket.text(params->clientId, msg);
-  } else {
-    FUNCTIONLOG("Locale Update", "Failed to update to %s", params->localeCode);
-    websocket.text(params->clientId, "{\"locale_update_failed\":true}");
-  }
-  delete params->updater;
-  delete params;
-  #ifdef CORE_MONITOR
-    FUNCTIONLOG("Core.HWM", "[%s] stack HWM: %u bytes", pcTaskGetName(NULL), uxTaskGetStackHighWaterMark(NULL) * 4);
-  #endif
-  vTaskDelete(NULL);
-}
-
-} // namespace
 
 void Utility::stripWhitespace(char* text) {
   if (!text) return;
@@ -815,46 +733,6 @@ void Utility::updateFile(void* param, const char* localFile, const char* onlineF
   } else {
     FUNCTIONLOG("ESPFileUpdater", "%s - update failed", simpleName);
   }
-}
-
-void Utility::updateLocaleFile() {
-  #ifdef UPDATEURL
-    ESPFileUpdater* updater = new ESPFileUpdater(SPIFFS);
-    updater->setMaxSize(1024);
-    updater->setUserAgent(ESPFILEUPDATER_USERAGENT);
-    bool success = updateLocaleFileCore(updater, config.store.locale_webui);
-    if (success) {
-      FUNCTIONLOG("Locale Update", "Successfully updated to %s", config.store.locale_webui);
-    } else {
-      FUNCTIONLOG("Locale Update", "Failed to update to %s", config.store.locale_webui);
-    }
-    delete updater;
-  #endif
-}
-
-bool Utility::updateLocaleFileAsync(const char* localeCode, uint8_t clientId) {
-  if (WiFi.status() != WL_CONNECTED) return false;
-  #ifdef UPDATEURL
-    LocaleUpdateParams* params = new LocaleUpdateParams();
-    params->updater = new ESPFileUpdater(SPIFFS);
-    params->updater->setMaxSize(1024);
-    params->updater->setUserAgent(ESPFILEUPDATER_USERAGENT);
-    params->clientId = clientId;
-    strlcpy(params->localeCode, localeCode, sizeof(params->localeCode));
-    if (xTaskCreatePinnedToCore(updateLocaleFileAsyncWrapper, "updateLocaleFileAsyncWrapper", 8192, params, LOW_TASK_PRIORITY, NULL, NETWORK_CORE) != pdPASS) {
-      delete params->updater;
-      delete params;
-      return false;
-    }
-    return true;
-  #else
-    config.saveValue(config.store.locale_webui, localeCode);
-    FUNCTIONLOG("Locale Switch", "Changed to %s", localeCode);
-    char msg[64] = {0};
-    snprintf(msg, sizeof(msg), "{\"locale_updated\":true,\"locale\":\"%s\"}", localeCode);
-    websocket.text(clientId, msg);
-    return true;
-  #endif
 }
 
 // Software CRC32 (portable fallback; ESP32 has hardware crc32_le in ROM)

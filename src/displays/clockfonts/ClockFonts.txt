@@ -1,6 +1,8 @@
 Trip5's Notes about the fonts used by the clock:
 
-This folder ONLY contains fonts used by the clock (and on the volume page screen)
+This folder ONLY contains fonts used by the clock (and on the volume page screen).
+
+First, the breakdown of what I found in the yoRadio codebase (and the initial Chunky fonts I added later):
 
 yofont5x7 and yofont10x14
 were ONLY used by ILI9225 - but eliminated at some point...
@@ -10,11 +12,11 @@ are ONLY used by displayN5110.h (Nokia) for Clock
 
 font15 = Chunky6_15, Chunky6_15_px
 displaySH1106.h
-displaySSD1306.h (DSP_SSD1306)
+displaySSD1306.h
 displaySSD1305.h
 
-font19 = DS_DIGI/DS_DIGI15pt7b, DS_DIGI/DS_DIGI15pt7b_mono, Chunky6_15, Chunky6_15_px
-...nothing...?
+font19 = DS_DIGI/DS_DIGI15pt7b, DS_DIGI/DS_DIGI15pt7b_mono
+...nothing?  Maybe this font was meant for the displays that now use the font15 sizes...
 
 font35 = DS_DIGI/DS_DIGI28pt7b, DS_DIGI/DS_DIGI28pt7b_mono, Chunky6_35, Chunky6_35_px
 displayGC9106.h
@@ -44,10 +46,16 @@ It is a font editor but not enjoyable to use.
 
 Chunky6 is a Trip5 font designed for pixel displays: https://github.com/trip5/Matrix-Fonts
 
-Let's generate a font from a PNG using my own tool to make the "0123456789:" graphic: https://trip5.github.io/Matrix-Fonts/renderer.html
+Let's generate a font from a PNG using my own tool to make the "0123456789:" graphic: https://trip5.github.io/Matrix-Fonts/renderer.html -
+note that the PNG was edited using Windows Paint to make sure the characters were a bit center-right.
+This tool can be used on ANY BDF font (a python script is also available in that repository).
+
 Numbers are a fixed-width and the colon is half of that width - this including spaces.  The result is the total width will be divisible by 21.
 Note that it adds a 1 or 2 pixel border all around and we then add black borders and trim
-so that there are equal numbers of black pixels left-right and top-bottom, odd ones getting extra space on left and bottom
+so that there are equal numbers of black pixels left-right and top-bottom, odd ones getting extra space on left and bottom...
+
+Or more simply, every digit needs to fit into the following patterns (pixel sizes), with the colon being half of the width of a digit:
+Size (height) x width: 70 x 56, 52 x 40, 35 x 28, 15 x 12.
 
 Chunky6_70:    pixel size 14
 Chunky6_70_px: pixel size 11 + 3 pixels space
@@ -73,8 +81,14 @@ Chunky6_15_px: pixel size 2 + 1 pixels space
         width: 4 (includes 1 empty column) * 3 = 12 pixels (per digit) x 10.5 = 126 pixels
 - Time is shorter than DS_DIGI15pt7b_mono by 8 pixels
 
-This is the tool that can do it...
+This is the tool that can converts the PNG to a .h font file:
 py .\png_to_gfxfont.py Chunky6_70_px.png Chunky6_70_px.h --glow-char /
-That glow-char switch makes the "glow" character
+
+That glow-char switch makes the "glow" character (the residual "LED" behind the character).
+No extra glyph is needed for that... the script will extrapolate the special character.
+If no glow character is needed or desired, 
+The DS_DIGI characters are 7-segment characters so they just the "8" character.
 
 There is some risk that these slightly wider fonts may not fully fit on all displays...
+
+After creating the font files, the /src/displays/clockfonts/font*.h files need to be edited to include them in builds.

@@ -127,8 +127,6 @@ public:
   void pruneSpiffs();
   void deleteMainwwwFile();
   void updateFile(void* param, const char* localFile, const char* onlineFile, const char* updatePeriod, const char* simpleName);
-  void updateLocaleFile();
-  bool updateLocaleFileAsync(const char* localeCode, uint8_t clientId);
 
 private:
   static uint16_t sleepfor;

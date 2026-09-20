@@ -673,12 +673,6 @@ void Controls::checkButtonsHeldOnBoot() {
         pinMode(BTN_DOWN, BTN_DOWN_PULLUP ? INPUT_PULLUP : INPUT);
         if (digitalRead(BTN_DOWN) == LOW) held = true;
       #else
-        #ifndef SDOFFLINE_BTN_ACTIVE_LOW
-          #define SDOFFLINE_BTN_ACTIVE_LOW true
-        #endif
-        #ifndef SDOFFLINE_BTN_PULLUP
-          #define SDOFFLINE_BTN_PULLUP true
-        #endif
         pinMode(SDOFFLINE_BTN, SDOFFLINE_BTN_PULLUP ? INPUT_PULLUP : INPUT);
         bool state = digitalRead(SDOFFLINE_BTN);
         if (SDOFFLINE_BTN_ACTIVE_LOW ? (state == LOW) : (state == HIGH)) gpioheld = true;
