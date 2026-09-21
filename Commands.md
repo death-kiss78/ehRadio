@@ -62,7 +62,6 @@ Order and sections match that file.
 | `autoupdate` | Enable/disable auto update checks. |
 | `ehdp` | Enable/disable eHDP service. |
 | `ehdpname` | Set eHDP name and reinitialize eHDP. |
-| `softap` | Set soft AP delay setting. |
 | `mdnsname` | Set mDNS host name. |
 
 ## Options: Battery

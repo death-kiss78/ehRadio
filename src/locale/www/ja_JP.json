@@ -92,7 +92,6 @@
   "lbl_select_tz": "タイムゾーンを選択",
   "lbl_show_weather": "天気を表示",
   "lbl_smart_start": "スマートスタート",
-  "lbl_softap_delay": "ソフトAP再起動遅延（分）",
   "lbl_sort": "並べ替え",
   "lbl_spiffs": "SPIFFS",
   "lbl_ssid": "SSID",

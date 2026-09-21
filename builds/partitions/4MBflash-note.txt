@@ -12,7 +12,7 @@ What uses SPIFFS?
   - wifi.csv (1KB) and playlist.csv (75 stations about 6KB, 1000 stations about 125KB)
   - These estimates current as of 09.20.2026
 
-If you really must tinker, try building with 4MBflash_ehRadio.csv first with
+If you really must tinker, try building with ehradio_4MB.csv first with
 #define CORE_MONITOR in your myoptions.h file.  This will show SPIFFS space used and free.
 
 Because there is no app1 partition, OTA is simply not possible using the 4MB partition.

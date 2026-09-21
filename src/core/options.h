@@ -800,6 +800,9 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef WIFI_CONNECT_POLL_MS
   #define WIFI_CONNECT_POLL_MS 100 // how often the connect loop checks the station status
 #endif
+#ifndef WIFI_RETRY_SCALE // the second (and last) attempt at a candidate gets this multiple of WIFI_ATTEMPTS * 500 ms
+  #define WIFI_RETRY_SCALE 2 // 16 s against the first attempt's 8 s - lwIP retransmits a DISCOVER at about 0, 4 and 12 s
+#endif
 #ifndef WIFI_FAST_ATTEMPTS
   #define WIFI_FAST_ATTEMPTS 4 // ~2 s: how long a directed reconnect to a known BSSID is given before a scan
 #endif
@@ -1228,6 +1231,16 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
     #undef AP_PASSWORD
   #endif
 #endif
+// Minutes to wait in SoftAP mode before rebooting (default: 0 = never)
+// Shouldn't be needed in general because the radio will con
+#if defined(SOFTAP_REBOOT_DELAY) && ((SOFTAP_REBOOT_DELAY < 0) || (SOFTAP_REBOOT_DELAY > 20))
+  #warning "define warning in myoptions.h: SOFTAP_REBOOT_DELAY is out of range (0-20), reverting to default 0"
+  #undef SOFTAP_REBOOT_DELAY
+#endif
+#ifndef SOFTAP_REBOOT_DELAY
+  #define SOFTAP_REBOOT_DELAY 0
+#endif
+
 
 /* This bit will actually do something but needs to be handled a different way - configurable would be better */
 /* But I'm very concerned that a forgotten password means needing a way to factory-reset using hardware... */
@@ -1419,13 +1432,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 #ifndef EHDP
   #define EHDP true
-#endif
-#if defined(SOFTAP_REBOOT_DELAY) && ((SOFTAP_REBOOT_DELAY < 0) || (SOFTAP_REBOOT_DELAY > 20))
-  #warning "define warning in myoptions.h: SOFTAP_REBOOT_DELAY is out of range (0-20), reverting to default 0"
-  #undef SOFTAP_REBOOT_DELAY
-#endif
-#ifndef SOFTAP_REBOOT_DELAY
-  #define SOFTAP_REBOOT_DELAY 0
 #endif
 #ifndef SCREEN_FLIP
   #define SCREEN_FLIP false

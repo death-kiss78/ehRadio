@@ -170,7 +170,6 @@ struct config_t // specify defaults here (and macros in options.h) (defaults are
   bool      autoupdate = false;
   bool      ehdp = EHDP;
   char      ehdpname[EHDPNAME_LENGTH] = "";
-  uint8_t   softapdelay = SOFTAP_REBOOT_DELAY;
   char      mdnsname[MDNS_LENGTH] = "";
 
   // MQTT

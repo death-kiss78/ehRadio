@@ -367,6 +367,14 @@ bool MyNetwork::wifiBeginFast(bool silent) {
   return wifiBegin(silent);
 }
 
+static void wifiRestartForRetry(const char* ssid, const char* password,
+                                uint8_t channel = 0, const uint8_t* bssid = nullptr) {
+  WiFi.disconnect(true, false);  // wifioff: the netif goes down, so DHCP stops and can start clean
+  for (uint32_t tDisc = millis(); WiFi.RSSI() != 0 && millis() - tDisc < WIFI_SETTLE_MS; ) delay(WIFI_CONNECT_POLL_MS);
+  if (channel && bssid) WiFi.begin(ssid, password, channel, bssid);
+  else WiFi.begin(ssid, password);
+}
+
 bool MyNetwork::wifiBegin(bool silent) {
   uint8_t ls = (config.store.lastSSID == 0 || config.store.lastSSID > config.ssidsCount) ? 0 : config.store.lastSSID - 1;
   uint8_t startedls = ls;
@@ -461,7 +469,8 @@ bool MyNetwork::wifiBegin(bool silent) {
       WiFi.begin(config.ssids[configIdx].ssid, config.ssids[configIdx].password,
                  matches[attempt].channel, matches[attempt].bssid); // Connect to specific AP by BSSID
       // Time-based rather than attempt-based: 8 s at 100 ms.  That budget covers association AND the lease, since
-      //   WL_CONNECTED is GOT_IP and that arrives 0.5 s or 4.8 s after association on this hardware.
+      //   WL_CONNECTED is GOT_IP and that arrives 0.5 s or 4.8 s after association on this hardware
+      uint32_t candidateWindowMs = (uint32_t)WIFI_ATTEMPTS * 500UL;
       uint32_t tCandidate = millis();
       bool assocLogged = false, retried = false;
       while (WiFi.status() != WL_CONNECTED) {
@@ -479,25 +488,21 @@ bool MyNetwork::wifiBegin(bool silent) {
         delay(WIFI_CONNECT_POLL_MS);
         network.loopImprov();
         if (LED_PIN!=255 && !silent) digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-        if (millis() - tCandidate > (uint32_t)WIFI_ATTEMPTS * 500UL) {
+        if (millis() - tCandidate > candidateWindowMs) {
           if (!retried) {
-            // One fresh association of the same candidate before it is called failed: the second association reached
-            //   the flag where a first attempt did not often enough to be worth the budget, and one 8 s attempt is
-            //   marginal because of the late GOT_IP mode above.  Safe on the boot path - no event handler is
-            //   registered yet, and in the reconnect context beginReconnect is set so WiFiLostConnection() returns
-            //   early and spawns nothing.
+            // Second/last attempt at this candidate: the network is restarted first (radio off, so the netif goes
+            //   down and the DHCP client's DISCOVER backoff resets) and the window is then widened
             retried = true;
-            WiFi.disconnect(false, false);  // keep the station config, leave the radio up
-            for (uint32_t tDisc = millis(); WiFi.RSSI() != 0 && millis() - tDisc < WIFI_SETTLE_MS; ) delay(WIFI_CONNECT_POLL_MS);
-            if (!silent){
+            if (!silent) {
               SERIALLOG("");
-              BOOTLOG("No address after %lums - re-associating with the same AP once",
-                      (unsigned long)(millis() - tCandidate));
+              BOOTLOG("No address after %lums - restarting the network and trying %s once more",
+                      (unsigned long)(millis() - tCandidate), config.ssids[configIdx].ssid);
               BOOTLOGX("\t");
-              }
-            WiFi.begin(config.ssids[configIdx].ssid, config.ssids[configIdx].password,
-                       matches[attempt].channel, matches[attempt].bssid);
+            }
+            wifiRestartForRetry(config.ssids[configIdx].ssid, config.ssids[configIdx].password,
+                                matches[attempt].channel, matches[attempt].bssid);
             tCandidate = millis();
+            candidateWindowMs = (uint32_t)WIFI_ATTEMPTS * 500UL * WIFI_RETRY_SCALE;
             assocLogged = false;
             continue;
           }
@@ -527,7 +532,8 @@ bool MyNetwork::wifiBegin(bool silent) {
       }
       WiFi.begin(config.ssids[ls].ssid, config.ssids[ls].password);
       // Same ceiling, same poll and the same reason as the scanned loop above: 8 s at 100 ms, and it has to cover the
-      //   lease as well as the association because WL_CONNECTED is GOT_IP.
+      //   lease as well as the association because WL_CONNECTED is GOT_IP.  Same widened second window too.
+      uint32_t candidateWindowMs = (uint32_t)WIFI_ATTEMPTS * 500UL;
       uint32_t tCandidate = millis();
       bool assocLogged = false, retried = false;
       while (WiFi.status() != WL_CONNECTED) {
@@ -545,18 +551,19 @@ bool MyNetwork::wifiBegin(bool silent) {
         delay(WIFI_CONNECT_POLL_MS);
         network.loopImprov();
         if (LED_PIN!=255 && !silent) digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-        if (millis() - tCandidate > (uint32_t)WIFI_ATTEMPTS * 500UL) {
+        if (millis() - tCandidate > candidateWindowMs) {
           if (!retried) {
-            // One fresh association of the same candidate before it is called failed; with a single saved SSID the
-            //   rotation below wraps straight back to this one and returns false, so without this a lone network gets
-            //   exactly one 8 s attempt and then the SoftAP.
+            // Second/last attempt at this candidate, with the same network restart and widened window
             retried = true;
-            WiFi.disconnect(false, false);  // keep the station config, leave the radio up
-            for (uint32_t tDisc = millis(); WiFi.RSSI() != 0 && millis() - tDisc < WIFI_SETTLE_MS; ) delay(WIFI_CONNECT_POLL_MS);
-            if (!silent) BOOTLOG("No address after %lums - re-associating with %s once",
-                                 (unsigned long)(millis() - tCandidate), config.ssids[ls].ssid);
-            WiFi.begin(config.ssids[ls].ssid, config.ssids[ls].password);
+            if (!silent) {
+              SERIALLOG("");
+              BOOTLOG("No address after %lums - restarting the network and trying %s once more",
+                      (unsigned long)(millis() - tCandidate), config.ssids[ls].ssid);
+              BOOTLOGX("\t");
+            }
+            wifiRestartForRetry(config.ssids[ls].ssid, config.ssids[ls].password);
             tCandidate = millis();
+            candidateWindowMs = (uint32_t)WIFI_ATTEMPTS * 500UL * WIFI_RETRY_SCALE;
             assocLogged = false;
             continue;
           }
@@ -811,8 +818,10 @@ void MyNetwork::raiseSoftAP() {
   BOOTLOG("************************************************");
   
   status = SOFT_AP;
-  if (config.store.softapdelay>0)
-    rtimer.once(config.store.softapdelay*60, rebootTime);
+  // Disabled by value: SOFTAP_REBOOT_DELAY is 0 in options.h, so this never runs.  Set it in myoptions.h (1-20 minutes)
+  //   to bring the AP-mode reboot back - the WebUI field, the stored key and the softap command are gone.
+  if (SOFTAP_REBOOT_DELAY > 0)
+    rtimer.once((uint32_t)SOFTAP_REBOOT_DELAY * 60, rebootTime);
 }
 
 void MyNetwork::requestWeatherSync() {

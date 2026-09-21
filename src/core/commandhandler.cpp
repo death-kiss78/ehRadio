@@ -234,7 +234,6 @@ bool CommandHandler::exec(const char *command, const char *value, uint8_t cid, C
   if (cmdIs(command, "autoupdate"))  { config.saveValue(&config.store.autoupdate, static_cast<bool>(atoi(value))); return true; }
   if (cmdIs(command, "ehdp"))        { config.saveValue(&config.store.ehdp, static_cast<bool>(atoi(value))); return true; }
   if (cmdIs(command, "ehdpname"))    { config.saveValue(config.store.ehdpname, value); network.ehDPinit(); return true; }
-  if (cmdIs(command, "softap"))      { config.saveValue(&config.store.softapdelay, static_cast<uint8_t>(atoi(value))); return true; }
   if (cmdIs(command, "mdnsname"))    { config.saveValue(config.store.mdnsname, value); netserver.restartMdns(); return true; }
 
   /* Options: MQTT */

@@ -92,7 +92,6 @@
   "lbl_select_tz": "Odaberite vremensku zonu",
   "lbl_show_weather": "Prikaži vremensku prognozu",
   "lbl_smart_start": "Pametni početak",
-  "lbl_softap_delay": "Međuvremenski interval mekog ponovnog pokretanja AP-a (min)",
   "lbl_sort": "Sortiraj",
   "lbl_spiffs": "SPIFFS",
   "lbl_ssid": "SSID",

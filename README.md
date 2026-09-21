@@ -132,6 +132,25 @@ When in doubt or having issues, check the serial output.  Serial output logs sho
 Add `#define ALL_DEBUG_LOGS` to your `myoptions.h` to view extended diagnostic information.
 Connecting to the radio via telnet will also show serial logs.
 
+### System Options
+
+#### Scan for Best Wi-Fi on Boot
+
+Normally, the device will do a fast and blind connect to the local wireless network.
+For networks with only one access point, this is correct but unfortunately on mesh networks, may result in
+your radio connecting to a distant, sub-optimal access point.
+
+Checking this will ensure it connects to the AP that has the strongest signal.
+
+#### eh Discovery Protocol
+
+Although the radio can also advertise itself on the network using mDNS, ehDP ensures an easy way to connect to the radio's WebUI using an app.
+In simple terms, the app will send out a request over the network which devices with a WebUI can respond to.
+
+For devices without a display, this would make connecting to the WebUI extremely simple.
+
+Read more about how it works and get the app[here](https://trip5.github.io/eh-Device-Scanner/).
+
 ---
 
 ## Boot Modes & Icons 

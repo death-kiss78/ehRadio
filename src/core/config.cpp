@@ -471,7 +471,6 @@ void Config::defaultSettings(const char *val, uint8_t clientId) {
     saveValue(&store.autoupdate, false);
     saveValue(&store.ehdp, (bool)EHDP);
     saveValue(store.ehdpname, "");
-    saveValue(&store.softapdelay, (uint8_t)SOFTAP_REBOOT_DELAY);
     char tmp[MDNS_LENGTH]; snprintf(tmp, MDNS_LENGTH, "ehradio-%x", getChipId()); saveValue(store.mdnsname, tmp);
     display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER);
     netserver.requestOnChange(GETSYSTEM, clientId);
@@ -886,7 +885,6 @@ void Config::bootInfo() {
   #else
     SERIALLOG(" (no password)");
   #endif
-  BOOTLOG("Soft AP Delay:\t%d", store.softapdelay);
   #ifdef ALL_DEBUG_LOGS
     BOOTLOG("ALL_DEBUG_LOGS:\tenabled");
   #else
@@ -991,7 +989,6 @@ const configKeyMap Config::keyMap[] = {
   CONFIG_KEY_ENTRY(autoupdate, "autoupdate"),
   CONFIG_KEY_ENTRY(ehdp, "ehdp"),
   CONFIG_KEY_ENTRY(ehdpname, "ehdpname"),
-  CONFIG_KEY_ENTRY(softapdelay, "softapdelay"),
   CONFIG_KEY_ENTRY(mdnsname, "mdnsname"),
   // MQTT
   CONFIG_KEY_ENTRY(mqttenable, "mqttenable"),
@@ -1014,6 +1011,7 @@ void Config::deleteOldKeys() {
   prefs.remove("skipplupdn"); // replaced by oneclickswitch
   prefs.remove("showwthr"); // replaced by showweather
   prefs.remove("ircodes"); // replaced by the named per-button keys in the "ehradioir" namespace
+  prefs.remove("softapdelay"); // SoftAP reboot delay removed: options.h SOFTAP_REBOOT_DELAY is the only control now
   // none yet
 }
 

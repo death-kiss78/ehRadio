@@ -646,12 +646,11 @@ void NetServer::processQueue() {
                                   config.store.weatherkey,
                                   config.store.weathersyncinterval);
                                   break;
-      case GETSYSTEM:     snprintf(wsbuf, sizeof(wsbuf), "{\"wifiscan\":%d,\"ehdp\":%d,\"ehdpname\":\"%s\",\"mdns\":\"%s\",\"softr\":%d,\"autoupdate\":%d}",
+      case GETSYSTEM:     snprintf(wsbuf, sizeof(wsbuf), "{\"wifiscan\":%d,\"ehdp\":%d,\"ehdpname\":\"%s\",\"mdns\":\"%s\",\"autoupdate\":%d}",
                                   config.store.wifiscanbest,
                                   config.store.ehdp,
                                   config.store.ehdpname,
                                   config.store.mdnsname,
-                                  config.store.softapdelay,
                                   config.store.autoupdate);
                                   break;
       case GETMQTT:       snprintf(wsbuf, sizeof(wsbuf), "{\"mqttenable\":%d,\"mqtthost\":\"%s\",\"mqttport\":\"%d\",\"mqttuser\":\"%s\",\"mqttpass\":\"%s\",\"mqtttopic\":\"%s\"}",
