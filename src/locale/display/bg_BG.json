@@ -58,7 +58,7 @@
   "msg_upd_firmware": "Актуализиране на фърмуера",
   "msg_upd_files": "Актуализиране на файлове",
   "msg_upd_failed": "Актуализиране неуспешно",
-  "msg_formatting": "Форматиране на SPIFFS",
+  "msg_formatting": "Форматиране на LittleFS",
   "msg_offline_15char": "Офлайн",
   "msg_no_sd_card": "Няма SD карта",
   "lbl_w_feelslike": "усеща се:",

@@ -39,7 +39,7 @@ Order and sections match that file.
 | --- | --- |
 | `getindex` | Request index payload to clients. Blocked in HTTP/MQTT/Telnet. |
 | `getactive` | Request active-state payload to clients. Blocked in HTTP/MQTT/Telnet. |
-| `clearspiffs` | Run allowlist-based SPIFFS cleanup and force play mode to web. |
+| `clearfs` | Run allowlist-based LittleFS cleanup and force play mode to web. |
 
 ## Options: Load Settings
 
@@ -157,7 +157,7 @@ Only available when built with MQTT_ENABLE.
 | Command(s) | Action |
 | --- | --- |
 | `reboot`, `boot` | Reboot device immediately. |
-| `format` | Stop playback, format SPIFFS, reboot device. |
+| `format` | Stop playback, format LittleFS, reboot device. |
 | `reset` | Apply default settings reset flow by requested section/value. |
 
 ## IR Recorder

@@ -58,7 +58,7 @@
   "msg_upd_firmware": "Atnaujinama programinė įranga",
   "msg_upd_files": "Atnaujinami failai",
   "msg_upd_failed": "Atnaujinimas nepavyko",
-  "msg_formatting": "SPIFFS formatavimas",
+  "msg_formatting": "LittleFS formatavimas",
   "msg_offline_15char": "Neprisijungęs",
   "msg_no_sd_card": "Nėra SD kortelės",
   "lbl_w_feelslike": "jaučiasi:",

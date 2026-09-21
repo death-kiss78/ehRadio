@@ -105,30 +105,39 @@ void Startup::deassertCsPins() {
   #endif
 }
 
-void Startup::checkSpiffsandVer() {
-  SPIFFSTIMELOGRESET();
-  esp_log_level_set("SPIFFS", ESP_LOG_NONE); // Suppress ESP-IDF "SPIFFS: mount failed, -10025" on first boot.
-  bool spiffsReady = SPIFFS.begin(false); // Try mounting without formatting first; if that fails, format explicitly.
-  if (!spiffsReady) {
-    BOOTLOG("SPIFFS not formatted, formatting now (please be patient)...");
+void Startup::checkLittleFSandVer() {
+  LITTLEFSTIMELOGRESET();
+  // The esp_littlefs log tag is lowercase "littlefs", not the Arduino class name.
+  esp_log_level_set("littlefs", ESP_LOG_NONE); // Suppress ESP-IDF "littlefs: mount failed, -10025" on first boot.
+  // The partition label is passed explicitly: LittleFS.begin() still defaults to "spiffs".
+  bool fsReady = LittleFS.begin(false, FS_MOUNT_POINT, FS_MAX_OPEN_FILES, FS_PARTITION_LABEL); // Try mounting without formatting first; if that fails, format explicitly.
+  if (!fsReady) {
+    BOOTLOG("LittleFS not formatted, formatting now (please be patient)...");
     /* Say so on the panel before the format starts. display.init() has already run in setup() and the boot screen
        is up, so the request is handled by the display task while this one blocks on flash erases. putRequest()
        only queues, hence the pause: without it the format can start first and the message is never seen. */
     display.putRequest(FORMATTING, 0);
     delay(50);
-    spiffsReady = SPIFFS.begin(true);
+    fsReady = LittleFS.begin(true, FS_MOUNT_POINT, FS_MAX_OPEN_FILES, FS_PARTITION_LABEL);
   }
-  esp_log_level_set("SPIFFS", ESP_LOG_ERROR); // allow SPIFFS logging again
-  if (!spiffsReady) {
-    ERRORLOG("SPIFFS Mount Failed");
+  esp_log_level_set("littlefs", ESP_LOG_ERROR); // allow littlefs logging again
+  if (!fsReady) {
+    ERRORLOG("LittleFS Mount Failed");
     return;
   }
-  BOOTLOG("SPIFFS mounted");
-  SPIFFSTIMELOG("SPIFFS mount & Health setup");
+  BOOTLOG("LittleFS mounted");
 
-  // Health check: verify SPIFFS is readable AND writable (can be corrupted after crash).
-  // Retry up to 3 times with remount; reboot if still broken.
-  {
+  LittleFS.mkdir("/www");
+  LittleFS.mkdir("/data");
+
+  LITTLEFSTIMELOG("LittleFS mount & Health setup");
+
+  // Health check: verify LittleFS is readable AND writable (it can be corrupted by an unclean
+  // shutdown). Retry up to 3 times with remount; reboot if still broken.
+  const bool prevBootClean = config.store.bootStableMarker;
+  if (prevBootClean) {
+    BOOTLOG("LittleFS health check skipped (previous boot was clean)");
+  } else {
     bool healthy = false;
     for (int attempt = 1; attempt <= 3; attempt++) {
       // Phase 1: readability — read the last www file (player.html or .gz variant).
@@ -144,11 +153,11 @@ void Startup::checkSpiffsandVer() {
 
         bool probeGz = false;
         const char* probePath = nullptr;
-        if (SPIFFS.exists(gzPath)) { probePath = gzPath; probeGz = true; }
-        else if (SPIFFS.exists(lastPath)) { probePath = lastPath; }
+        if (LittleFS.exists(gzPath)) { probePath = gzPath; probeGz = true; }
+        else if (LittleFS.exists(lastPath)) { probePath = lastPath; }
 
         if (probePath) {
-          File f = SPIFFS.open(probePath, "r");
+          File f = LittleFS.open(probePath, "r");
           if (f) {
             if (probeGz) {
               int b0 = f.read(), b1 = f.read();
@@ -163,57 +172,57 @@ void Startup::checkSpiffsandVer() {
       }
       if (readable) {
         healthy = true;
-        BOOTLOG("SPIFFS read health check passed");
+        BOOTLOG("LittleFS read health check passed");
         break;
       }
 
       // Phase 2: write + read-back test (deeper — catches write/read failures)
       bool writeOk = false;
-      File test = SPIFFS.open("/.ehradio_test", "w");
+      File test = LittleFS.open("/.ehradio_test", "w");
       if (test) {
         test.print('!');
         test.close();
-        File rt = SPIFFS.open("/.ehradio_test", "r");
+        File rt = LittleFS.open("/.ehradio_test", "r");
         if (rt) {
           writeOk = (rt.read() == '!');
           rt.close();
         }
-        SPIFFS.remove("/.ehradio_test");
+        LittleFS.remove("/.ehradio_test");
       }
       if (writeOk) {
         healthy = true;
-        BOOTLOG("SPIFFS write-read health check passed");
+        BOOTLOG("LittleFS write-read health check passed");
         break;
       }
-      BOOTLOG("SPIFFS health check failed (attempt %d/3), remounting...", attempt);
-      SPIFFS.end();
+      BOOTLOG("LittleFS health check failed (attempt %d/3), remounting...", attempt);
+      LittleFS.end();
       delay(100);
-      SPIFFS.begin(false);
+      LittleFS.begin(false, FS_MOUNT_POINT, FS_MAX_OPEN_FILES, FS_PARTITION_LABEL);
     }
     if (!healthy) {
-      ERRORLOG("SPIFFS health check failed after 3 attempts - rebooting...");
+      ERRORLOG("LittleFS health check failed after 3 attempts - rebooting...");
       delay(500);  // flush serial before reboot
       ESP.restart();
     }
   }
-  SPIFFSTIMELOG("Health check");
+  LITTLEFSTIMELOG("Health check");
 
   String storedVersion = "";
-  if (SPIFFS.exists(VERSION_PATH)) {
-    File verFile = SPIFFS.open(VERSION_PATH, "r");
+  if (LittleFS.exists(VERSION_PATH)) {
+    File verFile = LittleFS.open(VERSION_PATH, "r");
     if (verFile) {
       storedVersion = verFile.readStringUntil('\n');
       storedVersion.trim();
       verFile.close();
     }
   }
-  SPIFFSTIMELOG("Version file read");
+  LITTLEFSTIMELOG("Version file read");
 
   if (storedVersion == String(RADIOVERSION)) {
-    config.wwwFilesExist = utility.verifySpiffs();
-  } else if (!SPIFFS.exists(VERSION_PATH)) {
+    config.wwwFilesExist = utility.verifyLittleFS();
+  } else if (!LittleFS.exists(VERSION_PATH)) {
     BOOTLOG("New install detected.");
-    config.wwwFilesExist = utility.verifySpiffs();
+    config.wwwFilesExist = utility.verifyLittleFS();
     // New install — prevent false Safe Mode on first boot
     { Preferences prefs; prefs.begin("ehradio", false);
     prefs.putBool("bootstablemark", true);
@@ -222,11 +231,11 @@ void Startup::checkSpiffsandVer() {
     BOOTLOG("Version mismatch detected (stored: %s, current: %s)", storedVersion.c_str(), RADIOVERSION);
     config.wwwFilesExist = false;
   }
-  SPIFFSTIMELOG("wwwFilesExist branch (verifySpiffs)");
+  LITTLEFSTIMELOG("wwwFilesExist branch (verifyLittleFS)");
 
-  if (!config.wwwFilesExist || !SPIFFS.exists(VERSION_PATH)) {
-    utility.pruneSpiffs();
-    File verFile = SPIFFS.open(VERSION_PATH, "w");
+  if (!config.wwwFilesExist || !LittleFS.exists(VERSION_PATH)) {
+    utility.pruneLittleFS();
+    File verFile = LittleFS.open(VERSION_PATH, "w");
     if (verFile) {
       verFile.println(RADIOVERSION);
       verFile.close();
@@ -237,16 +246,16 @@ void Startup::checkSpiffsandVer() {
   if (!config.wwwFilesExist) {
     utility.deleteMainwwwFile();
     #ifndef UPDATEURL
-      BOOTLOG("SPIFFS is missing files!");
+      BOOTLOG("LittleFS is missing files!");
     #else
-      BOOTLOG("SPIFFS is missing files.  Will attempt to get files from online...");
+      BOOTLOG("LittleFS is missing files.  Will attempt to get files from online...");
     #endif
   }
-  SPIFFSTIMELOG("Cleanup and write branches");
+  LITTLEFSTIMELOG("Cleanup and write branches");
 }
 
 void Startup::initNetwork() {
-  File file = SPIFFS.open(SSIDS_PATH, "r");
+  File file = LittleFS.open(SSIDS_PATH, "r");
   if (!file || file.isDirectory()) {
     return;
   }
@@ -270,9 +279,9 @@ void Startup::initNetwork() {
 
 void Startup::getDefaultPlaylist() {
   #ifdef PLAYLIST_DEFAULT_URL
-    if (!SPIFFS.exists("/data/playlist.csv")) {
+    if (!LittleFS.exists("/data/playlist.csv")) {
       BOOTLOG("Fetching default playlist");
-      ESPFileUpdater updater(SPIFFS);
+      ESPFileUpdater updater(LittleFS);
       updater.setMaxSize(1024);
       updater.setUserAgent(ESPFILEUPDATER_USERAGENT);
       ESPFileUpdater::UpdateStatus result = updater.checkAndUpdate("/data/playlist.csv", PLAYLIST_DEFAULT_URL, "", ESPFILEUPDATER_VERBOSE);
@@ -282,8 +291,8 @@ void Startup::getDefaultPlaylist() {
 
 void Startup::cleanStaleSearchResults() {
   const char* metaPath = "/www/searchresults.json.meta";
-  if (SPIFFS.exists(metaPath)) {
-    File metaFile = SPIFFS.open(metaPath, "r");
+  if (LittleFS.exists(metaPath)) {
+    File metaFile = LittleFS.open(metaPath, "r");
     metaFile.readStringUntil('\n');
     String timeStr = metaFile.readStringUntil('\n');
     metaFile.close();
@@ -292,9 +301,9 @@ void Startup::cleanStaleSearchResults() {
       time_t now = time(nullptr);
       if (now < 100000000 || (now - fileTime) > 86400) {
         SERIALLOG("Cleaning stale search results.");
-        SPIFFS.remove(metaPath);
-        SPIFFS.remove("/www/searchresults.json");
-        SPIFFS.remove("/www/search.txt");
+        LittleFS.remove(metaPath);
+        LittleFS.remove("/www/searchresults.json");
+        LittleFS.remove("/www/search.txt");
       }
     }
   }
@@ -303,7 +312,7 @@ void Startup::cleanStaleSearchResults() {
 void Startup::getRequiredFiles() {
   #ifdef UPDATEURL
     player.sendCommand({PR_STOP, 0});
-    ESPFileUpdater* updater = new ESPFileUpdater(SPIFFS);
+    ESPFileUpdater* updater = new ESPFileUpdater(LittleFS);
     updater->setMaxSize(1024);
     updater->setUserAgent(ESPFILEUPDATER_USERAGENT);
     char localFileGz[64];
@@ -316,8 +325,8 @@ void Startup::getRequiredFiles() {
       const char* fileName = Config::wwwFiles[i];
       snprintf(localFileGz, sizeof(localFileGz), "/www/%s.gz", fileName);
       snprintf(localFile, sizeof(localFile), "/www/%s", fileName);
-      if (SPIFFS.exists(localFileGz)) SPIFFS.remove(localFileGz);
-      if (SPIFFS.exists(localFile)) SPIFFS.remove(localFile);
+      if (LittleFS.exists(localFileGz)) LittleFS.remove(localFileGz);
+      if (LittleFS.exists(localFile)) LittleFS.remove(localFile);
       bool success = false;
       for (size_t j = 0; j < 2; j++) {
         if (j == 0) {
@@ -354,7 +363,7 @@ void Startup::getRequiredFiles() {
       }
     }
     delete updater;
-    utility.pruneSpiffs();
+    utility.pruneLittleFS();
     FUNCTIONLOG("REBOOT", "Required Files done. Reboot.");
     config.saveValue(&config.store.bootStableMarker, true);
     delay(250);
@@ -366,8 +375,8 @@ void Startup::checkNewVersionFile() {
   #ifdef UPDATEURL
     const char* newVERSION_PATH = "/data/new_ver.txt";
     netserver.newVersion = String(RADIOVERSION);
-    if (SPIFFS.exists(newVERSION_PATH)) {
-      File newVerFile = SPIFFS.open(newVERSION_PATH, "r");
+    if (LittleFS.exists(newVERSION_PATH)) {
+      File newVerFile = LittleFS.open(newVERSION_PATH, "r");
       if (newVerFile) {
         String line = newVerFile.readStringUntil('\n');
         line.trim();
@@ -453,7 +462,7 @@ void Startup::startupServices() {
       return;
     }
 
-    ESPFileUpdater* updater = new ESPFileUpdater(SPIFFS);
+    ESPFileUpdater* updater = new ESPFileUpdater(LittleFS);
     updater->setMaxSize(1024);
     updater->setUserAgent(ESPFILEUPDATER_USERAGENT);
     _services = SVC_WILL_RUN;

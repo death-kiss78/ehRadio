@@ -16,11 +16,11 @@ struct CachedFile {
     const char* contentType; /* MIME type string */
 };
 
-/* PSRAM-backed static file cache — loads all WebUI files from SPIFFS once at boot */
+/* PSRAM-backed static file cache — loads all WebUI files from LittleFS once at boot */
 class StaticFileCache {
 public:
     StaticFileCache() : count(0) { memset(entries, 0, sizeof(entries)); }
-    void loadAll();                 /* Read all wwwFiles[] from SPIFFS into PSRAM */
+    void loadAll();                 /* Read all wwwFiles[] from LittleFS into PSRAM */
     const CachedFile* find(const char* urlPath) const;  /* Lookup by URL path */
     bool invalidate(const char* urlPath);                /* Reload single file after update */
     void freeAll();                 /* Free all PSRAM allocations */

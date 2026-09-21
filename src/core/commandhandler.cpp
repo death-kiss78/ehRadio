@@ -115,7 +115,7 @@ bool CommandHandler::exec(const char *command, const char *value, uint8_t cid, C
   /* Hidden Websockets */
   if (cmdIs(command, "getindex"))    { netserver.requestOnChange(GETINDEX, cid); return true; }
   if (cmdIs(command, "getactive"))   { netserver.requestOnChange(GETACTIVE, cid); return true; }
-  if (cmdIs(command, "clearspiffs")) { utility.pruneSpiffs(); config.saveValue(&config.store.play_mode, static_cast<uint8_t>(PM_WEB)); return true; }
+  if (cmdIs(command, "clearfs")) { utility.pruneLittleFS(); config.saveValue(&config.store.play_mode, static_cast<uint8_t>(PM_WEB)); return true; }
 
   /* Options: Load Settings */
   if (cmdIs(command, "getcontrols")) { netserver.requestOnChange(GETCONTROLS, cid); return true; }
@@ -252,7 +252,7 @@ bool CommandHandler::exec(const char *command, const char *value, uint8_t cid, C
 
   /* Options: Danger Zone */
   if (cmdIs(command, "reboot", "boot"))  { FUNCTIONLOG("REBOOT", "Reboot triggered by command."); delay(10); ESP.restart(); return true; }
-  if (cmdIs(command, "format"))  { player.sendCommand({PR_STOP, 0}); FUNCTIONLOG("FORMAT", "Formatting SPIFFS."); delay(10); SPIFFS.format(); FUNCTIONLOG("REBOOT", "Rebooting."); delay(10); ESP.restart(); return true; }
+  if (cmdIs(command, "format"))  { player.sendCommand({PR_STOP, 0}); FUNCTIONLOG("FORMAT", "Formatting LittleFS."); delay(10); LittleFS.format(); FUNCTIONLOG("REBOOT", "Rebooting."); delay(10); ESP.restart(); return true; }
   if (cmdIs(command, "reset"))   { FUNCTIONLOG("RESET", "Reset all settings requested."); config.defaultSettings(value, cid); return true; } // also used by Section resets
 
   /* IR Recorder */
@@ -299,10 +299,10 @@ bool CommandHandler::exec(const char *command, const char *value, uint8_t cid, C
     // This prepares the file for review but doesn't save permanently yet
     bool isReplace = (strcmp(value, "replace") == 0);
     // Copy pl_import.json to tmp_pl for editing
-    if (SPIFFS.exists("/www/pl_import.json")) {
-      SPIFFS.remove(TMP_PATH);
-      File src = SPIFFS.open("/www/pl_import.json", "r");
-      File dst = SPIFFS.open(TMP_PATH, "w");
+    if (LittleFS.exists("/www/pl_import.json")) {
+      LittleFS.remove(TMP_PATH);
+      File src = LittleFS.open("/www/pl_import.json", "r");
+      File dst = LittleFS.open(TMP_PATH, "w");
       if (src && dst) {
         uint8_t buffer[512];
         while (src.available()) {

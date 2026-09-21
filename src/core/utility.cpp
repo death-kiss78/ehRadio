@@ -231,7 +231,7 @@ bool Utility::addSsid(const char* ssid, const char* password) {
   strlcpy(config.ssids[slot].password, password, sizeof(config.ssids[0].password));
   config.setLastSSID(slot + 1);
 
-  File file = SPIFFS.open(TMP_PATH, "w");
+  File file = LittleFS.open(TMP_PATH, "w");
   if (!file) return false;
   for (int i = 0; i < config.ssidsCount; i++) {
     if (strlen(config.ssids[i].ssid) > 0) {
@@ -244,17 +244,17 @@ bool Utility::addSsid(const char* ssid, const char* password) {
   }
   file.close();
 
-  if (SPIFFS.exists(TMP_PATH)) {
-    SPIFFS.remove(SSIDS_PATH);
-    return SPIFFS.rename(TMP_PATH, SSIDS_PATH);
+  if (LittleFS.exists(TMP_PATH)) {
+    LittleFS.remove(SSIDS_PATH);
+    return LittleFS.rename(TMP_PATH, SSIDS_PATH);
   }
   return false;
 }
 
 bool Utility::importWifi() {
-  if (!SPIFFS.exists(TMP_PATH)) return false;
-  SPIFFS.remove(SSIDS_PATH);
-  SPIFFS.rename(TMP_PATH, SSIDS_PATH);
+  if (!LittleFS.exists(TMP_PATH)) return false;
+  LittleFS.remove(SSIDS_PATH);
+  LittleFS.rename(TMP_PATH, SSIDS_PATH);
   FUNCTIONLOG("REBOOT", "Reboot trigger by Import Wifi.");
   config.saveValue(&config.store.bootStableMarker, true);
   delay(250);
@@ -263,7 +263,7 @@ bool Utility::importWifi() {
 }
 
 void Utility::indexPlaylist() {
-  File playlist = SPIFFS.open(PLAYLIST_PATH, "r");
+  File playlist = LittleFS.open(PLAYLIST_PATH, "r");
   if (!playlist) {
     FUNCTIONLOG("Playlist", "indexPlaylist: playlist.csv not found, cannot build index");
     return;
@@ -272,7 +272,7 @@ void Utility::indexPlaylist() {
   char stationName[STATION_FIELD_LENGTH] = {0};
   char stationUrl[STATION_FIELD_LENGTH] = {0};
   int stationOvol = 0;
-  File index = SPIFFS.open(INDEX_PATH, "w");
+  File index = LittleFS.open(INDEX_PATH, "w");
   while (playlist.available()) {
     uint32_t pos = playlist.position();
     if (parseCSV(playlist.readStringUntil('\n').c_str(), stationName, stationUrl, stationOvol)) {
@@ -282,8 +282,8 @@ void Utility::indexPlaylist() {
   index.close();
   playlist.close();
   size_t idxSize = 0;
-  if (SPIFFS.exists(INDEX_PATH)) {
-    File idxRead = SPIFFS.open(INDEX_PATH, "r");
+  if (LittleFS.exists(INDEX_PATH)) {
+    File idxRead = LittleFS.open(INDEX_PATH, "r");
     if (idxRead) {
       idxSize = idxRead.size();
       idxRead.close();
@@ -293,7 +293,7 @@ void Utility::indexPlaylist() {
 }
 
 void Utility::initPlaylist() {
-  if (!SPIFFS.exists(INDEX_PATH)) {
+  if (!LittleFS.exists(INDEX_PATH)) {
     FUNCTIONLOG("Playlist", "initPlaylist: index missing, running clean and index");
     bool cleaned = cleanPlaylist();
     if (!cleaned) indexPlaylist();
@@ -304,7 +304,7 @@ void Utility::initPlaylist() {
 
 bool Utility::cleanPlaylist() {
   // Phase 1: Scan for blank lines, bare LF, or invalid CSV format
-  File playlist = SPIFFS.open(PLAYLIST_PATH, "r");
+  File playlist = LittleFS.open(PLAYLIST_PATH, "r");
   if (!playlist) {
     FUNCTIONLOG("Playlist", "cleanPlaylist: playlist.csv not found, nothing to clean");
     return false;
@@ -345,8 +345,8 @@ bool Utility::cleanPlaylist() {
 
   // Phase 2: Rewrite clean version with CRLF line endings
   FUNCTIONLOG("Playlist", "cleanPlaylist: issues found, rewriting...");
-  playlist = SPIFFS.open(PLAYLIST_PATH, "r");
-  File tmpFile = SPIFFS.open(TMP_PATH, "w");
+  playlist = LittleFS.open(PLAYLIST_PATH, "r");
+  File tmpFile = LittleFS.open(TMP_PATH, "w");
   if (!playlist || !tmpFile) {
     FUNCTIONLOG("Playlist", "cleanPlaylist: failed to open file for rewrite (playlist=%d tmp=%d)", playlist ? 1 : 0, tmpFile ? 1 : 0);
     if (playlist) playlist.close();
@@ -379,15 +379,15 @@ bool Utility::cleanPlaylist() {
   tmpFile.close();
 
   // Replace original with cleaned version
-  SPIFFS.remove(PLAYLIST_PATH);
-  if (!SPIFFS.rename(TMP_PATH, PLAYLIST_PATH)) {
+  LittleFS.remove(PLAYLIST_PATH);
+  if (!LittleFS.rename(TMP_PATH, PLAYLIST_PATH)) {
     FUNCTIONLOG("Playlist", "cleanPlaylist: failed to rename cleaned playlist");
-    SPIFFS.remove(TMP_PATH);
+    LittleFS.remove(TMP_PATH);
     return false;
   }
 
   // Rebuild index from clean file
-  SPIFFS.remove(INDEX_PATH);
+  LittleFS.remove(INDEX_PATH);
   indexPlaylist();
 
   FUNCTIONLOG("Playlist", "cleanPlaylist: rewrite complete, index rebuilt");
@@ -559,7 +559,7 @@ void Utility::togglestandby() {
   else standbyon();
 }
 
-bool Utility::verifySpiffs() {
+bool Utility::verifyLittleFS() {
   const size_t n = Config::wwwFilesCount;
   if (n == 0 || n > 64) return false;  // nothing to verify, or wider than the bitmask below
 
@@ -567,21 +567,23 @@ bool Utility::verifySpiffs() {
     const uint32_t t0 = millis();  // measured for the summary line below, and only printed with BOOTLOG_TIME
   #endif
   uint64_t plainSeen = 0, gzSeen = 0;
-  File root = SPIFFS.open("/");
+  // Listing "/" is not enough: LittleFS is a real filesystem, so the root listing yields only
+  // the www and data directory entries. This check only cares about the www files, so /www is
+  // opened directly. The basename is compared rather than the whole path, so this stays correct
+  // whether or not the core returns a full path from File::path().
+  File root = LittleFS.open("/www");
   if (root && root.isDirectory()) {
     File f = root.openNextFile();
     while (f) {
       if (!f.isDirectory()) {
-        String path = f.path();
-        if (path.startsWith("/www/")) {
-          path.remove(0, 5);
-          const bool gz = path.endsWith(".gz");
-          if (gz) path.remove(path.length() - 3);
-          for (size_t i = 0; i < n; i++) {
-            if (path == Config::wwwFiles[i]) {
-              if (gz) gzSeen |= (1ULL << i); else plainSeen |= (1ULL << i);
-              break;
-            }
+        const String path = f.path();
+        String name = path.substring(path.lastIndexOf('/') + 1);
+        const bool gz = name.endsWith(".gz");
+        if (gz) name.remove(name.length() - 3);
+        for (size_t i = 0; i < n; i++) {
+          if (name == Config::wwwFiles[i]) {
+            if (gz) gzSeen |= (1ULL << i); else plainSeen |= (1ULL << i);
+            break;
           }
         }
       }
@@ -596,7 +598,7 @@ bool Utility::verifySpiffs() {
     if (bothSeen & (1ULL << i)) {
       char fullPath[64];
       snprintf(fullPath, sizeof(fullPath), "/www/%s", Config::wwwFiles[i]);
-      SPIFFS.remove(fullPath);
+      LittleFS.remove(fullPath);
       FUNCTIONLOG("Cleanup", "Removed duplicate (compressed version exists): %s", fullPath);
     }
   }
@@ -617,7 +619,7 @@ bool Utility::verifySpiffs() {
   #ifdef BOOTLOG_TIME
     snprintf(tookStr, sizeof(tookStr), ", %lums", (unsigned long)(millis() - t0));
   #endif
-  FUNCTIONLOG("Cleanup", "verifySpiffs: %u/%u present (%u plain, %u gz)%s%s",
+  FUNCTIONLOG("Cleanup", "verifyLittleFS: %u/%u present (%u plain, %u gz)%s%s",
               (unsigned)present, (unsigned)n, (unsigned)asPlain, (unsigned)asGz,
               tookStr, ok ? "" : ", MISSING FILES");
   if (!ok) {
@@ -628,65 +630,75 @@ bool Utility::verifySpiffs() {
   return ok;
 }
 
-void Utility::pruneSpiffs() {
-  FUNCTIONLOG("Cleanup", "Scanning SPIFFS for unwanted files...");
-  File root = SPIFFS.open("/");
-  if (!root || !root.isDirectory()) return;
+void Utility::pruneLittleFS() {
+  FUNCTIONLOG("Cleanup", "Scanning LittleFS for unwanted files...");
 
-  File file = root.openNextFile();
-  while (file) {
-    if (file.isDirectory()) {
-      file = root.openNextFile();
-      continue;
-    }
+  // As with verifyLittleFS, the root listing only yields directory entries under LittleFS, so
+  // the two directories are walked explicitly. Directory entries themselves are never removed.
+  static const char* const dirs[] = {"/www", "/data"};
+  for (const char* dir : dirs) {
+    File root = LittleFS.open(dir);
+    if (!root || !root.isDirectory()) continue;
 
-    String path = file.path();
-    bool keep = false;
-    if (path.startsWith("/www/")) {
-      String name = path.substring(5);
-      char currentLocaleGz[64] = {0};
-      char currentLocale[64] = {0};
-      #ifdef UPDATEURL
-        snprintf(currentLocaleGz, sizeof(currentLocaleGz), "%s.json.gz", config.store.locale_webui);
-        snprintf(currentLocale, sizeof(currentLocale), "%s.json", config.store.locale_webui);
-      #else
-        snprintf(currentLocaleGz, sizeof(currentLocaleGz), "%s.json.gz", WEBUI_LOCALE);
-        snprintf(currentLocale, sizeof(currentLocale), "%s.json", WEBUI_LOCALE);
-      #endif
-      if (name == currentLocaleGz || name == currentLocale) {
-        keep = true;
+    const bool isWww = (strcmp(dir, "/www") == 0);
+    File file = root.openNextFile();
+    while (file) {
+      if (file.isDirectory()) {
+        file = root.openNextFile();
+        continue;
+      }
+
+      const String path = file.path();
+      const String name = path.substring(path.lastIndexOf('/') + 1);
+      bool keep = false;
+
+      if (isWww) {
+        char currentLocaleGz[64] = {0};
+        char currentLocale[64] = {0};
+        #ifdef UPDATEURL
+          snprintf(currentLocaleGz, sizeof(currentLocaleGz), "%s.json.gz", config.store.locale_webui);
+          snprintf(currentLocale, sizeof(currentLocale), "%s.json", config.store.locale_webui);
+        #else
+          snprintf(currentLocaleGz, sizeof(currentLocaleGz), "%s.json.gz", WEBUI_LOCALE);
+          snprintf(currentLocale, sizeof(currentLocale), "%s.json", WEBUI_LOCALE);
+        #endif
+        if (name == currentLocaleGz || name == currentLocale) {
+          keep = true;
+        } else {
+          for (size_t i = 0; i < Config::wwwFilesCount; i++) {
+            if (name == String(Config::wwwFiles[i]) || name == String(Config::wwwFiles[i]) + ".gz") {
+              keep = true;
+              break;
+            }
+          }
+        }
+        if (keep && !name.endsWith(".gz")) {
+          const String gzPath = String(dir) + "/" + name + ".gz";
+          if (LittleFS.exists(gzPath)) {
+            LittleFS.remove(path);
+            FUNCTIONLOG("Cleanup", "Removed duplicate (compressed version exists): %s", path.c_str());
+            file = root.openNextFile();
+            continue;
+          }
+        }
       } else {
-        for (size_t i = 0; i < Config::wwwFilesCount; i++) {
-          if (name == String(Config::wwwFiles[i]) || name == String(Config::wwwFiles[i]) + ".gz") {
+        for (size_t i = 0; i < Config::dataFilesCount; i++) {
+          if (name == String(Config::dataFiles[i])) {
             keep = true;
             break;
           }
         }
       }
-      if (keep && !name.endsWith(".gz")) {
-        String gzPath = "/www/" + name + ".gz";
-        if (SPIFFS.exists(gzPath)) {
-          SPIFFS.remove(path);
-          FUNCTIONLOG("Cleanup", "Removed duplicate (compressed version exists): %s", path.c_str());
-          file = root.openNextFile();
-          continue;
-        }
+
+      if (!keep) {
+        LittleFS.remove(path);
+        FUNCTIONLOG("Cleanup", "Removed: %s", path.c_str());
       }
-    } else if (path.startsWith("/data/")) {
-      String name = path.substring(6);
-      for (size_t i = 0; i < Config::dataFilesCount; i++) {
-        if (name == String(Config::dataFiles[i])) {
-          keep = true;
-          break;
-        }
-      }
+      file = root.openNextFile();
     }
-    if (!keep) {
-      SPIFFS.remove(path);
-      FUNCTIONLOG("Cleanup", "Removed: %s", path.c_str());
-    }
-    file = root.openNextFile();
+    root.close();
   }
+
   FUNCTIONLOG("Cleanup", "All unnecessary files purged");
 }
 
@@ -697,8 +709,8 @@ void Utility::deleteMainwwwFile() {
   char mainFile[64] = {0};
   for (const char* suffix : {"", ".gz"}) {
     snprintf(mainFile, sizeof(mainFile), "/www/%s%s", lastFile, suffix);
-    if (SPIFFS.exists(mainFile)) {
-      SPIFFS.remove(mainFile);
+    if (LittleFS.exists(mainFile)) {
+      LittleFS.remove(mainFile);
       FUNCTIONLOG("Utility", "Deleted main www file: %s", mainFile);
     }
   }

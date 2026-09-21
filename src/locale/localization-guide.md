@@ -261,7 +261,7 @@ All WebUI locale data is compiled into `wwwlocale.h` as gzip-compressed PROGMEM 
 | `/wwwlocale.json` | Locale index (native names) | `application/json` |
 | `/dsplocale.json` | Display locale index | `application/json` |
 
-No SPIFFS files are needed — everything is zero-RAM PROGMEM.
+No LittleFS files are needed — everything is zero-RAM PROGMEM.
 
 ### JSON source files
 

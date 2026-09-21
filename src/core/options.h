@@ -893,11 +893,11 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 //   Display framebuffer (480×320): ~74 KB  (allocated first, display.init())
 //   VS1053 audio buffer:          ~293 KB  (300000 bytes, player.init())
 //   I2S audio buffer:             ~640 KB  (UINT16_MAX * 10, player.init())
-//   WebUI files cache:       up to 300 KB  (actually ~60KB if using .gz files, allocated last, netserver.begin(); dynamic, falls back to SPIFFS)
+//   WebUI files cache:       up to 300 KB  (actually ~60KB if using .gz files, allocated last, netserver.begin(); dynamic, falls back to LittleFS)
 // ---------------------------------------
 //   VS1053 total:                 ~667 KB  or ~427KB with .gz WebUI files
 //   I2S total:                   ~1014 KB  or ~774KB with .gz WebUI files
-// Note: WebUI cache is opportunistic so if PSRAM runs low, files stay in SPIFFS instead.
+// Note: WebUI cache is opportunistic so if PSRAM runs low, files stay in LittleFS instead.
 
 /* --- CPU CORES --- */
 /* ESP32 and ESP32-S3 have 2 cores (Main loop runs on Core 1). ESP32-C3 has 1 core (Main loop runs on Core 0) .*/
@@ -1119,7 +1119,7 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #endif
   // #define FIRMWARE_NAME "Trip5's Big Screen Radio" optional name of the firmware (appears only in eh Device Protocol and will appear as the filename (without .bin) by default if not defined)
   #ifndef FILESURL
-    #define FILESURL GITHUBURL "/releases/download/" RADIOVERSION "/" // + FILE for SPIFFS files (this version)
+    #define FILESURL GITHUBURL "/releases/download/" RADIOVERSION "/" // + FILE for LittleFS files (this version)
   #endif
   #ifndef UPDATEURL
     #define UPDATEURL GITHUBURL "/releases/latest/download/" // + FIRMWARE for the file
@@ -1205,7 +1205,7 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
  // This enables MQTT. A nice option to have but not available in the code without this #define in myoptions.h
 #endif
 #ifdef PLAYLIST_DEFAULT_URL
- // This will download a playlist when first-booting and no playlist is present on SPIFFS.  Can be CSV or JSON format.  Example:
+ // This will download a playlist when first-booting and no playlist is present on LittleFS.  Can be CSV or JSON format.  Example:
  // #define PLAYLIST_DEFAULT_URL "https://github.com/trip5/webstations/releases/latest/download/trip5-radio-playlist.csv"
 #endif
 #ifndef SCREENSAVERSTARTUPDELAY // initial delay
@@ -1260,7 +1260,7 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
    #define NETSERVER_DEBUG // This enables Netserver logging: GET client requests and sending files in chunks
   #endif
   #ifndef CORE_MONITOR
-    #define CORE_MONITOR // This shows the ESP32 CPU Core Monitor in serial and telnet (updated every 5s), includes SPIFFS information
+    #define CORE_MONITOR // This shows the ESP32 CPU Core Monitor in serial and telnet (updated every 5s), includes LittleFS information
   #endif
   #ifndef BOOTLOG_TIME
     #define BOOTLOG_TIME // Prefixes every BOOT log line with the time since boot, e.g. "[BOOT]          00600ms: ..." (the bootLogX progress lines the dots extend are left alone)
@@ -1281,7 +1281,7 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #define BOOTLOG_TX_TIMEOUT_MS 5 // ms one log write may wait for the USB CDC host before giving up (the core's default is 100, and HWCDC burns that timeout per write, 1ms at a time, before declaring the host gone)
 #endif
 #ifndef CORE_MONITOR_ETC_LOOPS
-  #define CORE_MONITOR_ETC_LOOPS 5 // Show SPIFFS + PSRAM info every N core monitor cycles (default: 5, every 25s)
+  #define CORE_MONITOR_ETC_LOOPS 5 // Show LittleFS + PSRAM info every N core monitor cycles (default: 5, every 25s)
 #endif
 #ifdef CORS_DEBUG
  // This enables CORS policy: 'Access-Control-Allow-Origin' (for testing)

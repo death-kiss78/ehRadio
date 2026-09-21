@@ -397,7 +397,7 @@ bool MyNetwork::wifiBegin(bool silent) {
     //   time rather than connectivity, because the old behaviour is always the last resort - only a failure there reaches
     //   the SoftAP.  This is one of only two things kept from the join-timing work; see the connect loops below.
     // Deferred, not immediate: the boot line still shows the firmware version, and replacing it at once is what made
-    //   that flash past in ~100ms.  No pause needed here (unlike the SPIFFS format message, whose flash erase halts the
+    //   that flash past in ~100ms.  No pause needed here (unlike the LittleFS format message, whose flash erase halts the
     //   other core) - the display task keeps running throughout the scan.
     display.putRequestDelayed(SCANNINGWIFI, 0, 2000);
     if (!silent) BOOTLOG("Scanning for best available network...");
@@ -866,11 +866,11 @@ void doSync(void * pvParameters) {
 // Helper: Download URL to temporary file using EspFileUpdater (handles chunked encoding)
 bool downloadToTempFile(const char* url) {
   // Delete old temp file if exists
-  if (SPIFFS.exists(TMP_PATH)) {
-    SPIFFS.remove(TMP_PATH);
+  if (LittleFS.exists(TMP_PATH)) {
+    LittleFS.remove(TMP_PATH);
   }
   
-  ESPFileUpdater* downloader = new ESPFileUpdater(SPIFFS);
+  ESPFileUpdater* downloader = new ESPFileUpdater(LittleFS);
   downloader->setUserAgent(ESPFILEUPDATER_USERAGENT);
   downloader->setMaxSize(2048);  // Weather JSON responses are small
   
@@ -1036,7 +1036,7 @@ bool getWeather_OpenMeteo(char *wstr) {
     }
     
     // Read the downloaded JSON file
-    File file = SPIFFS.open(TMP_PATH, "r");
+    File file = LittleFS.open(TMP_PATH, "r");
     if (!file) {
       FUNCTIONLOG("Weather", "Failed to open temp file");
       return false;
@@ -1044,7 +1044,7 @@ bool getWeather_OpenMeteo(char *wstr) {
     
     String response = file.readString();
     file.close();
-    SPIFFS.remove(TMP_PATH);
+    LittleFS.remove(TMP_PATH);
     
     // Parse JSON with ArduinoJson
     JsonDocument doc;
@@ -1124,7 +1124,7 @@ bool getWeather_OpenWeather25(char *wstr) {
     }
     
     // Read the downloaded JSON file
-    File file = SPIFFS.open(TMP_PATH, "r");
+    File file = LittleFS.open(TMP_PATH, "r");
     if (!file) {
       FUNCTIONLOG("Weather", "Failed to open temp file");
       return false;
@@ -1132,7 +1132,7 @@ bool getWeather_OpenWeather25(char *wstr) {
     
     String response = file.readString();
     file.close();
-    SPIFFS.remove(TMP_PATH);
+    LittleFS.remove(TMP_PATH);
     
     // Parse JSON with ArduinoJson
     JsonDocument doc;
@@ -1194,7 +1194,7 @@ void fetchAndCacheElevation() {
   sprintf(url, "http://api.open-elevation.com/api/v1/lookup?locations=%.4f,%.4f", lat, lon);
   
   if (downloadToTempFile(url)) {
-    File file = SPIFFS.open(TMP_PATH, "r");
+    File file = LittleFS.open(TMP_PATH, "r");
     if (file) {
       String response = file.readString();
       file.close();
@@ -1215,7 +1215,7 @@ void fetchAndCacheElevation() {
     sprintf(url, "https://api.open-meteo.com/v1/elevation?latitude=%.4f&longitude=%.4f", lat, lon);
     
     if (downloadToTempFile(url)) {
-      File file = SPIFFS.open(TMP_PATH, "r");
+      File file = LittleFS.open(TMP_PATH, "r");
       if (file) {
         String response = file.readString();
         file.close();
@@ -1232,7 +1232,7 @@ void fetchAndCacheElevation() {
   }
   
   // Clean up temp file
-  SPIFFS.remove(TMP_PATH);
+  LittleFS.remove(TMP_PATH);
   
   // Cache elevation if successfully retrieved
   if (success && elevation > 0.0) {
@@ -1275,7 +1275,7 @@ bool getWeather_OpenWeather30(char *wstr) {
     }
     
     // Read the downloaded JSON file
-    File file = SPIFFS.open(TMP_PATH, "r");
+    File file = LittleFS.open(TMP_PATH, "r");
     if (!file) {
       FUNCTIONLOG("Weather", "Failed to open temp file");
       return false;
@@ -1283,7 +1283,7 @@ bool getWeather_OpenWeather30(char *wstr) {
     
     String response = file.readString();
     file.close();
-    SPIFFS.remove(TMP_PATH);
+    LittleFS.remove(TMP_PATH);
     
     // Parse JSON with ArduinoJson
     JsonDocument doc;

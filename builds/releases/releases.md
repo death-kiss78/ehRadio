@@ -34,12 +34,12 @@
   - you can either fork my `ehradio` repo and edit these files or request a build be added
     - use [the generator](https://trip5.github.io/ehRadio/myoptions/generator.html) and copy the link and include it in your request
 ### Upload_Files.zip
-  - this is an easy-to-download file that contains all of the SPIFFS files
+  - this is an easy-to-download file that contains all of the LittleFS files
   - you can use this to upload necessary WebUI files instead of allowing automatic download
   - connect to the `ehRadio` AP and upload all of the files in the `data` folder
   - you may also edit `wifi.csv` and the `playlist.csv` files
 ### Web Assets
   - all other files are needed for the WebUI functionality
-  - they are available here to allow automatic downloading to SPIFFS
+  - they are available here to allow automatic downloading to LittleFS
   - it is NOT necessary to download them - the radio will download them automatically after network connection is established
 

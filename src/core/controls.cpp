@@ -714,7 +714,7 @@ void Controls::checkButtonsHeldOnBoot() {
     if (held || gpioheld) {
       network.offlineMode = true;  // signals network.begin() to skip Wi-Fi
       config.store.play_mode = PM_SDCARD;
-      config.syncSDFS();  // update _SDplaylistFS so SDPLFS() returns &sdman not &SPIFFS
+      config.syncSDFS();  // update _SDplaylistFS so SDPLFS() returns &sdman not &LittleFS
       if (gpioheld) BOOTLOG("SD Offline Mode triggered by gpio hold");
       else BOOTLOG("SD Offline Mode triggered by button hold");
     }

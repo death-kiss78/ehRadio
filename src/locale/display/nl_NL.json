@@ -58,7 +58,7 @@
   "msg_upd_firmware": "Firmware bijwerken",
   "msg_upd_files": "Bestanden bijwerken",
   "msg_upd_failed": "Bijwerken mislukt",
-  "msg_formatting": "SPIFFS opmaken",
+  "msg_formatting": "LittleFS opmaken",
   "msg_offline_15char": "Offline",
   "msg_no_sd_card": "Geen SD-kaart",
   "lbl_w_feelslike": "gevoelstemperatuur:",

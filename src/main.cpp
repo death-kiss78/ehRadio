@@ -62,8 +62,8 @@ void setup() {
   display.init();
   BOOTTIMELOG("display.init");
   const bool offlineBoot = (network.offlineMode || config.store.SDoffline);
-  startup.checkSpiffsandVer();
-  BOOTTIMELOG("checkSpiffsandVer");
+  startup.checkLittleFSandVer();
+  BOOTTIMELOG("checkLittleFSandVer");
   player.init();
   BOOTTIMELOG("player.init");
   battery.bootStatus();
@@ -212,10 +212,10 @@ void loop() {
           (unsigned)uxTaskGetStackHighWaterMark(NULL),
           (unsigned)(dspTaskHandle ? uxTaskGetStackHighWaterMark(dspTaskHandle) : 0),
           (unsigned)(nsTaskHandle  ? uxTaskGetStackHighWaterMark(nsTaskHandle)  : 0));
-      // SPIFFS + PSRAM info — rate-limited by CORE_MONITOR_ETC_LOOPS
+      // LittleFS + PSRAM info — rate-limited by CORE_MONITOR_ETC_LOOPS
       if (++cmEtcCount >= CORE_MONITOR_ETC_LOOPS) {
         cmEtcCount = 0;
-        FUNCTIONLOG("SPIFFS", "Used: %u / %u bytes, Free: %u bytes", SPIFFS.usedBytes(), SPIFFS.totalBytes(), SPIFFS.totalBytes() - SPIFFS.usedBytes());
+        FUNCTIONLOG("LittleFS", "Used: %u / %u bytes, Free: %u bytes", LittleFS.usedBytes(), LittleFS.totalBytes(), LittleFS.totalBytes() - LittleFS.usedBytes());
         // Internal free and the largest CONTIGUOUS block - the figure a TLS handshake actually needs
         FUNCTIONLOG("Heap", "Internal: %uKB free, %uKB largest block",
             ESP.getFreeHeap() / 1024,

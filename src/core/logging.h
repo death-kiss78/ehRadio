@@ -30,13 +30,13 @@ void audioLog(const char* category, const char* fmt, ...) LOG_PRINTF_ATTR(2, 3);
    options.h still gets one consistent signature instead of a macro that quietly means something else (the trap
    ESPFILEUPDATER_VERBOSE fell into, see the notes).
      BOOTTIMELOG   - setup() in main.cpp; the first call measures from power-on.
-     SPIFFSTIMELOG - the SPIFFS path in startup.cpp.  SPIFFSTIMELOGRESET() starts a fresh measurement at the entry to a
+     LITTLEFSTIMELOG - the LittleFS path in startup.cpp.  LITTLEFSTIMELOGRESET() starts a fresh measurement at the entry to a
                      function whose first stage would otherwise be measured from the previous marker.
      CONFIGTIMELOG - the config path in config.cpp, same idea, with CONFIGTIMELOGRESET() at each entry point. */
 void bootTimeLog(const char* name);
-void spiffsTimeLog(const char* name);
+void littleFsTimeLog(const char* name);
 void configTimeLog(const char* name);
-void spiffsTimeLogReset();
+void littleFsTimeLogReset();
 void configTimeLogReset();
 
 #define SERIALLOG(fmt, ...) \
@@ -80,9 +80,9 @@ void configTimeLogReset();
     bootTimeLog(name); \
   } while (0)
 
-#define SPIFFSTIMELOG(name) \
+#define LITTLEFSTIMELOG(name) \
   do { \
-    spiffsTimeLog(name); \
+    littleFsTimeLog(name); \
   } while (0)
 
 #define CONFIGTIMELOG(name) \
@@ -90,9 +90,9 @@ void configTimeLogReset();
     configTimeLog(name); \
   } while (0)
 
-#define SPIFFSTIMELOGRESET() \
+#define LITTLEFSTIMELOGRESET() \
   do { \
-    spiffsTimeLogReset(); \
+    littleFsTimeLogReset(); \
   } while (0)
 
 #define CONFIGTIMELOGRESET() \

@@ -188,7 +188,7 @@ curl "http://<radio-ip>/?reboot=1"
 Note: the value matters - even for boolean toggles you need a value (for example ?toggle=1).
 `sleep` and `after` are a special case: they're merged into sleep=for,after before dispatch.
 The server responds 200 with empty body on success, 404 on unrecognized commands.
-Some commands (like reset or clearspiffs) trigger a redirect to `/`.
+Some commands (like reset or clearfs) trigger a redirect to `/`.
 
 For a (hopefully) complete list of commands, check out [Commands](Commands.md).
 In case this list is incomplete, `commandhandler.cpp` lists all commands.

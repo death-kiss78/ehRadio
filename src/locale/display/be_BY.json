@@ -58,7 +58,7 @@
   "msg_upd_firmware": "Абнаўленне прашыўкі",
   "msg_upd_files": "Абнаўленне файлаў",
   "msg_upd_failed": "Update failed",
-  "msg_formatting": "Афармленне SPIFFS",
+  "msg_formatting": "Афармленне LittleFS",
   "msg_offline_15char": "Афлайн",
   "msg_no_sd_card": "Карткі SD няма",
   "lbl_w_feelslike": "адчуваецца:",

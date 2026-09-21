@@ -58,7 +58,7 @@
   "msg_upd_firmware": "Opdaterer firmwaren",
   "msg_upd_files": "Opdaterer filer",
   "msg_upd_failed": "Opdatering mislykkedes",
-  "msg_formatting": "Formatering af SPIFFS",
+  "msg_formatting": "Formatering af LittleFS",
   "msg_offline_15char": "Offline",
   "msg_no_sd_card": "Intet SD-kort",
   "lbl_w_feelslike": "føles som:",

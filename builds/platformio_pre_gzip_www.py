@@ -173,7 +173,7 @@ def _get_selected_lang_code():
 
 
 def deploy_locale_json(source, target, env):
-    """Copy the chosen WebUI language JSON into the SPIFFS source tree.
+    """Copy the chosen WebUI language JSON into the LittleFS source tree.
 
     The language code is derived via :pyfunc:`_get_selected_lang_code`, which
     reads ``WEBUI_LOCALE`` if defined or falls back to
@@ -269,9 +269,9 @@ def acquire_lock():
     print(f"\nBuild lock acquired: {LOCK_FILE}")
 
 def compress_and_hide_originals(source, target, env):
-    """Compress web files and temporarily move originals so only .gz files are in SPIFFS"""
+    """Compress web files and temporarily move originals so only .gz files are in LittleFS"""
     print("\n" + "="*70)
-    print("PRE-BUILD: Compressing web files for SPIFFS...")
+    print("PRE-BUILD: Compressing web files for LittleFS...")
     print("="*70)
 
     # Stage locale JSON files before compression pass
@@ -290,7 +290,7 @@ def compress_and_hide_originals(source, target, env):
     
     # Files to exclude from compression (by filename, any directory)
     exclude = ["rb_srvrs.json"]
-    # Subdirectories to exclude from compression — files are kept as plain files in SPIFFS
+    # Subdirectories to exclude from compression — files are kept as plain files in LittleFS
     # (avoids ESPAsyncWebServer gzip+subdirectory edge cases for small files)
     exclude_dirs = []
     
@@ -327,7 +327,7 @@ def compress_and_hide_originals(source, target, env):
     print("="*70)
     
     # Second pass: move originals outside data directory (preserve relative subpath in backup)
-    print("\nMoving original files out of data/www (only .gz and excluded files will be in SPIFFS):")
+    print("\nMoving original files out of data/www (only .gz and excluded files will be in LittleFS):")
     hidden_count = 0
     moved_names = []
     for file_path in sorted(data_dir.rglob("*")):
@@ -354,7 +354,7 @@ def compress_and_hide_originals(source, target, env):
     
     print(" ".join(moved_names))
     print(f"Moved {hidden_count} original files to {TEMP_BACKUP_DIR}")
-    print(f"SPIFFS will contain ONLY .gz files (and excluded files)")
+    print(f"LittleFS will contain ONLY .gz files (and excluded files)")
     print("="*70 + "\n")
 
 # Detect if we're doing a filesystem operation
@@ -365,14 +365,14 @@ if any_fs_target:
     # Acquire before doing anything
     acquire_lock()
     
-    # Delete cached spiffs.bin to force rebuild
-    spiffs_bin = Path(env.subst("$BUILD_DIR")) / "spiffs.bin"
-    if spiffs_bin.exists():
+    # Delete cached littlefs.bin to force rebuild
+    littlefs_bin = Path(env.subst("$BUILD_DIR")) / "littlefs.bin"
+    if littlefs_bin.exists():
         print("\n" + "="*70)
-        print("INIT: Deleting cached spiffs.bin")
+        print("INIT: Deleting cached littlefs.bin")
         print("="*70)
-        spiffs_bin.unlink()
-        print("  → Deleted spiffs.bin - will rebuild with compression")
+        littlefs_bin.unlink()
+        print("  → Deleted littlefs.bin - will rebuild with compression")
         print("="*70 + "\n")
     
     # Run compression now at init time

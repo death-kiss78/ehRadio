@@ -58,7 +58,7 @@
   "msg_upd_firmware": "Firmware frissítése",
   "msg_upd_files": "Fájlok frissítése",
   "msg_upd_failed": "Frissítés sikertelen",
-  "msg_formatting": "SPIFFS formázása",
+  "msg_formatting": "LittleFS formázása",
   "msg_offline_15char": "Offline",
   "msg_no_sd_card": "Nincs SD-kártya",
   "lbl_w_feelslike": "hőérzet:",

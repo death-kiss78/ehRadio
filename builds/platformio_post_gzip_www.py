@@ -7,7 +7,7 @@ TEMP_BACKUP_DIR = Path(".pio/temp_www_backup")
 LOCK_FILE = Path(".pio/temp_www_backup.lock")
 
 def restore_and_cleanup(source, target, env):
-    """Restore original files and delete all .gz files after SPIFFS build"""
+    """Restore original files and delete all .gz files after LittleFS build"""
     print("\n" + "="*70)
     print("POST-BUILD: Restoring original files and cleaning up...")
     print("="*70)
@@ -71,4 +71,4 @@ def restore_and_cleanup(source, target, env):
     print("="*70 + "\n")
 
 # Register the post-build action
-env.AddPostAction("$BUILD_DIR/spiffs.bin", restore_and_cleanup)
+env.AddPostAction("$BUILD_DIR/littlefs.bin", restore_and_cleanup)

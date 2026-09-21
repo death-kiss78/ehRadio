@@ -58,7 +58,7 @@
   "msg_upd_firmware": "Atualizando firmware",
   "msg_upd_files": "Atualizando arquivos",
   "msg_upd_failed": "Atualização falhou",
-  "msg_formatting": "Formatação de SPIFFS",
+  "msg_formatting": "Formatação de LittleFS",
   "msg_offline_15char": "Offline",
   "msg_no_sd_card": "Sem cartão SD",
   "lbl_w_feelslike": "sensação:",

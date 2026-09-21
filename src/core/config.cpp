@@ -88,9 +88,9 @@ void Config::init() {
   _initHW();
   CONFIGTIMELOG("_initHW");
   #ifdef USE_SD
-    _SDplaylistFS = getMode()==PM_SDCARD?&sdman:(true?&SPIFFS:_SDplaylistFS);
+    _SDplaylistFS = getMode()==PM_SDCARD?&sdman:(true?&LittleFS:_SDplaylistFS);
   #else
-    _SDplaylistFS = &SPIFFS;
+    _SDplaylistFS = &LittleFS;
   #endif
 }
 
@@ -181,7 +181,7 @@ void Config::changeMode(int newmode) {
     }
     saveValue(&store.play_mode, store.play_mode);
     player.resetQueue();  // clear stale ticks commands before mode transition
-    _SDplaylistFS = getMode()==PM_SDCARD?&sdman:(true?&SPIFFS:_SDplaylistFS);
+    _SDplaylistFS = getMode()==PM_SDCARD?&sdman:(true?&LittleFS:_SDplaylistFS);
     if (getMode()==PM_SDCARD) {
       if (pir) player.sendCommand({PR_STOP, 0});
       display.putRequest(NEWMODE, SDCHANGE);
@@ -226,7 +226,7 @@ void Config::changeMode(int newmode) {
 
 void Config::syncSDFS() {
   #ifdef USE_SD
-    _SDplaylistFS = (getMode()==PM_SDCARD) ? (FS*)&sdman : (FS*)&SPIFFS;
+    _SDplaylistFS = (getMode()==PM_SDCARD) ? (FS*)&sdman : (FS*)&LittleFS;
   #endif
 }
 
@@ -234,7 +234,7 @@ void Config::initSDPlaylist(bool force) {
   #ifdef USE_SD
     bool doIndex = force || !sdman.exists(INDEX_SD_PATH);
     if (!doIndex) {
-      File index = sdman.open(INDEX_SD_PATH, "r");  // use sdman directly — SDPLFS() may be SPIFFS after safe mode
+      File index = sdman.open(INDEX_SD_PATH, "r");  // use sdman directly — SDPLFS() may be LittleFS after safe mode
       // Footer: [magic:4][count:4] = 8 bytes
       if (index && index.size() >= 12) {  // min: 1 entry (4) + footer (8)
         uint32_t magic, storedCount;

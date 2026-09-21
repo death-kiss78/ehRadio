@@ -11,7 +11,7 @@ which also contains tips about the hardware.
 It is strongly recommended to use an ESP32-S3 board with at least 2MB of PSRAM and 8MB of flash.
 
 It may be possible to use a board with 4MB of flash but will require special partitioning.
-Due to how SPIFFS works, it is recommended to use an 8MB partition file even if 
+Due to how LittleFS works, it is recommended to use an 8MB partition file even if a 4MB board would otherwise be sufficient.
 
 This code may still run on an ESP32 but without PSRAM will have serious issues that may be unfixable.
 

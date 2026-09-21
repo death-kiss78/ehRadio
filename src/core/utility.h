@@ -123,8 +123,8 @@ public:
   void standbyon();
   void standbyoff();
   void togglestandby();
-  bool verifySpiffs();
-  void pruneSpiffs();
+  bool verifyLittleFS();
+  void pruneLittleFS();
   void deleteMainwwwFile();
   void updateFile(void* param, const char* localFile, const char* onlineFile, const char* updatePeriod, const char* simpleName);
 

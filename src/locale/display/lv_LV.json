@@ -58,7 +58,7 @@
   "msg_upd_firmware": "Atjaunina programmaparatūru",
   "msg_upd_files": "Atjaunina failus",
   "msg_upd_failed": "Atjaunināšana neizdevās",
-  "msg_formatting": "SPIFFS formāta iestatīšana",
+  "msg_formatting": "LittleFS formāta iestatīšana",
   "msg_offline_15char": "Bezsaistē",
   "msg_no_sd_card": "Nav SD kartes",
   "lbl_w_feelslike": "sajūta:",

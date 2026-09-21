@@ -58,7 +58,7 @@
   "msg_upd_firmware": "Posodablja se firmware",
   "msg_upd_files": "Posodabljajo se datoteke",
   "msg_upd_failed": "Posodobitev ni uspela",
-  "msg_formatting": "Oblikovanje datotek SPIFFS",
+  "msg_formatting": "Oblikovanje datotek LittleFS",
   "msg_offline_15char": "Brez povezave",
   "msg_no_sd_card": "Ni SD-kartice",
   "lbl_w_feelslike": "občutek:",

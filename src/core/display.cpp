@@ -865,7 +865,7 @@ void Display::loop() {
           break;
         }
         /* Same shape as WAITFORSD: a fixed message on the boot line, asked for by whoever is doing the slow work.
-           SPIFFS formatting is the case that needs it - it blocks for seconds with nothing else to show. */
+           LittleFS formatting is the case that needs it - it blocks for seconds with nothing else to show. */
         case FORMATTING: {
           if (_bootstring) _bootstring->setText(l10n(L10N_MSG_FORMATTING));
           break;

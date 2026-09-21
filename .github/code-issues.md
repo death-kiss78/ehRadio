@@ -73,7 +73,15 @@ This section removed.  See `src/libraries/` for more note files.
 
 **Action**: Delay `netserver.begin()` until `startupServicesAsync` has finished, or restructure to update files before starting the web server. Note: `ESPFileUpdater` already uses `{path}.tmp` → rename, so mid-download partial reads are not a corruption risk — the old file remains intact until rename succeeds.
 
-### [ ] 3.2 SPIFFS space constraints can silently break search, curated, and update workflows `[MEDIUM]`
+### [ ] 3.2 LittleFS space constraints can silently break search, curated, and update workflows `[MEDIUM]`
+
+**Status after the LittleFS migration:** the filesystem is now LittleFS instead of SPIFFS, which is the
+"better space utilisation for the same physical allocation" fix suggested in item 4 below. It does **not**
+resolve the rest of this section: the `FS_REQUIRED_FREE_SPACE` guard is still coarse and several write
+paths are still unguarded, and the 4 MB partition budget itself is unchanged. The partition layout is
+otherwise untouched, apart from the partition being renamed to `littlefs` while its SubType stays
+`spiffs` (0x82) because this toolchain cannot express a littlefs subtype. Everything measured below is
+SPIFFS-era data — treat the figures as historical and re-measure before acting on them.
 
 #### Partition budget for `board_esp32` (4 MB flash)
 

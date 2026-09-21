@@ -2,11 +2,11 @@
     </div>
     <div id="playerwrap">
       <div id="uploaderwrap">
-        <div id="uploadstatus" data-i18n="lbl_choose_file">Please choose firmware or SPIFFS *.bin file</div>
+        <div id="uploadstatus" data-i18n="lbl_choose_file">Please choose firmware or LittleFS *.bin file</div>
         <form id="updateform" method="POST" action="/update" enctype="multipart/form-data">
           <div class="row">
             <label for="uploadtype1"><input type="radio" id="uploadtype1" name="updatetarget" value="fw" checked /><span class="checkmark"></span><span data-i18n="lbl_fw">Firmware</span></label>
-            <label for="contactChoice2"><input type="radio" id="uploadtype2" name="updatetarget" value="spiffs" /><span class="checkmark"></span><span data-i18n="lbl_spiffs">SPIFFS</span></label>
+            <label for="contactChoice2"><input type="radio" id="uploadtype2" name="updatetarget" value="littlefs" /><span class="checkmark"></span><span data-i18n="lbl_spiffs">LittleFS</span></label>
           </div>
           <div class="row rowinput">
             <input id="binfile" type="file" accept=".bin,.hex" name="update" />

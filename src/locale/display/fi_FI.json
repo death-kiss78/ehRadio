@@ -58,7 +58,7 @@
   "msg_upd_firmware": "Päivitetään laiteohjelmistoa",
   "msg_upd_files": "Päivitetään tiedostot",
   "msg_upd_failed": "Päivitys epäonnistui",
-  "msg_formatting": "SPIFFS-tiedostojen muotoilu",
+  "msg_formatting": "LittleFS-tiedostojen muotoilu",
   "msg_offline_15char": "Offline-tilassa",
   "msg_no_sd_card": "Ei SD-korttia",
   "lbl_w_feelslike": "tuntuu kuin:",

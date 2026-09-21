@@ -5,7 +5,7 @@
 #include <ESPmDNS.h>
 #include <esp_task_wdt.h>
 #include <freertos/FreeRTOS.h>
-#include <SPIFFS.h>
+#include <LittleFS.h>
 #include <Update.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
@@ -71,40 +71,43 @@ void StaticFileCache::loadOne(const char* filename, int idx) {
     snprintf(e.path, sizeof(e.path), "/%s", filename);
     e.contentType = mimeTypeForFile(filename);
 
+    // open() is the existence test here: a separate exists() call would add a second metadata
+    // lookup per file for no benefit, and those lookups are what dominate this loop (LittleFS
+    // measured ~9-25 ms per operation on the SH1106/VS1053 build). The two exists() probes that
+    // used to sit here cost more than the reads they guarded.
+    // The size test doubles as the "is it really there" check: startup.cpp's health check warns
+    // that open() can return a truthy File for a missing path on some cores, and a zero-length
+    // result would otherwise be cached and then served as an empty file.
     char fullPath[64];
 
-    // Try .gz variant first ??production builds use gzipped files on SPIFFS
+    // Try .gz variant first ??production builds use gzipped files on LittleFS
     snprintf(fullPath, sizeof(fullPath), "/www/%s.gz", filename);
-    if (SPIFFS.exists(fullPath)) {
-        File f = SPIFFS.open(fullPath, "r");
-        if (f) {
-            size_t sz = f.size();
-            char* buf = (char*)ps_malloc(sz);
-            if (buf) {
-                f.read((uint8_t*)buf, sz);
-                e.gzData = buf;
-                e.gzSize = sz;
-            }
-            f.close();
+    File gz = LittleFS.open(fullPath, "r");
+    if (gz) {
+        size_t sz = gz.size();
+        char* buf = (sz > 0) ? (char*)ps_malloc(sz) : nullptr;
+        if (buf) {
+            gz.read((uint8_t*)buf, sz);
+            e.gzData = buf;
+            e.gzSize = sz;
         }
+        gz.close();
     }
 
-    // Try plain file (if no .gz variant, or if gz read failed)
+    // Fall back to the plain file when there is no .gz twin (or the .gz read failed)
     if (!e.gzData) {
         snprintf(fullPath, sizeof(fullPath), "/www/%s", filename);
-        if (SPIFFS.exists(fullPath)) {
-            File f = SPIFFS.open(fullPath, "r");
-            if (f) {
-                size_t sz = f.size();
-                char* buf = (char*)ps_malloc(sz + 1);
-                if (buf) {
-                    f.read((uint8_t*)buf, sz);
-                    buf[sz] = '\0';
-                    e.data = buf;
-                    e.size = sz;
-                }
-                f.close();
+        File plain = LittleFS.open(fullPath, "r");
+        if (plain) {
+            size_t sz = plain.size();
+            char* buf = (sz > 0) ? (char*)ps_malloc(sz + 1) : nullptr;
+            if (buf) {
+                plain.read((uint8_t*)buf, sz);
+                buf[sz] = '\0';
+                e.data = buf;
+                e.size = sz;
             }
+            plain.close();
         }
     }
 }
@@ -314,7 +317,7 @@ void handleSearchPost(AsyncWebServerRequest *request) {
       player.sendCommand({PR_PLAY, (uint16_t)foundIdx});
       request->send(200, "text/plain", "DUPLICATE");
     } else { // add it and play it
-      File playlistfile = SPIFFS.open(PLAYLIST_PATH, "a");
+      File playlistfile = LittleFS.open(PLAYLIST_PATH, "a");
       if (playlistfile) {
         // can't use printf ??Arduino's Print::printf has a 64-byte stack buffer that overflows on long URLs
         playlistfile.print(sName);
@@ -451,7 +454,7 @@ size_t NetServer::chunkedHtmlPageCallback(uint8_t* buffer, size_t maxLen, size_t
   if (sdpl) {
     requiredfile = config.SDPLFS()->open(netserver.chunkedPathBuffer, "r");
   } else {
-    requiredfile = SPIFFS.open(netserver.chunkedPathBuffer, "r");
+    requiredfile = LittleFS.open(netserver.chunkedPathBuffer, "r");
   }
   if (!requiredfile) return 0;
   size_t filesize = requiredfile.size();
@@ -823,8 +826,8 @@ int freeSpace;
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
   if (request->url()=="/upload") {
     if (!index) {
-      freeSpace = (float)SPIFFS.totalBytes()/100*68-SPIFFS.usedBytes();
-      request->_tempFile = SPIFFS.open(TMP_PATH , "w");
+      freeSpace = (float)LittleFS.totalBytes()/100*68-LittleFS.usedBytes();
+      request->_tempFile = LittleFS.open(TMP_PATH , "w");
     }
     if (len) {
       if (freeSpace>index+len) {
@@ -836,7 +839,11 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
     }
   } else if (request->url()=="/update") {
     if (!index) {
-      int target = (request->getParam("updatetarget", true)->value() == "spiffs") ? U_SPIFFS : U_FLASH;
+      // getParam returns nullptr when the parameter is absent, so it is tested before being
+      // dereferenced. An absent or unrecognised target means firmware, which is what the
+      // firmware-only emergency form relies on.
+      const AsyncWebParameter* targetParam = request->getParam("updatetarget", true);
+      int target = (targetParam && targetParam->value() == "littlefs") ? U_SPIFFS : U_FLASH;
       FUNCTIONLOG("Netserver.update", "Update Start: %s", filename.c_str());
       player.sendCommand({PR_STOP, 0});
       display.putRequest(NEWMODE, UPDATING);
@@ -866,7 +873,7 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
     if (!index) {
       String spath = "/www/";
       if (filename=="playlist.csv" || filename=="wifi.csv") spath = "/data/";
-      request->_tempFile = SPIFFS.open(spath + filename , "w");
+      request->_tempFile = LittleFS.open(spath + filename , "w");
     }
     if (len) {
       request->_tempFile.write(data, len);
@@ -875,8 +882,8 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
       request->_tempFile.close();
       if (filename=="playlist.csv") {
         // Remove index and SD index to force cleanPlaylist to run
-        if (SPIFFS.exists(INDEX_PATH)) SPIFFS.remove(INDEX_PATH);
-        if (SPIFFS.exists(INDEX_SD_PATH)) SPIFFS.remove(INDEX_SD_PATH);
+        if (LittleFS.exists(INDEX_PATH)) LittleFS.remove(INDEX_PATH);
+        if (LittleFS.exists(INDEX_SD_PATH)) LittleFS.remove(INDEX_SD_PATH);
         utility.cleanPlaylist();   // Rewrites with CRLF, removes blank lines; calls indexPlaylist() internally
         netserver.requestOnChange(PLAYLISTSAVED, 0);
       } else {
@@ -908,7 +915,7 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
 void selectRadioBrowserServer() {
   size_t arr_size = sizeof(rb_servers) / sizeof(rb_servers[0]);
   for (size_t i = 0; i < arr_size; ++i) rb_servers[i][0] = '\0';
-  File serversFile = SPIFFS.open("/www/rb_srvrs.json", "r");
+  File serversFile = LittleFS.open("/www/rb_srvrs.json", "r");
   if (!serversFile) {
     FUNCTIONLOG("Search", "[Error] Failed to open /www/rb_srvrs.json.");
     goto useHostname;
@@ -964,11 +971,11 @@ useHostname:
 void vTaskSearchRadioBrowser(void *pvParameters) {
   char* search_str = (char*)pvParameters;
   FUNCTIONLOG("Search", "Starting Radio Browser search. Search: %s", search_str);
-  SPIFFS.remove("/www/searchresults.json");
-  // Check SPIFFS free space
-  size_t freeSpace = SPIFFS.totalBytes() - SPIFFS.usedBytes();
+  LittleFS.remove("/www/searchresults.json");
+  // Check LittleFS free space
+  size_t freeSpace = LittleFS.totalBytes() - LittleFS.usedBytes();
   if (freeSpace < (FS_REQUIRED_FREE_SPACE * 1024)) {
-    FUNCTIONLOG("Search", "[Error] Not enough free SPIFFS space: %u bytes. Aborting.", freeSpace);
+    FUNCTIONLOG("Search", "[Error] Not enough free LittleFS space: %u bytes. Aborting.", freeSpace);
     netserver.requestOnChange(SEARCH_FAILED, 0);
     delete[] search_str;
     g_searchTaskHandle = NULL;
@@ -1000,7 +1007,7 @@ void vTaskSearchRadioBrowser(void *pvParameters) {
     vTaskDelete(NULL);
     return;
   }
-  ESPFileUpdater searchResultsFetch(SPIFFS);
+  ESPFileUpdater searchResultsFetch(LittleFS);
   searchResultsFetch.setUserAgent(ESPFILEUPDATER_USERAGENT);
   searchResultsFetch.setBuffer(SEARCHRESULTS_BUFFER_BYTES);
   searchResultsFetch.setYieldInterval(SEARCHRESULTS_YIELDINTERVAL);
@@ -1018,7 +1025,7 @@ void vTaskSearchRadioBrowser(void *pvParameters) {
     if (status == ESPFileUpdater::UPDATED) {
       FUNCTIONLOG("Search", "Successfully downloaded from %s", server);
       // Check if the downloaded file ends with ']' (an incomplete .json will not)
-      File jsonFile = SPIFFS.open(localPath, "r");
+      File jsonFile = LittleFS.open(localPath, "r");
       if (jsonFile) {
         int fileSize = jsonFile.size();
         char lastChar = 0;
@@ -1037,12 +1044,12 @@ void vTaskSearchRadioBrowser(void *pvParameters) {
           if (server_retried == true) {
             FUNCTIONLOG("Search", "[Warning] JSON validation failed. Not retrying.");
             server_retried = false;
-            SPIFFS.remove(localPath); // Clean up bad file
+            LittleFS.remove(localPath); // Clean up bad file
           } else {
             FUNCTIONLOG("Search", "[Warning] JSON validation failed. Retrying same server.");
             server_retried = true;
             --i;
-            SPIFFS.remove(localPath); // Clean up bad file
+            LittleFS.remove(localPath); // Clean up bad file
           }
           continue;
         } else {
@@ -1061,7 +1068,7 @@ void vTaskSearchRadioBrowser(void *pvParameters) {
       }
       if (json_valid) {
         // Write /www/search.txt with the actual search string (single line)
-        File file = SPIFFS.open("/www/search.txt", "w");
+        File file = LittleFS.open("/www/search.txt", "w");
         if (file) {
           file.printf("%s\n", search_str);
           file.close();
@@ -1085,7 +1092,7 @@ void vTaskSearchRadioBrowser(void *pvParameters) {
     netserver.requestOnChange(SEARCH_DONE, 0);
   } else {
     FUNCTIONLOG("Search", "[Error] Failed to download from all available servers.");
-    SPIFFS.remove(localPath); // Clean up any incomplete file
+    LittleFS.remove(localPath); // Clean up any incomplete file
     netserver.requestOnChange(SEARCH_FAILED, 0);
   }
   delete[] search_str;
@@ -1099,19 +1106,19 @@ void vTaskSearchRadioBrowser(void *pvParameters) {
 
 void vTaskFetchCuratedIndex(void *pvParameters) {
   FUNCTIONLOG("Curated", "Starting curated index fetch");
-  SPIFFS.remove("/www/curated.json");
+  LittleFS.remove("/www/curated.json");
   
-  // Check SPIFFS free space
-  size_t freeSpace = SPIFFS.totalBytes() - SPIFFS.usedBytes();
+  // Check LittleFS free space
+  size_t freeSpace = LittleFS.totalBytes() - LittleFS.usedBytes();
   if (freeSpace < (FS_REQUIRED_FREE_SPACE * 1024)) {
-    FUNCTIONLOG("Curated", "[Error] Not enough free SPIFFS space: %u bytes. Aborting.", freeSpace);
+    FUNCTIONLOG("Curated", "[Error] Not enough free LittleFS space: %u bytes. Aborting.", freeSpace);
     netserver.requestOnChange(CURATED_FAILED, 0);
     g_curatedTaskHandle = NULL;
     vTaskDelete(NULL);
     return;
   }
   
-  ESPFileUpdater curatedFetch(SPIFFS);
+  ESPFileUpdater curatedFetch(LittleFS);
   curatedFetch.setUserAgent(ESPFILEUPDATER_USERAGENT);
   curatedFetch.setBuffer(SEARCHRESULTS_BUFFER_BYTES);
   curatedFetch.setYieldInterval(SEARCHRESULTS_YIELDINTERVAL);
@@ -1127,7 +1134,7 @@ void vTaskFetchCuratedIndex(void *pvParameters) {
       netserver.requestOnChange(CURATED_INDEX_DONE, 0);
     } else {
       FUNCTIONLOG("Curated", "[Error] Failed to download curated index");
-      SPIFFS.remove(localPath);
+      LittleFS.remove(localPath);
       netserver.requestOnChange(CURATED_FAILED, 0);
     }
   #else
@@ -1145,12 +1152,12 @@ void vTaskFetchCuratedIndex(void *pvParameters) {
 void vTaskFetchCuratedPlaylist(void *pvParameters) {
   char* filename = (char*)pvParameters;
   FUNCTIONLOG("Curated", "Starting playlist fetch: %s", filename);
-  SPIFFS.remove("/www/pl_import.json");
+  LittleFS.remove("/www/pl_import.json");
   
-  // Check SPIFFS free space
-  size_t freeSpace = SPIFFS.totalBytes() - SPIFFS.usedBytes();
+  // Check LittleFS free space
+  size_t freeSpace = LittleFS.totalBytes() - LittleFS.usedBytes();
   if (freeSpace < (FS_REQUIRED_FREE_SPACE * 1024)) {
-    FUNCTIONLOG("Curated", "[Error] Not enough free SPIFFS space: %u bytes. Aborting.", freeSpace);
+    FUNCTIONLOG("Curated", "[Error] Not enough free LittleFS space: %u bytes. Aborting.", freeSpace);
     netserver.requestOnChange(CURATED_FAILED, 0);
     delete[] filename;
     g_curatedTaskHandle = NULL;
@@ -1158,7 +1165,7 @@ void vTaskFetchCuratedPlaylist(void *pvParameters) {
     return;
   }
   
-  ESPFileUpdater playlistFetch(SPIFFS);
+  ESPFileUpdater playlistFetch(LittleFS);
   playlistFetch.setUserAgent(ESPFILEUPDATER_USERAGENT);
   playlistFetch.setBuffer(SEARCHRESULTS_BUFFER_BYTES);
   playlistFetch.setYieldInterval(SEARCHRESULTS_YIELDINTERVAL);
@@ -1174,7 +1181,7 @@ void vTaskFetchCuratedPlaylist(void *pvParameters) {
       netserver.requestOnChange(CURATED_PLAYLIST_DONE, 0);
     } else {
       FUNCTIONLOG("Curated", "[Error] Failed to download playlist: %s", filename);
-      SPIFFS.remove(localPath);
+      LittleFS.remove(localPath);
       netserver.requestOnChange(CURATED_FAILED, 0);
     }
   #else
@@ -1551,7 +1558,7 @@ void handleNotFound(AsyncWebServerRequest * request) {
       }
   #endif
 
-  // PSRAM cache check: serve static WebUI files from PSRAM (no SPIFFS reads)
+  // PSRAM cache check: serve static WebUI files from PSRAM (no LittleFS reads)
   if (request->method() == HTTP_GET) {
     String url = request->url();
     const CachedFile* cf = netserver.getFileCache().find(url.c_str());
@@ -1758,20 +1765,20 @@ void handleNotFound(AsyncWebServerRequest * request) {
     request->send(200, "text/html", emptyfs_html);
     return;
   }
-  // Fallback: try SPIFFS for files not in PSRAM cache ??check .gz variant first
+  // Fallback: try LittleFS for files not in PSRAM cache ??check .gz variant first
   if (request->method() == HTTP_GET) {
-    char spiffsPath[64];
-    snprintf(spiffsPath, sizeof(spiffsPath), "/www%s", request->url().c_str());
+    char fsPath[64];
+    snprintf(fsPath, sizeof(fsPath), "/www%s", request->url().c_str());
     char gzPath[64];
-    snprintf(gzPath, sizeof(gzPath), "%s.gz", spiffsPath);
-    if (SPIFFS.exists(gzPath)) {
-      AsyncWebServerResponse *response = request->beginResponse(SPIFFS, gzPath, mimeTypeForFile(request->url().c_str()));
+    snprintf(gzPath, sizeof(gzPath), "%s.gz", fsPath);
+    if (LittleFS.exists(gzPath)) {
+      AsyncWebServerResponse *response = request->beginResponse(LittleFS, gzPath, mimeTypeForFile(request->url().c_str()));
       response->addHeader("Content-Encoding", "gzip");
       request->send(response);
       return;
     }
-    if (SPIFFS.exists(spiffsPath)) {
-      request->send(SPIFFS, spiffsPath);
+    if (LittleFS.exists(fsPath)) {
+      request->send(LittleFS, fsPath);
       return;
     }
   }
@@ -1844,8 +1851,8 @@ void handleIndex(AsyncWebServerRequest * request) {
       String value = (command == "sleep" && sleepValue.length() > 0) ? sleepValue : p->value();
       if (cmd.exec(command.c_str(), value.c_str(), 0, CommandSource::HttpUrl)) {
         handledAny = true;
-        if (command == "reset" || command == "clearspiffs") shouldRedirect = true;
-        if (command == "clearspiffs") shouldRestart = true;
+        if (command == "reset" || command == "clearfs") shouldRedirect = true;
+        if (command == "clearfs") shouldRestart = true;
       }
     }
 

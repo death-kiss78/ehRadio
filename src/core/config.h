@@ -7,7 +7,7 @@
 #if defined(SPI_BUS_SECONDARY)
   extern SPIClass SPIB;
 #endif
-#include <SPIFFS.h>
+#include <LittleFS.h>
 #include <Preferences.h>
 #include "logging.h"
 #include "../locale/dsplocale.h"
@@ -30,6 +30,13 @@ extern uint32_t vuPsramBytes;
 #define INDEX_PATH           "/data/" INDEX_FILE
 #define PLAYLIST_SD_PATH     "/data/" PLAYLIST_SD_FILE
 #define INDEX_SD_PATH        "/data/" INDEX_SD_FILE
+
+// --- LittleFS partition / mount configuration --------------------------------
+// FS_PARTITION_LABEL must match the Name column of the filesystem partition in
+// builds/partitions/*.csv (the SubType there is still "spiffs" for compatibility).
+#define FS_PARTITION_LABEL   "littlefs"
+#define FS_MOUNT_POINT       "/littlefs"
+#define FS_MAX_OPEN_FILES    10
 
 #define REAL_PLAYL   config.getMode()==PM_WEB?PLAYLIST_PATH:PLAYLIST_SD_PATH
 #define REAL_INDEX   config.getMode()==PM_WEB?INDEX_PATH:INDEX_SD_PATH
