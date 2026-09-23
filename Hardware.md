@@ -399,16 +399,20 @@ IR receivers like the VS1838 are cheap and work well.  You may need a pullup res
 An SD card reader may be added to the build. It is recommended to be wary of SD readers built onto displays.
 Although some may work, it is well-known that some may be lacking proper resistors or will interfere with display because it is forced onto the same SPI bus.
 
-It is highly recommended to use an SD card reader with a power regulator and a 74VHCT125A buffer.
+It is highly recommended to use an SD card reader with a power regulator and a 74VHCT125A buffer for simplicity and reliability.
 If needing to make this type fit with a case, the excess PCB around the slot may be cut off carefully with a knife, sandpaper, or grinding tool.
 Wear a mask if filing or grinding! Fiberglass is bad for your lungs!
 
 ![image](images/hardware/sdreader.jpg)
 
-A simpler SD card reader may work but may cause random, unsolvable issues.
-Do not use on the same SPI bus as other devices.
+If using this type of simpler SD card reader on SPI, you may see random, unsolvable issues.
+Do not use this type on the same SPI bus as other devices.
 
 ![image](images/hardware/sdreader2.jpg)
+
+But this type may be better-suited to using SDMMC mode which only an ESP32-S3 can do.
+Native SD host / SDMMC does not use an SPI bus at all which frees the bus for other devices and is faster than SPI.
+There must be pull-ups on `CMD` and `D0`.
 
 It is recommended to encode files on SD card using MP3 at a constant bit rate of 256kbps or less
 to avoid system stress and get maximum compatibility with the decoders.

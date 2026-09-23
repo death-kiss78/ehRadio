@@ -94,7 +94,7 @@ void Startup::deassertCsPins() {
   #if VS1053_CS != 255
     pinMode(VS1053_CS, OUTPUT); digitalWrite(VS1053_CS, HIGH);
   #endif
-  #if SD_CS != 255
+  #if SD_CS != 255 && SD_CS != 254 // 254 = SDMMC sentinel, not a real GPIO
     pinMode(SD_CS, OUTPUT); digitalWrite(SD_CS, HIGH);
   #endif
   #if TFT_CS != 255

@@ -54,5 +54,18 @@
       { "define": "SD_CARD_DETECT_PIN", "type": "numeric", "default": 255, "min": 0, "max": 255, "optional": true, "comment": "Pin DETECT is attached to (255 for unused)"},
       { "define": "SD_AUTOPLAY", "type": "boolean", "default": false, "comment": "auto-switch to SD card mode when card is inserted (requires SD_CARD_DETECT_PIN != 255)" }
     ]
+  },
+  {
+    "name": "SD Card Reader (SDMMC - ESP32-S3 only)",
+    "info": "Native SD host instead of SPI. Define CLK, CMD, D0 for 1-bit (some may be marked with SPI: CLK=SCK, CMD=MOSI, D0=MISO). Define also for 4-bit: D1, D2, D3.\nDo NOT use with SD modules that carry a 74LVC125A or other level-shifter chip which blocks bidirectional CMD.",
+    "pins": [ "SDMMC_CLK", "SDMMC_CMD", "SDMMC_D0" ],
+    "defines": [
+      { "define": "SDMMC_D1", "type": "pin", "default": 255, "optional": true },
+      { "define": "SDMMC_D2", "type": "pin", "default": 255, "optional": true },
+      { "define": "SDMMC_D3", "type": "pin", "default": 255, "optional": true },
+      { "define": "SD_CARD_DETECT_PIN", "type": "numeric", "default": 255, "min": 0, "max": 255, "optional": true, "comment": "Pin DETECT is attached to (255 for unused)"},
+      { "define": "SD_AUTOPLAY", "type": "boolean", "default": false, "comment": "auto-switch to SD card mode when card is inserted (requires SD_CARD_DETECT_PIN != 255)" },
+      { "define": "SDMMC_FREQ", "type": "numeric", "default": 0, "min": 0, "max": 40000, "optional": true, "comment": "maximum SD clock in kHz (0 = driver default 40MHz highest speed; lower this if problems)" }
+    ]
   }
 ]

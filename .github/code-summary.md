@@ -107,12 +107,13 @@ Grouped (not one-by-one deep explained) areas:
   - **Per-peripheral bus assignment** (char literals `'A'` or `'B'` — NOT strings): `SD_SPI`, `TS_SPI`, `VS1053_SPI`. `VS1053_SPI` resolves `VS1053_SCK/MISO/MOSI` from the matching bus pins in `options.h` (soft — does not override direct pin defines). SD and TS use the bus *object* directly (`SPIA`/`SPIB`) — no separate SCK/MISO/MOSI derivation needed.
   - **`VSPI FSPI` shim** — defined when target is not ESP32 (`!CONFIG_IDF_TARGET_ESP32`) for third-party library compatibility.
   - **VS1053 bus assignment** — `VS1053_SPIBUS` macro auto-derived in `options.h`. `VS1053_CS != 255` requires `VS1053_SCK` to be set (via `VS1053_SPI` or directly); `#error` if missing. Resolves to `SPIB` if `VS1053_SCK == SPIB_SCK`, otherwise `SPIA`. Used as `&VS1053_SPIBUS` in the `Audio` constructor in `player.cpp`.
-  - **SD bus selection** — `SDREALSPI` macro in `sdmanager.cpp`: `SPIB` when `SD_SPI == 'B'` and `SPIB_SCK` is defined, otherwise `SPIA`.
+  - **SD bus selection** — `SDREALSPI` macro in `sdmanager.cpp` (SPI transport only, i.e. when `SD_USE_MMC` is not defined): `SPIB` when `SD_SPI == 'B'` and `SPIB_SCK` is defined, otherwise `SPIA`.
   - **Touchscreen bus selection** — inline in `touchscreen.cpp` `init()`: `SPIB` when `TS_SPI == 'B'` and `SPIB_SCK` is defined; `SPIA` when `TS_SPI == 'A'`; `ts.begin()` (default `&SPI`) otherwise.
 - **SD card defines** (set in `myoptions.h`, fallback `255` = disabled in `options.h`):
-  - `SD_CS` — chip-select pin; `255` disables SD entirely.
-  - `SD_SPI 'A'/'B'` — assigns SD to Bus A or B; SD uses the bus object directly, no per-pin derivation needed.
+  - `SD_CS` — chip-select pin; `255` disables SD entirely. **`254` is a sentinel meaning "SD present but on SDMMC"**, set automatically by `options.h` when SDMMC pins are defined, so every pre-existing `SD_CS!=255` "SD exists" test keeps working unchanged.
+  - `SD_SPI 'A'/'B'` — assigns SD to Bus A or B; SD uses the bus object directly, no per-pin derivation needed. Not required when `SD_USE_MMC` is set.
   - `USE_SD` — feature presence macro, derived from `SD_CS!=255`.
+- **SDMMC transport (ESP32-S3 only)** — defining any of `SDMMC_CLK`/`SDMMC_CMD`/`SDMMC_D0`/`SDMMC_D1`/`SDMMC_D2`/`SDMMC_D3` in `myoptions.h` defines `SD_USE_MMC` and switches the card from SPI to the native SD host. `SDMMC_CLK`/`SDMMC_CMD`/`SDMMC_D0` are required; adding `SDMMC_D1`/`SDMMC_D2`/`SDMMC_D3` selects 4-bit mode. Only all-six or first-three is accepted — a partial set, or any non-S3 target with SDMMC pins, is a compile `#error`. `SDMMC_FREQ` (0 = driver default 40MHz high speed) overrides the mount frequency. The header comment records that SD modules carrying a 74LVC125A/level-shifter cannot work, because CMD must be bidirectional.
 - **I2S internal DAC**:
   - `USE_AUDIO_ESP32_DAC` — defined directly in `myoptions.h` to use the ESP32 internal DAC (ESP32 only, not S3/C3). `I2S_INTERNAL` boolean is removed.
 - **Guardrail conventions** (maintain these when adding new options):
@@ -695,12 +696,15 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
 - `sdmanager.h` declares SD manager API and FS integration wrapper.
 - SD lifecycle and SD playlist indexing.
 - Responsibilities:
-  - mount/retry/unmount — `start()` attempts up to 4 `SD.begin(SD_CS, ...)` calls, early-returning on success (delays only between retries, not after success)
+  - mount/retry/unmount — `start()` attempts up to 4 mount calls, early-returning on success (delays only between retries, not after success)
   - card-present checks
   - recursive scan and media file playlist/index creation
   - scan/index progress and errors now use centralized logging macros (`SERIALLOGDOT`, `ERRORLOG`)
-- SPI bus: `SDREALSPI` macro resolved at compile time — `SPIB` when `SD_SPI == 'B'` and `SPIB_SCK` defined, otherwise `SPIA`. Both buses are initialized in `Config::init()` before `SDManager::start()` runs. No `SPIClass` declared in `sdmanager.cpp`.
-- SD CS pin is `SD_CS`. Guard macro: `#if SD_CS!=255`.
+- **Two transports, one object.** `SDManager`'s base class is `fs::SDMMCFS` when `SD_USE_MMC` is defined and `fs::SDFS` otherwise (`SDMAN_FS_BASE` in `sdmanager.h`). Both derive from `fs::FS`, so `sdman` is still consumed as `fs::FS&` by `Config::SDPLFS()` and `Audio::connecttoFS()` — no caller changes and no `_SDplaylistFS` changes.
+  - SPI branch (unchanged behaviour): `SDREALSPI` macro resolved at compile time — `SPIB` when `SD_SPI == 'B'` and `SPIB_SCK` defined, otherwise `SPIA`. Both buses are initialized in `Config::init()` before `SDManager::start()` runs. No `SPIClass` declared in `sdmanager.cpp`.
+  - SDMMC branch: `setPins()` is called with 3 pins (1-bit) or 6 pins (4-bit, chosen from `SDMMC_D1==255`), then `begin("/sdcard", mode1bit, false, freq)`. `mode1bit` must match the pin count or the framework rejects the config. No SPI bus is touched; `ERRORLOG("SDMMC mount failed")` fires if all retries fail.
+- `cardPresent()` is transport-specific: SPI probes `sectorSize()`/`readRAW()` (via `diskio_impl.h`, now wrapped in `#if !defined(SD_USE_MMC)`), while SDMMC uses `cardSize() > 0` because `SDMMCFS` exposes no raw-sector API.
+- SD CS pin is `SD_CS`. Guard macro: `#if SD_CS!=255`. The value `254` is the SDMMC sentinel and must never be handed to a GPIO call (`Startup::deassertCsPins()` skips it, and `Config::bootInfo()` logs SDMMC pins/mode instead of `SD_SPI`/`SD_CS`).
 - Coupling:
   - consumed by config/player for SD mode.
 
