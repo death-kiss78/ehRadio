@@ -82,7 +82,6 @@
 
 /* --- Peripherals and Build Options --- */
 #define RGB_LED_PIN          42
-#define MQTT_ENABLE
 #define SD_CS                47
 #define SD_SPI               'B'       /* assign SD to SPI bus */
 

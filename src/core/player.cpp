@@ -99,6 +99,12 @@ void Player::stopInfo() {
   netserver.requestOnChange(MODE, 0);
 }
 
+// Lives here because this file already owns the display locale: duplicating dsplocale.h into another
+// translation unit embeds a second copy of every locale table, which costs tens of KB of flash.
+bool Player::isConnecting() {
+  return strcmp_P(config.station.title, l10n(L10N_MSG_CONNECT)) == 0;
+}
+
 void Player::setError(const char *e) {
   strlcpy(_plError, e, PLERR_LN);
   if (hasError()) {

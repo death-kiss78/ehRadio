@@ -8,7 +8,6 @@
       <div class="navitem group group_weather hidden" data-target="group_weather" data-i18n="ttl_weather">Weather</div>
       <div class="navitem group group_system hidden" data-target="group_system" data-i18n="ttl_system">System</div>
       <div class="navitem group group_wifi hidden" data-target="group_wifi" data-i18n="ttl_wifi">Wi-Fi</div>
-      <div class="navitem group group_mqtt hidden" data-target="group_mqtt" data-i18n="ttl_mqtt">MQTT</div>
       <div class="navitem group group_battery hidden" data-target="group_battery" data-i18n="ttl_battery">Battery</div>
     </div>
     <div id="settingswrap">
@@ -128,6 +127,13 @@
               </select>
             </div>
           </div>
+          <div class="flex-row group group_nokia hidden">
+            <div class="inputwrap">
+              <span class="inputtitle" data-i18n="lbl_contrast">Contrast</span>
+              <span class="inputinfo" id="slcontrastinfo">0</span>
+              <input type="range" id="con" data-slaveid="slcontrastinfo" data-command="contrast" min="0" max="100" value="55">
+            </div>
+          </div>
           <div class="flex-row group group_brightness hidden">
             <div class="inputwrap pad">
               <span class="inputtitle" data-i18n="lbl_brightness">Brightness</span>
@@ -135,11 +141,22 @@
               <input type="range" id="br" data-slaveid="slbrightnessinfo" data-command="brightness" min="1" max="100" value="100">
             </div>
           </div>
-          <div class="flex-row group group_nokia hidden">
-            <div class="inputwrap">
-              <span class="inputtitle" data-i18n="lbl_contrast">Contrast</span>
-              <span class="inputinfo" id="slcontrastinfo">0</span>
-              <input type="range" id="con" data-slaveid="slcontrastinfo" data-command="contrast" min="0" max="100" value="55">
+          <div class="row-title group group_dimming hidden"><span data-i18n="ttl_auto_dimming">Auto Dimming</span></div>
+          <div class="flex-row group group_dimming hidden">
+            <div class="inputwrap center">
+              <span class="inputtitle" data-i18n="lbl_enable_dimming">Enable Dimming</span>
+              <div class="checkbox ssoption" id="dim" data-command="dimmingenabled"><div class="knob"></div></div>
+            </div>
+            <div class="inputwrap center">
+              <span class="inputtitle" data-i18n="lbl_timeout_sec">Timeout (sec)</span>
+              <input type="number" id="dimto" data-command="dimmingtimeout" value="" maxlength="3" min="5" max="65520" />
+            </div>
+          </div>
+          <div class="flex-row group group_dimming hidden">
+            <div class="inputwrap pad">
+              <span class="inputtitle" data-i18n="lbl_dimmed_brightness">Dimmed Brightness</span>
+              <span class="inputinfo" id="sldimbrightnessinfo">0</span>
+              <input type="range" id="dimbr" data-slaveid="sldimbrightnessinfo" data-command="dimmingbrightness" min="0" max="100" value="100">
             </div>
           </div>
           <div class="row-title"><span data-i18n="ttl_screensaver">Screensaver</span></div>
@@ -175,24 +192,6 @@
             <div class="inputwrap center">
               <span class="inputtitle" data-i18n="lbl_full_time_screensaver">Full Time</span>
               <div class="checkbox ssoption" id="scrfull" data-command="screensaverfull"><div class="knob"></div></div>
-            </div>
-          </div>
-          <div class="row-title group group_dimming hidden"><span data-i18n="ttl_auto_dimming">Auto Dimming</span></div>
-          <div class="flex-row group group_dimming hidden">
-            <div class="inputwrap center">
-              <span class="inputtitle" data-i18n="lbl_enable_dimming">Enable Dimming</span>
-              <div class="checkbox ssoption" id="dim" data-command="dimmingenabled"><div class="knob"></div></div>
-            </div>
-            <div class="inputwrap center">
-              <span class="inputtitle" data-i18n="lbl_timeout_sec">Timeout (sec)</span>
-              <input type="number" id="dimto" data-command="dimmingtimeout" value="" maxlength="3" min="5" max="65520" />
-            </div>
-          </div>
-          <div class="flex-row group group_dimming hidden">
-            <div class="inputwrap pad">
-              <span class="inputtitle" data-i18n="lbl_dimmed_brightness">Dimmed Brightness</span>
-              <span class="inputinfo" id="sldimbrightnessinfo">0</span>
-              <input type="range" id="dimbr" data-slaveid="sldimbrightnessinfo" data-command="dimmingbrightness" min="0" max="100" value="100">
             </div>
           </div>
         </section>
@@ -358,8 +357,10 @@
           <div class="reset" data-name="system" title="reset"></div>
           <div class="flex-row">
             <div class="inputwrap center">
-              <span class="inputtitle" data-i18n="lbl_wifi_scan">Scan for Best Wi-Fi on Boot</span>
-             [<a href="https://trip5.github.io/ehRadio/#scan-for-best-wi-fi-on-boot" target="_blank">?</a>]
+              <span class="inputtitle">
+                <span data-i18n="lbl_wifi_scan">Scan for Best Wi-Fi on Boot</span>
+                [<a href="https://trip5.github.io/ehRadio/#scan-for-best-wi-fi-on-boot" target="_blank">?</a>]
+              </span>
               <div class="checkbox" id="wifiscan" data-command="wifiscan"><div class="knob"></div></div>
             </div>
             <div class="inputwrap center">
@@ -467,34 +468,39 @@
               <div class="checkbox" id="mqttenable" data-command="mqttenable"><div class="knob"></div></div>
             </div>
           </div>
-          <div class="flex-row">
-            <div class="inputwrap">
-              <span class="inputtitle" data-i18n="lbl_host">Host</span>
-              <input type="text" id="mqtthost" class="textinput" placeholder="192.168.1.2" maxlength="59" autocomplete="off" />
+          <!-- Collapsed by options.js while "Enable MQTT" is off (see setupMqttToggle); the title,
+               the enable toggle and the Apply Changes button stay visible. Starts hidden so the
+               fields never flash before the stored state arrives over the WebSocket. -->
+          <div id="mqttsettings" class="hidden">
+            <div class="flex-row">
+              <div class="inputwrap">
+                <span class="inputtitle" data-i18n="lbl_host">Host</span>
+                <input type="text" id="mqtthost" class="textinput" placeholder="192.168.1.2" maxlength="59" autocomplete="off" />
+              </div>
+              <div class="inputwrap">
+                <span class="inputtitle" data-i18n="lbl_port">Port</span>
+                <input type="number" id="mqttport" value="" min="1" max="65535" step="1" />
+              </div>
             </div>
-            <div class="inputwrap">
-              <span class="inputtitle" data-i18n="lbl_port">Port</span>
-              <input type="number" id="mqttport" value="" min="1" max="65535" step="1" />
+            <div class="flex-row">
+              <div class="inputwrap">
+                <span class="inputtitle" data-i18n="lbl_user">User</span>
+                <input type="text" id="mqttuser" class="textinput" placeholder="mqttuser" maxlength="29" autocomplete="off" />
+              </div>
+              <div class="inputwrap">
+                <span class="inputtitle" data-i18n="lbl_password">Password</span>
+                <input type="text" id="mqttpass" class="textinput" name="pass" value="" placeholder="**********" maxlength="39" autocomplete="off" readonly="readonly" data-pass="" onfocus="this.removeAttribute('readonly');" />
+              </div>
             </div>
-          </div>
-          <div class="flex-row">
-            <div class="inputwrap">
-              <span class="inputtitle" data-i18n="lbl_user">User</span>
-              <input type="text" id="mqttuser" class="textinput" placeholder="mqttuser" maxlength="29" autocomplete="off" />
+            <div class="flex-row">
+              <div class="inputwrap">
+                <span class="inputtitle" data-i18n="lbl_root_topic">Root Topic</span>
+                <input type="text" id="mqtttopic" class="textinput" placeholder="ehradio/myradio/" maxlength="59" autocomplete="off" />
+              </div>
             </div>
-            <div class="inputwrap">
-              <span class="inputtitle" data-i18n="lbl_password">Password</span>
-              <input type="text" id="mqttpass" class="textinput" name="pass" value="" placeholder="**********" maxlength="39" autocomplete="off" readonly="readonly" data-pass="" onfocus="this.removeAttribute('readonly');" />
+            <div class="flex-row last">
+              <div class="fb hl local" data-command="applymqtt" data-i18n="btn_apply_changes">Apply Changes</div>
             </div>
-          </div>
-          <div class="flex-row">
-            <div class="inputwrap">
-              <span class="inputtitle" data-i18n="lbl_root_topic">Root Topic</span>
-              <input type="text" id="mqtttopic" class="textinput" placeholder="ehradio/myradio/" maxlength="59" autocomplete="off" />
-            </div>
-          </div>
-          <div class="flex-row last">
-            <div class="fb hl local" data-command="applymqtt" data-i18n="btn_apply_changes">Apply Changes</div>
           </div>
         </section>
 

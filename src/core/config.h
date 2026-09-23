@@ -133,8 +133,11 @@ struct config_t // specify defaults here (and macros in options.h) (defaults are
   bool      vumeter = SHOW_VU_METER;
   bool      vupeak = SHOW_VU_PEAK;
   uint8_t   vustyle = VU_STYLE_DEFAULT;   // which visualiser the VU box draws; see vuStyle_e
-  uint8_t   brightness = SCREEN_BRIGHTNESS;
   uint8_t   contrast = SCREEN_CONTRAST;
+  uint8_t   brightness = SCREEN_BRIGHTNESS;
+  bool      dimmingEnabled = DIMMING_ENABLED;
+  uint16_t  dimmingTimeout = DIMMING_TIMEOUT;
+  uint8_t   dimmingBrightness = DIMMING_BRIGHTNESS;
   bool      screensaverEnabled = SS_NOTPLAYING;
   bool      screensaverBlank = SS_NOTPLAYING_BLANK;
   uint16_t  screensaverTimeout = SS_NOTPLAYING_TIME;
@@ -142,9 +145,6 @@ struct config_t // specify defaults here (and macros in options.h) (defaults are
   bool      screensaverPlayingBlank = SS_PLAYING_BLANK;
   uint16_t  screensaverPlayingTimeout = SS_PLAYING_TIME;
   bool      screensaverFullDateTime = SS_FULL_DATETIME;
-  bool      dimmingEnabled = DIMMING_ENABLED;
-  uint16_t  dimmingTimeout = DIMMING_TIMEOUT;
-  uint8_t   dimmingBrightness = DIMMING_BRIGHTNESS;
 
   // Locale
   char      locale_webui[6] = WEBUI_LOCALE;
@@ -180,7 +180,7 @@ struct config_t // specify defaults here (and macros in options.h) (defaults are
   char      mdnsname[MDNS_LENGTH] = "";
 
   // MQTT
-  bool      mqttenable = false;
+  bool      mqttenable = MQTT_ENABLE;
   char      mqtthost[60] = MQTT_HOST;
   uint16_t  mqttport = MQTT_PORT;
   char      mqttuser[30] = MQTT_USER;
@@ -303,7 +303,7 @@ class Config {
     void setTitle(const char* title);
     void setStation(const char* station);
     void setBrightness(bool dosave=false);
-    void setDspOn(bool dspon, bool saveval = true);
+    void setDspOn(bool dspon, bool updateState = true);
     void bootInfo();
     void deleteOldKeys();
     void saveLastStationUrl(const char* url, uint16_t waitMs = 10000);

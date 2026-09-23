@@ -115,7 +115,14 @@ It will pull artwork when available in the stream.
 
 ![image](images/HomeAssistant2.png)
 
-MQTT must be enabled with `#define MQTT_ENABLE` in `myoptions.h`.
+MQTT is switched on in the WebUI (Settings > MQTT). No build-time define is needed.
+
+Update `custom_components/ehradio` whenever you update the firmware: this release changed the MQTT topics,
+and an older component does not read the new `state` topic.
+
+The power button only puts the radio into standby, which is what the entity reports. The source list
+follows the `mode` topic, so while the radio plays from the SD card the dropdown lists the SD card's
+stations instead of the web playlist.
 
 Add this to your `configuration.yaml`.
 ```
@@ -133,9 +140,10 @@ ehRadio has a unified command handler that can process all of the same commands 
 
 ### MQTT
 
-MQTT accepts raw text only.
+Commands are terse because they are typed by hand in automations, and state is one fact per topic so a
+consumer can bind to a single topic without parsing anything.
 
-Publish `<mqtttopic>command` (for example, `ehradio/myradio/command`).
+Publish commands to `<mqtttopic>command` (for example, `ehradio/myradio/command`).
 
 | Format       | Example Payload |
 | ------------ | -------------- |
@@ -144,6 +152,36 @@ Publish `<mqtttopic>command` (for example, `ehradio/myradio/command`).
 | key(value)   | `sleep(30,5)` |
 | Bare command | `start` |
 | Raw URL      | `http://radio-url/stream` |
+
+The device publishes the topics below. All of them are retained, and each is published only when its value
+changes.
+
+| Topic | Payload | Notes |
+| ----- | ------- | ----- |
+| `status` | JSON attributes | `station`, `name`, `title`, `image_url`, `max_volume` |
+| `state` | `off`, `playing`, `idle` or `buffering` | Home Assistant's vocabulary, never translated |
+| `mode` | `0` or `1` | `0` web radio, `1` SD card, the same value the `mode` command takes |
+| `ip` | IP address | where the device is reachable |
+| `volume` | number | `0` to `VOLUME_SCALE` (42 by default) |
+| `playlist` | playlist revision | CRC32 of the active playlist file |
+| `availability` | `online` or `offline` | see below |
+
+`title` carries exactly what the display shows, so it follows the display locale - the device's own
+placeholders such as `[connecting]` appear in whatever language the WebUI has set. Anything that has to be
+machine-readable uses `state` instead, which is always English.
+
+`availability` is `online` while the device is connected to the broker, and `offline` is registered as the
+MQTT last will, so the broker publishes it on its own when the device stops without saying goodbye: a power
+cut, a crash or deep sleep. Unticking MQTT in the WebUI publishes `offline` first, because a clean
+disconnect would otherwise leave the broker announcing a device that has stopped talking. Home Assistant
+shows the entity as unavailable while `offline` is retained.
+
+`playlist` carries a revision rather than a URL. The station lists are served over HTTP at
+`/data/playlist.csv` (web radio) and `/data/playlistsd.csv` (SD card), and the `mode` topic says which one
+is live; a consumer fetches the list it needs and fetches it again when the revision changes.
+
+Note the changes in this release, since other consumers may read these topics: `playlist` used to carry a
+URL, and `status` used to include `status` and `on` numbers. Those two keys are gone in favour of `state`.
 
 ### Telnet
 

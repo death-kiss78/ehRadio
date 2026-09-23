@@ -25,6 +25,7 @@ if (document.readyState === 'loading') {
     loadLocales();
     loadDisplayLocales();
     setupWeatherProviderToggle();
+    setupMqttToggle();
     setupDimmingControls();
   });
 } else {
@@ -36,6 +37,7 @@ if (document.readyState === 'loading') {
   loadLocales();
   loadDisplayLocales();
   setupWeatherProviderToggle();
+  setupMqttToggle();
   setupDimmingControls();
 }
 
@@ -225,6 +227,29 @@ function setupWeatherProviderToggle() {
   
   // Trigger once on load to set initial state
   toggleWeatherFields();
+}
+
+/** MQTT **/
+function setupMqttToggle() {
+  const toggle = getId('mqttenable');
+  const settings = getId('mqttsettings');
+  if (!toggle || !settings) return;
+
+  const sync = () => settings.classList.toggle('hidden', !toggle.classList.contains('checked'));
+
+  // script.js toggles the .checked class on the same click event, so sync once that has run
+  toggle.addEventListener('click', () => setTimeout(sync, 0));
+
+  // getmqtt restores the stored value through setupElement -> afterSetupElement
+  const previousAfterSetupElement = window.afterSetupElement;
+  window.afterSetupElement = (id, value, element) => {
+    if (typeof previousAfterSetupElement === 'function') {
+      previousAfterSetupElement(id, value, element);
+    }
+    if (id === 'mqttenable') sync();
+  };
+
+  sync(); // the markup starts hidden, so settle it now (useful when the WebSocket data is late)
 }
 
 /** LOCALE **/

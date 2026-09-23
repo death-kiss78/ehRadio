@@ -30,11 +30,6 @@
     "lib_deps": "${library.neopixel}"
   },
   {
-    "name": "MQTT Enable",
-    "define": "MQTT_ENABLE", "type": "flag", "optional": false, "comment": "enable MQTT",
-    "info": "This must be checked to enable MQTT"
-  },
-  {
     "name": "IR Receiver",
     "pins": [ "IR_PIN" ],
     "defines": [

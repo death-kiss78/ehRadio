@@ -196,7 +196,6 @@ class NetServer {
     void onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t clientId);
     void requestOnChange(requestType_e request, uint8_t clientId);
     void resetQueue();
-    void triggerMqttPlaylistSync();
     void setBootReady(bool val) { bootReady = val; }
     bool isBootReady() const { return bootReady; }
 

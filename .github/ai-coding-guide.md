@@ -67,6 +67,7 @@
 ## Project Structure
 - **Config Cascade**: `platformio.ini` (env #define) → `myoptions.h` (hardware profile, user defaults) → `options.h` (fallback defaults for anything undefined)
 - **Core logic**: `src/core/` (Player, Display, Network, Config, Controls).
+- **Headers that own data**: `src/locale/dsplocale.h` defines its locale tables (`l10n_strings[36][77]` and every translated string) as namespace-scope `const` arrays *inside the header*, so each translation unit that includes it embeds another complete copy - roughly 48 KB of flash. Do not add that include to a new file: call `l10n(...)` from a file that already has it, or expose a small accessor as `Player::isConnecting()` does for the "connecting" placeholder check.
 - **Libraries path**: Software codecs: `libraries/I2S_Audio/`, `libraries/ES8311_Audio` / Hardware decoder: `libraries/VS1053_Audio/` (Hardware chip), other folders are custom drivers for other display, touchscreen, and other hardware.
 - **UI**: Widgets in `src/displays/widgets/`, drivers in `src/displays/`.
 - **Plugins**: The former yoRadio plugin hook system has been removed. Add new behavior in the owning core module instead of reviving plugin-style hooks.

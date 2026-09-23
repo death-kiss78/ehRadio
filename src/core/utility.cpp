@@ -162,6 +162,108 @@ bool Utility::parseCSV(const char* line, char* name, char* url, int& ovol) {
   return true;
 }
 
+void Utility::normalizeToCRLF(const char* input, char* output, size_t outputSize) {
+  if (!input || !output || outputSize == 0) return;
+
+  size_t inputLen = strlen(input);
+  size_t out = 0;
+
+  bool needsConversion = false;
+  for (size_t i = 0; i < inputLen; ++i) {
+    if (input[i] == '\n' && (i == 0 || input[i - 1] != '\r')) {
+      needsConversion = true;
+      break;
+    }
+  }
+
+  if (!needsConversion) {
+    size_t copyLen = (inputLen < outputSize - 1) ? inputLen : outputSize - 1;
+    memcpy(output, input, copyLen);
+    output[copyLen] = '\0';
+    return;
+  }
+
+  for (size_t i = 0; i < inputLen && out + 1 < outputSize; ++i) {
+    char c = input[i];
+    if (c != '\n') {
+      output[out++] = c;
+    } else if (i > 0 && input[i - 1] == '\r') {
+      output[out++] = '\n'; // already CRLF
+    } else if (out + 2 < outputSize) {
+      output[out++] = '\r';
+      output[out++] = '\n';
+    } else {
+      break; // no room for the pair
+    }
+  }
+  output[(out < outputSize) ? out : outputSize - 1] = '\0';
+}
+
+bool Utility::isHttpUrl(const char* text) {
+  return text && (strncmp(text, "http://", 7) == 0 || strncmp(text, "https://", 8) == 0);
+}
+
+bool Utility::parseCommandLine(const char* input, char* command, size_t commandSize, char* value, size_t valueSize) {
+  if (!input || input[0] == '\0' || !command || !value || commandSize == 0 || valueSize == 0) return false;
+
+  command[0] = '\0';
+  value[0] = '\0';
+
+  if (isHttpUrl(input)) {
+    strlcpy(command, "burl", commandSize);
+    strlcpy(value, input, valueSize);
+    return true;
+  }
+
+  const char* eq = strchr(input, '=');
+  if (eq) {
+    size_t commandLen = static_cast<size_t>(eq - input);
+    if (commandLen >= commandSize) commandLen = commandSize - 1;
+    memcpy(command, input, commandLen);
+    command[commandLen] = '\0';
+    strlcpy(value, eq + 1, valueSize);
+  } else {
+    const char* open = strchr(input, '(');
+    const char* close = strrchr(input, ')');
+    if (open && close && close > open) {
+      size_t commandLen = static_cast<size_t>(open - input);
+      if (commandLen >= commandSize) commandLen = commandSize - 1;
+      memcpy(command, input, commandLen);
+      command[commandLen] = '\0';
+
+      size_t valueLen = static_cast<size_t>(close - open - 1);
+      if (valueLen >= valueSize) valueLen = valueSize - 1;
+      memcpy(value, open + 1, valueLen);
+      value[valueLen] = '\0';
+    } else {
+      const char* space = strchr(input, ' ');
+      if (space) {
+        size_t commandLen = static_cast<size_t>(space - input);
+        if (commandLen >= commandSize) commandLen = commandSize - 1;
+        memcpy(command, input, commandLen);
+        command[commandLen] = '\0';
+        strlcpy(value, space + 1, valueSize);
+      } else {
+        strlcpy(command, input, commandSize);
+      }
+    }
+  }
+
+  stripWhitespace(command);
+  stripWhitespace(value);
+  stripWrappingQuotes(value);
+
+  if (strcmp(command, "play") == 0) {
+    if (value[0] == '\0') {
+      strlcpy(command, "start", commandSize);
+    } else if (isHttpUrl(value)) {
+      strlcpy(command, "burl", commandSize);
+    }
+  }
+
+  return command[0] != '\0';
+}
+
 bool Utility::parseWsCommand(const char* line, char* cmd, char* val, uint8_t cSize) {
   char* equals = nullptr;
 
@@ -538,7 +640,7 @@ void Utility::sleepForAfter(uint16_t sleepfor, uint16_t sa) {
   }
 }
 
-void Utility::standbyon() {
+void Utility::stopStandby() {
   config.setDspOn(true);
   backlightControls.restart();
   if (config.store.smartstart) {
@@ -547,16 +649,16 @@ void Utility::standbyon() {
   }
 }
 
-void Utility::standbyoff() {
+void Utility::startStandby() {
   network.cancelStreamRetry();
   config.setDspOn(false);
   backlightControls.restart();
   player.sendCommand({PR_STOP, 0});
 }
 
-void Utility::togglestandby() {
-  if (config.store.dspon) standbyoff();
-  else standbyon();
+void Utility::toggleStandby() {
+  if (config.store.dspon) startStandby();
+  else stopStandby();
 }
 
 bool Utility::verifyLittleFS() {

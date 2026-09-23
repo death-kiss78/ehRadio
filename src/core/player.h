@@ -54,6 +54,7 @@ class Player: public Audio {
 
     bool hasError() { return strlen(_plError)>0; }
     plStatus_e status() { return _status; }
+    bool isConnecting();  // the title still holds the localized "connecting" placeholder
     void setResumeFilePos(uint32_t pos) { _resumeFilePos = pos; }
   private:
     uint32_t    _resumeFilePos = 0;

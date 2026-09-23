@@ -396,13 +396,10 @@ void Config::defaultSettings(const char *val, uint8_t clientId) {
   }
   if (strcmp(val, "screen") == 0) {
     saveValue(&store.flipscreen, (bool)SCREEN_FLIP);
-    display.flip();
     saveValue(&store.invertdisplay, (bool)SCREEN_INVERT);
     saveValue(&store.inverttitle, INVERT_TITLE);
     saveValue(&store.themeId, (uint8_t)0);
-    display.applyTheme(0);
     saveValue(&store.layoutId, (uint8_t)0);
-    display.applyLayout(0);
     saveValue(&store.numplaylist, (bool)NUMBERED_PLAYLIST);
     saveValue(&store.clock12, (bool)CLOCK_TWELVE);
     saveValue(&store.volumepage, (bool)VOLUME_PAGE);
@@ -410,10 +407,12 @@ void Config::defaultSettings(const char *val, uint8_t clientId) {
     saveValue(&store.vumeter, (bool)SHOW_VU_METER);
     saveValue(&store.vupeak, (bool)SHOW_VU_PEAK);
     saveValue(&store.vustyle, (uint8_t)VU_STYLE_DEFAULT);
-    saveValue(&store.dspon, true);
-    store.brightness = (uint8_t)SCREEN_BRIGHTNESS; setBrightness(false);
     saveValue(&store.contrast, (uint8_t)SCREEN_CONTRAST);
-    display.setContrast();
+    saveValue(&store.dimmingEnabled, (bool)DIMMING_ENABLED);
+    saveValue(&store.dimmingTimeout, (uint16_t)DIMMING_TIMEOUT);
+    saveValue(&store.dimmingBrightness, (uint8_t)DIMMING_BRIGHTNESS);
+    store.dspon = true;  // runtime state only: the display is always on at boot/reset, never restored from NVS
+    store.brightness = (uint8_t)SCREEN_BRIGHTNESS; setBrightness(false);
     saveValue(&store.screensaverEnabled, (bool)SS_NOTPLAYING);
     saveValue(&store.screensaverBlank, (bool)SS_NOTPLAYING_BLANK);
     saveValue(&store.screensaverTimeout, (uint16_t)SS_NOTPLAYING_TIME);
@@ -421,10 +420,11 @@ void Config::defaultSettings(const char *val, uint8_t clientId) {
     saveValue(&store.screensaverPlayingBlank, (bool)SS_PLAYING_BLANK);
     saveValue(&store.screensaverPlayingTimeout, (uint16_t)SS_PLAYING_TIME);
     saveValue(&store.screensaverFullDateTime, (bool)SS_FULL_DATETIME);
-    saveValue(&store.dimmingEnabled, (bool)DIMMING_ENABLED);
-    saveValue(&store.dimmingTimeout, (uint16_t)DIMMING_TIMEOUT);
-    saveValue(&store.dimmingBrightness, (uint8_t)DIMMING_BRIGHTNESS);
     backlightControls.restart();
+    display.flip();
+    display.applyTheme(0);
+    display.applyLayout(0);
+    display.setContrast();
     display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER);
     netserver.requestOnChange(GETSCREEN, clientId);
     return;
@@ -477,7 +477,7 @@ void Config::defaultSettings(const char *val, uint8_t clientId) {
     return;
   }
   if (strcmp(val, "mqtt") == 0) {
-    saveValue(&store.mqttenable, false);
+    saveValue(&store.mqttenable, MQTT_ENABLE);
     saveValue(store.mqtthost, MQTT_HOST);
     saveValue(&store.mqttport, (uint16_t)MQTT_PORT);
     saveValue(store.mqttuser, MQTT_USER);
@@ -724,15 +724,14 @@ void Config::setBrightness(bool dosave) {
     if (!store.dspon) store.dspon = true;
     if (dosave) {
       saveValueButWait(&store.brightness, store.brightness, 4000);
-      saveValue(&store.dspon, store.dspon);
     }
   #endif
 }
 
-void Config::setDspOn(bool dspon, bool saveval) {
-  if (saveval) {
+void Config::setDspOn(bool dspon, bool updateState) {
+  if (updateState) {
+    // Runtime state only: intentionally NOT persisted, so a standby/blank 'false' is never restored on boot.
     store.dspon = dspon;
-    saveValue(&store.dspon, store.dspon);
   }
   if (!dspon) {
     #if BRIGHTNESS_PIN!=255
@@ -876,9 +875,6 @@ void Config::bootInfo() {
     BOOTLOG("Update URL:\t%s", UPDATEURL);
     BOOTLOG("Auto Update:\t%s", store.autoupdate?"true":"false");
   #endif
-  #ifdef MQTT_ENABLE
-    BOOTLOG("MQTT Enabled:\t%s", store.mqttenable?"true":"false");
-  #endif
   BOOTLOGX("AP SSID:\t%s", AP_SSID);
   #ifdef AP_PASSWORD
     SERIALLOG(", Password: %s", AP_PASSWORD);
@@ -908,6 +904,9 @@ void Config::bootInfo() {
   BOOTLOG("WebUI Locale:\t%s", store.locale_webui);
   BOOTLOG("Smartstart:\t%s", store.smartstart?"true":"false");
   BOOTLOG("Wifi Scan Best:\t%s", store.wifiscanbest?"true":"false");
+  BOOTLOG("ehDP Enabled:\t%s", store.ehdp?"true":"false");
+  BOOTLOG("mDNS Name:\t%s", store.mdnsname);
+  BOOTLOG("MQTT Enabled:\t%s", store.mqttenable?"true":"false");
   BOOTLOG("------------------------------------------------");
 }
 
@@ -940,7 +939,6 @@ const configKeyMap Config::keyMap[] = {
   CONFIG_KEY_ENTRY(inverttitle, "inverttitle"),
   CONFIG_KEY_ENTRY(layoutId, "layoutid"),
   CONFIG_KEY_ENTRY(themeId, "themeid"),
-  CONFIG_KEY_ENTRY(dspon, "dspon"),
   CONFIG_KEY_ENTRY(numplaylist, "numplaylist"),
   CONFIG_KEY_ENTRY(clock12, "clock12"),
   CONFIG_KEY_ENTRY(volumepage, "volpage"),
@@ -1012,6 +1010,7 @@ void Config::deleteOldKeys() {
   prefs.remove("showwthr"); // replaced by showweather
   prefs.remove("ircodes"); // replaced by the named per-button keys in the "ehradioir" namespace
   prefs.remove("softapdelay"); // SoftAP reboot delay removed: options.h SOFTAP_REBOOT_DELAY is the only control now
+  prefs.remove("dspon"); // should never have been / it's a runtime-only state
   // none yet
 }
 

@@ -175,18 +175,6 @@ AsyncWebServer webserver(80);
 AsyncWebSocket websocket("/ws");
 
 bool  shouldReboot  = false;
-#ifdef MQTT_ENABLE
-  Ticker mqttplaylistticker;
-  volatile bool mqttplaylistblock = false;  // volatile: written from Ticker callback, read from AsyncWebServer task
-  void mqttplaylistSend() {
-    if (config.store.mqttenable) {
-      mqttplaylistblock = true;
-      mqttplaylistticker.detach();
-      mqtt.publishPlaylist();
-      mqttplaylistblock = false;
-    }
-  }
-#endif
 
 char* updateError() {
   static char ret[140] = {0};
@@ -528,9 +516,7 @@ void NetServer::processQueue() {
           if (network.status == CONNECTED) {
                                                                 act += F("\"group_system\",");
             if (battery.isInitialized() || DBGWUI)              act += F("\"group_battery\",");
-                                                              #if defined(MQTT_ENABLE) || DBGWUI
                                                                 act += F("\"group_mqtt\",");
-                                                              #endif
             if (BRIGHTNESS_PIN != 255 || DSP_CAN_FLIPPED || DSP_MODEL == DSP_NOKIA5110 || DBGWUI)
                                                                 act += F("\"group_display\",");
                                                               #if defined(LCD_I2C) || defined(DSP_OLED) || DBGWUI
@@ -709,19 +695,8 @@ void NetServer::processQueue() {
       #endif
       default:          break;
     }
-    #ifdef MQTT_ENABLE
-      if (config.store.mqttenable && clientId == 0 && request.type == ARTWORK) {
-        mqtt.publishStatus();
-      }
-    #endif
     if (strlen(wsbuf) > 0) {
       if (clientId == 0) { websocket.textAll(wsbuf); } else { websocket.text(clientId, wsbuf); }
-      #ifdef MQTT_ENABLE
-        if (config.store.mqttenable) {
-          if (clientId == 0 && (request.type == STATION || request.type == ITEM || request.type == TITLE || request.type == MODE)) mqtt.publishStatus();
-          if (clientId == 0 && request.type == VOLUME) mqtt.publishVolume();
-        }
-      #endif
     }
   }
 }
@@ -739,6 +714,7 @@ void NetServer::loop() {
     default:      break;
   }
   processQueue();
+  mqtt.loop(); // single owner of the MQTT client: applies requests, runs queued commands, publishes
   #ifdef RADIO_BROWSER_SEND_CLICKS
     processRadioBrowserClick();
   #endif
@@ -814,12 +790,6 @@ void NetServer::requestOnChange(requestType_e request, uint8_t clientId) {
 
 void NetServer::resetQueue() {
   if (nsQueue!=NULL) xQueueReset(nsQueue);
-}
-
-void NetServer::triggerMqttPlaylistSync() {
-  #ifdef MQTT_ENABLE
-    if (config.store.mqttenable) mqttplaylistticker.attach(5, mqttplaylistSend);
-  #endif
 }
 
 int freeSpace;
@@ -1606,11 +1576,6 @@ void handleNotFound(AsyncWebServerRequest * request) {
         strcmp(request->url().c_str(), TMP_PATH) == 0 || 
         strcmp(request->url().c_str(), PLAYLIST_SD_PATH) == 0 || 
         strcmp(request->url().c_str(), INDEX_SD_PATH) == 0) {
-          #ifdef MQTT_ENABLE
-            if (config.store.mqttenable) {
-              if (strcmp(request->url().c_str(), PLAYLIST_PATH) == 0) while (mqttplaylistblock) vTaskDelay(5);
-            }
-          #endif
       if (strcmp(request->url().c_str(), PLAYLIST_PATH) == 0 && config.getMode()==PM_SDCARD) {
         netserver.chunkedHtmlPage("application/octet-stream", request, PLAYLIST_SD_PATH);
       } else {

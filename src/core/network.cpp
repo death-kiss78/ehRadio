@@ -302,9 +302,7 @@ void MyNetwork::WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
       }
     }
   }
-  #ifdef MQTT_ENABLE
-    if (config.store.mqttenable) mqtt.connect();
-  #endif
+  if (config.store.mqttenable) mqtt.init();
 }
 
 void MyNetwork::WiFiLostConnection(WiFiEvent_t event, WiFiEventInfo_t info) {

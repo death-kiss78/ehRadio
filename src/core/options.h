@@ -173,11 +173,11 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 
 /* SSD1322 is a 4-bit / 16-level grayscale panels */
-// Add this to your myoptions.h to use the greyscale palette:
-// #define OLED_GREYSCALE true
+// Add this to your myoptions.h to use the monochrome palette:
+// #define OLED_GREYSCALE false
 // SSD1327 proved to have issues showing greyscale so it no longer has this option
 #ifndef OLED_GREYSCALE
-  #define OLED_GREYSCALE false
+  #define OLED_GREYSCALE true
 #endif
 
 /* Can the display be dimmed? If it is set to true but the Brightness Pin is not set... */
@@ -863,6 +863,12 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef MQTT_URL_SIZE
   #define MQTT_URL_SIZE 512 // shared URL buffer cap for MQTT commands, artwork URLs, and browse URLs
 #endif
+#ifndef MQTT_STATUS_SETTLE_MS
+  #define MQTT_STATUS_SETTLE_MS 1500 // ms; a status change must stay unchanged this long before it is published
+#endif
+#ifndef MQTT_KEEPALIVE
+  #define MQTT_KEEPALIVE 60 // seconds; keeps NAT entries alive, and the broker waits 1.5x this before firing the last will
+#endif
 #ifndef STATION_FIELD_LENGTH
   #define STATION_FIELD_LENGTH 170 // max length for station name, URL, and title fields
 #endif
@@ -1201,9 +1207,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 
 /* --- OTHER COMPILE OPTIONS --- */
 /*  Here are other #defines that may be added to myoptions.h   */
-#ifdef MQTT_ENABLE
- // This enables MQTT. A nice option to have but not available in the code without this #define in myoptions.h
-#endif
 #ifdef PLAYLIST_DEFAULT_URL
  // This will download a playlist when first-booting and no playlist is present on LittleFS.  Can be CSV or JSON format.  Example:
  // #define PLAYLIST_DEFAULT_URL "https://github.com/trip5/webstations/releases/latest/download/trip5-radio-playlist.csv"
@@ -1267,6 +1270,9 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #endif
   #ifndef WIDGET_DEBUG
     #define WIDGET_DEBUG // This shows the Widget's Text (and the VU draw cost) in logging
+  #endif
+  #ifndef MQTT_DEBUG
+    #define MQTT_DEBUG // This shows ESP-IDF transport logs
   #endif
 #endif
 #ifndef ESPFILEUPDATER_VERBOSE
@@ -1632,6 +1638,9 @@ static_assert(
   __builtin_strcmp(WEATHER_WIND_SPEED_UNITS, "m/s") == 0,
   "define error in myoptions.h: WEATHER_WIND_SPEED_UNITS must be \"kmh\", \"mph\", \"kn\", or \"m/s\""
 );
+#ifndef MQTT_ENABLE
+  #define MQTT_ENABLE false
+#endif
 #ifndef MQTT_HOST
   #define MQTT_HOST "192.168.1.2"
 #endif

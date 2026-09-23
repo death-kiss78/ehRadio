@@ -266,7 +266,7 @@ void Controls::irLoop() {
             switch (irAct) {
               case IRACT_POWER: {
                   irBlink();
-                  utility.togglestandby();
+                  utility.toggleStandby();
                   break;
                 }
               case IRACT_MUTE: {

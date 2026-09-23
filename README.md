@@ -199,8 +199,11 @@ For a detailed guide to supported hardware and peripherals, wiring, and audio is
 ## A Warning & Disclaimer
 
 With the `2026.07.31` release, the display architecture was overhauled to make layouts and colors changeable while running.
+
+Further, recent releases have begun to overhaul more of the the display architecture to make switching VUs and fonts changeable as well.
+
 This involved significant changes to the original ёRadio code and layouts.
-Tools are available in the repository to assist in converting files from ёRadio mods.
+Tools are available in the repository to assist in converting files from ёRadio mods for inclusion in ehRadio
 
 Trip5 builds include OLED 128x64 and TFTs 480x320, 320x240, 160x128.
 Other display sizes may have quirks or issues with layouts that need repair.
@@ -336,7 +339,7 @@ For that and other major needed changes to the codebase, there is a `code-issues
 
 | Date       | Release Notes    |
 | ---------- | ---------------- |
-| 2026.09.21 `dev` | ***Breaking changes*** LittleFS (not SPIFFS), Boot speed improved, major work on layouts and VU: OLEDs now can get VU, timing fixed, bar orientation, peak bars, visualizations added (I2S gets more), fixes to: SSD1327, `ROTATE_90` for square displays, TFT display resolutions, volume page, Firefox mobile, IR code overhauled and mute/power added, recover fast: network stack crash, Wi-fi and stream reconnects, NV3007 added (work in progress) |
+| 2026.09.22 `dev` | ***Breaking changes*** LittleFS (not SPIFFS), Boot speed improved, major work on layouts and VU: OLEDs now can get VU, timing fixed, bar orientation, peak bars, visualizations added (I2S gets more), fixes to: SSD1327, `ROTATE_90` for square displays, TFT display resolutions, volume page, Firefox mobile, IR code overhauled and mute/power added, recover from network stack crashes, Wi-fi and stream reconnects improved, library change: `elims/PsychicMqttClient` & MQTT/HA better (state topic, availability with last will, mode/ip topics, playlist revision), NV3007 added (work in progress) |
 | 2026.08.19 | Stability and bug fixes (SD Offline), documentation |
 | 2026.08.13 | Memory usage, stability, and bug fixes (especially to SD, VS1053) |
 | 2026.08.03 | Minor fixes (and whoops) fixed Search and Curated |

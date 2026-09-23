@@ -307,7 +307,8 @@
       { "define": "DSP_WIDTH", "type": "numeric", "default": 128, "optional": true, "comment": "override default width (128)" },
       { "define": "DSP_HEIGHT", "type": "numeric", "default": 64, "optional": true, "comment": "override default height (64)" },
       { "define": "TFT_RST", "type": "pin", "default": -1, "optional": true, "comment": "pin RST is attached to (-1 = EN pin)" },
-      { "define": "ROTATE_90", "type": "boolean", "default": false, "optional": true, "comment": "rotates display 90° (width MUST equal height)" }
+      { "define": "ROTATE_90", "type": "boolean", "default": false, "optional": true, "comment": "rotates display 90° (width MUST equal height)" },
+      { "define": "OLED_GREYSCALE", "type": "boolean", "default": true, "optional": true, "comment": "uses a greyscale palette (false = monochrome)" }
     ],
     "lib_deps": "${library.ssd1327}"
   },

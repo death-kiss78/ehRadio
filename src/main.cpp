@@ -111,9 +111,7 @@ void setup() {
   display.putRequest(DSP_START);
   while(!display.ready()) delay(10);
   BOOTTIMELOG("display DSP_START");
-  #ifdef MQTT_ENABLE
-    if (config.store.mqttenable && network.status != SDOFFLINE) mqtt.init();
-  #endif
+  if (config.store.mqttenable && network.status != SDOFFLINE) mqtt.init();
   BOOTTIMELOG("mqtt.init");
   #if LED_INVERT
     if (LED_PIN!=255) digitalWrite(LED_PIN, true);

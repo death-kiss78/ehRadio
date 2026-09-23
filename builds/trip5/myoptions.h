@@ -258,8 +258,6 @@
   //#define RTC_CS         8 //oops
 #endif
 
-#define MQTT_ENABLE
-
 
 /* --- Battery --- */
 

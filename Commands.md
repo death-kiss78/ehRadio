@@ -19,9 +19,9 @@ Order and sections match that file.
 | `bass` | Set bass (-16..16). |
 | `volume`, `vol` | Set absolute volume (clamped 0..VOLUME_SCALE). |
 | `mute` | Toggle mute: volume 0 <-> last active level. Same behaviour as the IR mute button; physical-button mute is suppressed without a display. |
-| `standby` | Toggle standby on or off |
-| `standbyoff` | Turn display off, stop playback, and preserve smartstart value. |
-| `standbyon` | Turn display on, optionally resume smartstart playback. |
+| `togglestandby` | Toggle standby on or off |
+| `startstandby` | Turn display off, stop playback, and preserve smartstart value. |
+| `stopstandby` | Turn display on, optionally resume smartstart playback. |
 | `burl`, `playurl` | Play direct stream URL (http/https). |
 | `sdpos` | Set SD playback position when in SD mode. |
 | `playstation`, `play` | Play station by playlist index (clamped to valid range). |
@@ -84,9 +84,12 @@ Order and sections match that file.
 | `vumeter` | Enable/disable VU meter and refresh display state. |
 | `vupeaks` | Enable/disable the VU meter peak markers (or XY axis lines). |
 | `vustyle` | Select the VU meter visualisation style (the id is numeric, clamped to the known range). |
+| `contrast` | Set contrast (0..100) and apply to display. |
 | `brightness`, `dim` | Set brightness (0..100), ensure screen-on state, clamp dimmed brightness if needed, and apply brightness. |
 | `screenon`, `dspon` | Turn display on/off and reset dimming state. |
-| `contrast` | Set contrast (0..100) and apply to display. |
+| `dimmingenabled` | Enable/disable idle dimming behavior. |
+| `dimmingtimeout` | Set idle dimming timeout (5..65520). |
+| `dimmingbrightness` | Set dimmed brightness (0..100, clamped to the current brightness setting). |
 | `screensaverenabled` | Enable/disable idle screensaver behavior. |
 | `screensavertimeout` | Set idle screensaver timeout (5..65520). |
 | `screensaverblank` | Enable/disable idle screensaver blanking behavior. |
@@ -94,9 +97,6 @@ Order and sections match that file.
 | `screensaverplayingtimeout` | Set playing screensaver timeout (1..1080). |
 | `screensaverplayingblank` | Enable/disable playing screensaver blanking behavior. |
 | `screensaverfull` | Enable/disable full time on the screensaver. |
-| `dimmingenabled` | Enable/disable idle dimming behavior. |
-| `dimmingtimeout` | Set idle dimming timeout (5..65520). |
-| `dimmingbrightness` | Set dimmed brightness (0..100, clamped to the current brightness setting). |
 
 ## Options: Controls
 
@@ -141,7 +141,6 @@ Order and sections match that file.
 
 ## Options: MQTT
 
-Only available when built with MQTT_ENABLE.
 
 | Command(s) | Action |
 | --- | --- |

@@ -91,7 +91,7 @@ Grouped (not one-by-one deep explained) areas:
 - Canonical fallback defaults and compile flags.
 - Includes `myoptions.h` when present.
 - **Owns all compile-time guardrails** inline, right next to each respective define.
-- Owns shared buffer sizing macros under `/* Maximum lengths of character buffers */`, including `MQTT_URL_SIZE` for stream/artwork URL buffers used by `player`, `audiohandlers`, and MQTT status payload sizing.
+- Owns shared buffer sizing macros under `/* Maximum lengths of character buffers */`, including `MQTT_URL_SIZE` for stream/artwork URL buffers used by `player`, `audiohandlers`, and MQTT status payload sizing, plus `MQTT_STATUS_SETTLE_MS` (how long an MQTT status change must remain unchanged before it is published).
 - Defines:
   - hardware defaults (pins, feature gates)
   - updater URLs (`FILESURL`, `UPDATEURL`, `CHECKUPDATEURL`) unless disabled
@@ -157,8 +157,9 @@ This codebase is strongly compile-time modular. Runtime behavior can differ sign
   - ST7735 DTYPE still required for library; resolution auto-derived from DTYPE in displayST7735.h.
 - Network/update features:
   - some online update and service behavior is compiled out by feature flags.
-- MQTT, touch, RTC, SD, battery helper behavior:
+- Touch, RTC, SD, battery helper behavior:
   - each has compile gates that can remove handlers/routes or no-op logic.
+- MQTT is the exception: it is always compiled and gated at runtime by the `mqttenable` setting.
 
 ### Build-variant risk pattern
 - A fix validated in one env may not compile or behave in another env because:
@@ -193,7 +194,7 @@ This codebase is strongly compile-time modular. Runtime behavior can differ sign
      - `telnet.begin()`
      - controls init
      - display start
-     - optional MQTT init
+     - MQTT init when enabled in settings
      - optional smart-start playback
      - `startup.startupServices()`
      - `netserver.setBootReady(true)` only after setup work is actually complete
@@ -250,6 +251,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - typed: `saveValue(T* field, const T& value)`
   - string: `saveValue(char* field, const char* value)`
 - `Config` also owns a separate RAM-backed `lastStationUrl` resume buffer that is intentionally *not* part of `config_t` / Preferences; it is persisted through `/data/laststation.url` with a dedicated debounce path because previews/direct URLs can change more often than normal prefs.
+- `config.store.dspon` is RAM-only runtime state by design and is deliberately **not** in `Config::keyMap`. The display must always be on after power-on, so a standby/blank `false` must never be restored from NVS; persisting it would present as a "bricked" (blank) device to a normal user. It is still reported to the WebUI through `GETSCREEN` and drives the MQTT off-state token, but those read the live runtime value only.
 - Legacy compatibility parameters (`commit`, `force`, and string `size_t N`) were removed.
 - String saves now normalize into a zero-filled fixed-size buffer before compare/write to avoid reading beyond short source strings.
 - Both overloads share a single internal write-if-changed path (`missing key` OR `size mismatch` OR `content changed`) before calling `prefs.putBytes(...)`.
@@ -267,7 +269,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - canonical LittleFS asset allowlists (`Config::wwwFiles[]`, `Config::dataFiles[]`) used by startup recovery and file-maintenance flows
   - reset section handlers (`defaultSettings(...)`)
   - named IR code storage in the dedicated `ehradioir` NVS namespace (`IR_MAGIC` 1812 stored under key `irset`, one key per button via `irKeyMap[]`); helpers `loadIR()`, `saveIR()` / `saveIR(button)`, `irCodes()`, `clearIR()`, `clearDuplicateIR()`, `irButtonByName()`, `irButtonCount()`, `irButtonKey()`, `irAction()`
-  - `deleteOldKeys()` also drops the legacy `ircodes` key from the `ehradio` namespace
+  - `deleteOldKeys()` also drops the legacy `ircodes` key and the former persisted `dspon` key from the `ehradio` namespace (`dspon` is now runtime-only state and must not be restored on boot)
 - SPI bus initialization: `Config::init()` calls `SPI.begin(SPIA_SCK, SPIA_MISO, SPIA_MOSI)` only when `SPIA_SCK` is defined and `!= 255`, and `SPIB.begin(SPIB_SCK, SPIB_MISO, SPIB_MOSI)` only when `SPIB_SCK` is defined and `!= 255`. I2C-only builds skip SPI init entirely. Both buses are initialized before `_initHW()` and before `display.init()` / `player.init()`. Both SPI buses are fully configured before any peripheral uses them. `SPIClass SPIB(SPI_BUS_SECONDARY)` is declared at file scope in `config.cpp`; extern declared in `config.h`.
 - **A safe-mode boot pays a deliberate 1 s before anything else.** `setup()` holds `if (!config.store.bootStableMarker) delay(1000)` and then dumps the config (`bootInfo`, ~196 ms at 115200), so the early stage measures ~1586 ms in safe mode against ~590 ms settled - the NVS path itself costs ~412 ms and needs no optimisation. `bootStableMarker` is only set ~10 s after the startup services finish, so rebooting the device within ~20 s of a boot puts the next one into safe mode with that delay (worth knowing when timing boots).
 - SD-specific behavior:
@@ -317,7 +319,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
     - cleans stale search results older than 24 hours
     - deletes the `ESPFileUpdater` param and self-terminates via `vTaskDelete(NULL)`
   - `deassertCsPins()` — called from `main.cpp` `setup()` before any device init. Sets all known SPI CS pins (`VS1053_CS`, `SD_CS`, `TFT_CS`, `TS_CS`) to `OUTPUT` + `HIGH` to prevent floating CS from causing bus contention during peripheral detection.
-  - safe mode boot crash-loop detection (`checkSafeMode`, `markBootStable`, `loop`): reads NVS key `bootstablemark` at boot — if the previous boot did not complete successfully it sets `Startup::_safeMode` for this session, which suppresses the automatic version-check/autoupdate and the automatic smartstart playback, so the device does not auto-reconnect to a crash-causing stream. The stored `smartstart`/`autoupdate` values are deliberately **not** overwritten: they feed the WebUI (`GETCONTROLS`, `GETSYSTEM`) and `Utility::turnoff()` writes `smartstart` back to NVS, so an in-memory override would both misreport the settings and persist itself. A manual `turnon` is not suppressed. **Note the marker is now set by the state machine above, not by a fixed uptime**: `BOOT_STABLE_TIME` after the startup services finish when they will run, or over `BOOT_STABLE_TIME` from power-on when they will not run.
+  - safe mode boot crash-loop detection (`checkSafeMode`, `markBootStable`, `loop`): reads NVS key `bootstablemark` at boot — if the previous boot did not complete successfully it sets `Startup::_safeMode` for this session, which suppresses the automatic version-check/autoupdate and the automatic smartstart playback, so the device does not auto-reconnect to a crash-causing stream. The stored `smartstart`/`autoupdate` values are deliberately **not** overwritten: they feed the WebUI (`GETCONTROLS`, `GETSYSTEM`) and **Note the marker is now set by the state machine above, not by a fixed uptime**: `BOOT_STABLE_TIME` after the startup services finish when they will run, or over `BOOT_STABLE_TIME` from power-on when they will not run.
   - `icon()` — the boot-mode glyph for the boot dots line: the SD pair (`\030\031`) when `network.offlineMode` or `SDoffline`, PAUSE (`\034`) when the previous boot never proved itself, PLAY (`\035`) for smart start, VOL_75 (`\026`) otherwise. The boot screen is its **only** consumer, and the sampling rule still applies: `Display::_bootScreen()` reads it while the screen is built, because `display.init()` in `setup()` runs *before* `checkSafeMode()`, which is what clears `bootStableMarker` — a later read would report PAUSE on every boot. The widget keeps the returned literal for the session, which is why the glyphs here must stay string literals.
 - Coupling:
   - drives `utility` for shared update/download helpers
@@ -358,7 +360,7 @@ All modules in `src/core/` follow the **class + global instance** pattern:
   - **The join budget: two attempts per candidate, and the second is twice as big.** `WIFI_ATTEMPTS * 500` = 8 s has to cover association *and* the lease, because `WL_CONNECTED` is GOT_IP and the late-GOT_IP mode measures 4.8 s on its own — that mode is one lost DISCOVER, as lwIP retransmits at about +0, +4 and +12 s, so a window can be spent on nothing but lost DISCOVERs and still be called a failure. Each candidate therefore gets exactly two windows: 8 s as before, then a retry of `WIFI_ATTEMPTS * 500 * WIFI_RETRY_SCALE` (options.h, default **WIFI_RETRY_SCALE 2** = 16 s). Only after the second failure is the next candidate tried, and only after that the SoftAP — worst case ~25 s per candidate against ~17 s before. The retry is a **real restart, not a re-association**: the shared helper `wifiRestartForRetry()` does `WiFi.disconnect(true, false)` (radio off, stored credentials kept), waits for the teardown (RSSI back to 0, bounded by `WIFI_SETTLE_MS`), then re-begins the same AP with the same channel/BSSID. That matters because `WiFi.disconnect(false, false)` leaves the radio up, so the STA netif can stay up, esp_netif never stops the DHCP client, and the retry inherits the accumulated DISCOVER backoff (next retransmit 16-32 s away) instead of starting a fresh ladder. Both connect paths call the one helper so they cannot drift. The association line (`Associated after Nms (RSSI x) - waiting for the address`) splits association from lease, and the retry logs `No address after Nms - restarting the network and trying <ssid> once more`. The deferred boot-line message cannot land on the AP screen — it fires at 2 s, long before any of this.
   - **SoftAP fallback, and its reboot timer.** `raiseSoftAP()` brings up the AP, the DNS captive portal and Improv; the optional auto-reboot is `if (SOFTAP_REBOOT_DELAY > 0) rtimer.once((uint32_t)SOFTAP_REBOOT_DELAY * 60, rebootTime);`, in minutes. `SOFTAP_REBOOT_DELAY` (options.h, default **0** = never) is the only control: the WebUI field, the stored `softapdelay` key (purged by `deleteOldKeys()`), the `softap` command and the `"softr"` field of the netserver GETSYSTEM payload were all removed, so re-enabling the reboot means editing options.h/myoptions.h.
   - **Build/size.** `sh1106_vs1053_3buttons` (8 MB partition) builds clean at **1,832,333** bytes flash and **72,236** bytes RAM with `BOOTLOG_TIME` off — 308 bytes *smaller* than the version before the retry rework, because the shared `wifiRestartForRetry()` helper replaced two inlined copies of the restart code. A build that dies at the `.bin` step (e.g. the uploader holding `firmware.bin`) leaves a stale sconsign, so the next build can link stale objects and report a plausible-looking size; delete `.pio\build\<env>\src\*.o` and rebuild rather than trusting it.
-  - `retryStreamConnection` task (40 fast attempts, then a slow infinite tail) is cancelled through `MyNetwork::cancelStreamRetry()`, the single owner of `streamRetryTaskHandle` (called by commandhandler on playback-changing commands, by `player.prev()`/`next()`/`toggle()`, and by `utility.turnoff()`); the task also cleans itself up when conditions change (user stops, WiFi drops, or playback resumes)
+  - `retryStreamConnection` task (40 fast attempts, then a slow infinite tail) is cancelled through `MyNetwork::cancelStreamRetry()`, the single owner of `streamRetryTaskHandle` (called by commandhandler on playback-changing commands, by `player.prev()`/`next()`/`toggle()`, and by `utility.startStandby()`); the task also cleans itself up when conditions change (user stops, WiFi drops, or playback resumes)
 - Coupling:
   - pushes display updates (`display.putRequest(...)`)
   - calls player/netserver hooks
@@ -522,8 +524,8 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   - own shared command aliases across ingress channels (`playstation`/`play`, `boot`/`reboot`, `vol+`/`volup`, `dim`/`brightness`, `dspon`/`screenon`)
   - player-command parity helpers (including exact-match-first direct URL playback command routing for `playurl` / `burl`)
   - trigger curated operations and locale update tasks
-  - cancel the stream retry task (`network.cancelStreamRetry()`) before executing user-initiated playback commands (`stop`, `playstation`, `prev`, `next`, `toggle`, `turnoff`, `burl`, `mode`, `submitplaylist`) so explicit user actions always interrupt automatic reconnection loops
-  - `turnon` / `turnoff` delegate to `utility.turnon()` / `utility.turnoff()`; the `mute` command maps to `player.mute()`
+  - cancel the stream retry task (`network.cancelStreamRetry()`) before executing user-initiated playback commands (`stop`, `playstation`, `prev`, `next`, `toggle`, `startstandby`, `burl`, `mode`, `submitplaylist`) so explicit user actions always interrupt automatic reconnection loops
+  - `stopstandby` / `startstandby` delegate to `utility.stopStandby()` / `utility.startStandby()`; the `mute` command maps to `player.mute()`
   - IR recorder commands: `irbtn` resolves a button **name** via `config.irButtonByName()` (`-1` stops recording and saves), `chkid` selects the slot, and `irclr` clears a slot through `config.clearIR()`
 - Critical coupling file for setting changes.
 - New commands: `theme` (theme switching), `layout` (layout switching), `inverttitle` (invert title toggle). All persist via `saveValue` and trigger `display._applyState()`.
@@ -570,7 +572,7 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   - manage client sessions
   - read input lines with CR/LF-pair handling so Enter submits immediately across CR/LF client variants and empty Enter events are preserved
   - apply explicit 2000 ms stream timeout configuration for serial and per-client telnet streams
-  - normalize command strings (`key=value`, `key value`, `key(value)`) plus minimal payload-shape handling (`play` value-shape handling)
+  - parse command strings through `utility.parseCommandLine(...)` (`key=value`, `key value`, `key(value)`, bare URL, bare key), which also applies the trimming, one layer of wrapping quotes and the `play` value-shape handling
   - route commands through `cmd.exec(...)` with source `Telnet`
   - keep command handling output-minimal (no telnet-specific reporting command table)
 - Important:
@@ -580,43 +582,73 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   - `help`, `quit`, and `bye` are handled locally in telnet before commandhandler dispatch
   - `quit` / `bye` silently disconnect only the issuing Telnet client
   - empty input lines now re-show prompt (`> `), aligning interactive UX with common telnet clients
+  - `Telnet::printf(...)` normalizes line endings through `utility.normalizeToCRLF(...)` (the old file-local `normalize_to_crlf`)
+  - telnet no longer defines any private string helper: the local `normalize_to_crlf`, `trimInPlace`, `stripWrappingQuotes`, `startsWithHttp` and `parseTelnetCommand` were duplicates of `utility.*` and are gone. The one genuinely telnet-only rule - command `mode` with value `2` is rewritten to `-1`, because telnet's help text calls 2 "cycle" - stays at the call site immediately after the shared parse rather than leaking into the shared helper
 
 ## `src/core/mqtt.h` / `mqtt.cpp`
-- MQTT integration if `MQTT_ENABLE` compile flag exists.
-- `mqtt.h` declares `class Mqtt` with `init()`, `loop()`, `publishStatus()`, `publishVolume()`, `publishPlaylist()`.
-- `extern Mqtt mqtt;` (inside `#ifdef MQTT_ENABLE`) provides the global instance.
-- Private static callback methods (`_connectCb`, `_onConnect`, `_onDisconnect`, `_onMessage`) used for AsyncMqttClient API (static required by library callback interface).
+- MQTT is always compiled in and gated at runtime by `config.store.mqttenable` (WebUI Settings > MQTT). The old `MQTT_ENABLE` compile *gate* is gone - nothing in the firmware is conditional on it. The macro of that name now only supplies the *default value* of that setting (`options.h`: `#ifndef MQTT_ENABLE` / `#define MQTT_ENABLE false`, beside the `MQTT_HOST/PORT/USER/PASS/TOPIC` defaults), so a `myoptions.h` can have MQTT on for a factory-fresh device without touching code.
+  - It reaches the stored value from `config.h` (`bool mqttenable = MQTT_ENABLE;`), i.e. it only applies when NVS has no `mqttenable` key yet. An already-provisioned radio keeps whatever the WebUI saved, which is the same behaviour as the other `MQTT_*` defaults.
+  - Known wart: `Config::defaultSettings("mqtt")` in `config.cpp` still writes `saveValue(&store.mqttenable, false)` explicitly, so a WebUI "reset mqtt" turns MQTT off regardless of the macro. Every neighbour in that function uses its macro (`EHDP`, `MQTT_HOST`, `MQTT_PORT`, ...), so that one call should be `(bool)MQTT_ENABLE` to agree with `config.h`.
+- Client library: `elims/PsychicMqttClient` (`platformio.ini`, `^0.2.4`), which wraps the ESP-IDF `esp_mqtt_client`. The first attempt used `bambo1543/MqttClientBinary`, a fork of it that had not been updated in two years; the upstream tree is the maintained one and its API is the closer match to the `AsyncMqttClient` this replaced. Reconnects are owned by the library, so there is no FreeRTOS reconnect timer.
+- `mqtt.h` declares `class Mqtt` with `init()`, `publishPlaylist()` and `loop()` public; every publisher is private because only `loop()` calls them. `publishPlaylist()` is the one request another module raises, because a playlist's contents change while its topic stays the same.
+- `extern Mqtt mqtt;` provides the global instance.
+- **Publishing is state-driven and settled, not request-driven.** `loop()` compares the live values (station id, the derived state token, name, title, artwork URL) against two stored `StatusSnapshot`s - `reported` (what the broker holds) and `candidate` (the current combination, waiting to settle) - and publishes the candidate only once it has stayed unchanged for `MQTT_STATUS_SETTLE_MS` (`options.h`, 1500 ms). A station switch mutates those inputs at different moments - the index moves in `utility.loadStation()`, the title becomes `[connecting]`, the stream's ICY headers overwrite the name, artwork and title land last - so publishing every combination would tell consumers stories that were never true for longer than a moment (the classic one: the new station name carrying the previous station's title). The state token is derived from `dspon`, the player status and the connecting placeholder and lives *inside* that snapshot, so a play/pause or a standby change restarts the same single window instead of needing a settle mechanism of its own; `mode`, `ip`, `volume` and the playlist revision are tracked separately and publish as soon as they differ. Force requests skip the wait: `_onConnect` requests a status refresh and raises `rearmRequested`, which `loop()` answers with `resetReported()`, so a reconnect republishes everything the broker may have lost. This replaced the old model where a publish only happened because some other subsystem raised a `TITLE`/`ARTWORK`/`STATION`/`MODE`/`VOLUME` request - that left the retained topics stuck on a transient snapshot whenever the settled state produced no further request, and it republished identical payloads repeatedly. `resetReported()` also runs when MQTT is disabled, so a later enable republishes everything.
+- `publishRetained(payload, qos, async)` is the only caller of the library's `publish()`: retained, explicit payload length, and it refuses an empty payload. An empty *retained* message means "delete the retained topic", so publishing one would wipe the state every consumer sees (Home Assistant loses the track name and artwork). This also covers the `length = 0` trap - the library forwards that to `esp_mqtt_client_enqueue()`, which then produces a zero-byte body. Everything publishes QoS 0 asynchronously except availability, which needs an acknowledgement.
+- **Availability is its own topic with a last will.** `applySettings()` arms `setWill(<root>availability, 1, true, "offline", ...)` next to `setServer()`, and `_onConnect` requests the retained `online`, so a power cut, a crash or deep sleep makes the broker publish `offline` by itself. A deliberate disconnect cannot rely on that, because a clean DISCONNECT suppresses the will, so the disable and reconfigure paths call `publishOfflineBeforeDisconnect()` first - QoS 1 with `async = false`, so it is acknowledged before the client is stopped beneath it. `availabilityTopic` is a member for the same reason as `serverUri`: the library keeps the pointer. `loop()` also announces `online` whenever the session is connected and `lastReportedAvailability != 1`, so the announcement cannot be lost to a missed request: the first build of this shipped without that request in `_onConnect` at all, which left the previous session's retained `offline` in place forever while the device was plainly online, and Home Assistant dutifully showed it as Unavailable.
+- The published topic set is one fact per topic, all retained, each published only when its value changes: `status` (the JSON attributes: `station`, `name`, `title`, `image_url`, `max_volume`), `state` (the bare token: `off`, `playing`, `idle`, `buffering`), `mode` (0 web radio / 1 SD card), `ip`, `volume`, `playlist` (a CRC32 revision of the active playlist file) and `availability`. The `status` and `on` numbers that used to sit inside the JSON are gone now that `state` exists, and `title` deliberately keeps the display text including its translations - the token is what a consumer or an automation binds to.
+- `publishPlaylistNow()` is the only publisher that touches the filesystem (`config.SDPLFS()->open(REAL_PLAYL)` + `fileCRC32()`), so it runs on the loop task when `playlistRequested` is set rather than inside the request, which arrives from the AsyncTCP task. It publishes `none` when the file is missing. The state token asks `player.isConnecting()` rather than comparing the localized "connecting" placeholder here, because `dsplocale.h` defines its tables inside the header and including it in one more translation unit embeds another full copy of every locale - that mistake cost 48 KB of flash before it was moved behind the player.
+- An empty title is treated as *no news* rather than as a value: at publish time `wouldEraseTitle()` holds the update when it would replace a title already reported for the same station with an empty one (`holdStatus()` consumes the change via `markReported()` so it is not re-evaluated every pass). The device blanks its title for an instant around a (re)connect - the play path in `player.cpp` re-runs `setTitle("")` after the first metadata has landed - and a display redraws a moment later, but a retained topic would keep that blank until the next song. The settle window already hides most of these; this covers a blank that lasts.
+- **Task model (important)**: the entry points other modules call - `init()` and `publishPlaylist()`, plus the private publish helpers that `loop()` itself uses - only record a request (`applyRequested` plus one flag per published topic), because their callers are the AsyncTCP task (`async_tcp` runs the WebSocket/HTTP handlers and is enrolled in the task watchdog) and the WiFi event task. `Mqtt::loop()` is the single owner of the client library and is serviced by `netserverLoopTask` via `NetServer::loop()` (priority 2, core 0, 1 ms cadence, not watchdog-enrolled). Blocking `async_tcp` past the 5 s watchdog window panics the board, so `init()` must never connect inline.
+- Settings changes take effect live: the `mqtt*` option commands (`mqttenable`, host, port, user, pass, topic) and the WiFi-reconnect path only request a re-apply - no reboot needed. The debounce is measured from the **last request** (`applyDebounceMs`, 500 ms), so the six commands of one WebUI "Apply Changes" collapse into a single reconfiguration with the final values. Measuring it from the last apply instead connected with the values from before the rest arrived and then connected again with the right ones, and that second `connect()` hit an already-started client - which is the library's `ESP_ERROR_CHECK_WITHOUT_ABORT ... esp_mqtt_client_start` line. An apply whose URI and credentials are unchanged against a session that is already up is skipped outright; since `connected()` is still false while a client is coming up, `clientStarted` is tracked separately so a reconfigure always stops the old client first. The apply also waits while `Startup::servicesBusy()` is true (bounded by `servicesWaitLimitMs`, 60 s): the startup downloads are three concurrent TLS sessions, and a TLS handshake needs a large contiguous block of internal RAM, so creating the MQTT task stack and its client buffer in the middle of them competes with the boot path the Network Recovery notes call the riskiest one. Booting is unaffected - `main.cpp` requests MQTT before the services start, so the allocations land in the baseline heap rather than interrupting a download.
+- IDF transport logging is silenced unless `MQTT_DEBUG` is defined in `myoptions.h`: the `MQTT_CLIENT`, `TRANSPORT_BASE`, `TRANSPORT_SSL` and `esp-tls` tags are set to `ESP_LOG_NONE` on the first apply. A broker that is unreachable or on the wrong port otherwise logs an error burst on every retry attempt, while the `[MQTT]` lines already say what is happening - `Connecting to mqtt://host:port` names the target (that is how a wrong port is spotted) and `Connected`/`Disconnected` report the session. The same silencing also hides raw `esp-tls` detail from the stream and the updater, which still report their own failures.
+- Library-specific details that shape this code:
+  - `setServer()` takes a URI, not host+port, and keeps the pointer, so the `serverUri` member builds `mqtt://host:port` (or passes `mqtthost` through unchanged when it already contains `://`); an empty host means "do not connect".
+  - `_onMessage` is registered through `onMessage(char* topic, char* payload, int retain, int qos, bool dup)`. The fork's `onMessageBinary(...)` overload does not exist upstream, and upstream already reassembles multipart messages before dispatching.
+  - The payload arrives NUL-terminated but with no length, so `_onMessage` measures it with `strlen()` (a zero-length message returns immediately), rejects it if it exceeds `MQTT_URL_SIZE`, and otherwise copies `len + 1` bytes into the single-slot mailbox (`incomingPayload` + `messagePending`) and returns; a payload arriving while one is still queued is dropped, and the library's own client task is never held up. The copy has to happen inside the callback because for a multipart message the library frees its reassembly buffer as soon as the callbacks return.
+  - Callbacks live in `std::vector`s, so `applySettings()` binds them only once (`callbacksBound`) - it runs again on every `mqttenable` change.
+  - Because the library only resubscribes topics registered through `onTopic()`, `_onConnect` subscribes `.../command` (QoS 2) itself on every (re)connect, through a local topic buffer because `topic[]`/`status[]` belong to `loop()`.
+  - `applySettings()` disconnects when MQTT is disabled or the host is empty, and reconfigures plus reconnects otherwise; the library's `disconnect()` waits for its own client task, which is another reason only `loop()` may call it.
+  - `setBufferSize` is sized from the status/topic buffers so the status payload is not split, the library's client task keeps its default 6144-byte stack at `NET_TASK_PRIORITY` (`setTaskStackAndPriority(6144, NET_TASK_PRIORITY)`), and every `publish()` gets an explicit payload length. The stack is not enlarged because nothing but the library's callbacks runs there - commands execute on the netserver loop - and the priority stays in the network tier instead of above it, so a busy MQTT client cannot preempt the stream or display tasks during their TLS work.
+- `reported`/`candidate` live in the object and are compared field by field (`matchesCandidate()`, `differsFromReported()`), never built as a local: `loop()` runs on the netserver loop task, whose stack is 4 KB on the non-S3 builds and is also shared with the queue work and deferred command execution. The `StatusSnapshot` local it replaced cost that task 812 bytes of high-water mark, which `[Core.monitor]` showed directly (5856 -> 5044 after MQTT was enabled).
+- Private static callback methods (`_onConnect`, `_onDisconnect`, `_onMessage`) are required by the library callback interface; they must return immediately.
 - Responsibilities:
   - connection lifecycle
   - subscribe to `.../command`
-  - publish status/playlist/volume
-  - status payload now includes `image_url` (HTTP/S image-only artwork URL used by Home Assistant)
-  - parse command payload forms (`key=value`, `key value`, `key(value)`, raw URL)
-  - apply minimal payload-shape normalization (`play` value-shape handling) then dispatch through `cmd.exec(...)` with source `Mqtt`
+  - publish the retained topics from `loop()`: status attributes, state, mode, ip, volume, playlist revision and availability
+  - status attributes include `image_url` (HTTP/S image-only artwork URL used by Home Assistant) and `max_volume`, so a consumer can scale the bare volume topic without being configured by hand
+  - parse command payload forms (`key=value`, `key value`, `key(value)`, bare URL) with `utility.stripWhitespace(...)` + `utility.parseCommandLine(...)`, the same shared helper the telnet path uses, so `mqtt.cpp` defines no parser of its own (`trimInPlace`, `stripWrappingQuotes`, `startsWithHttp`, `parsePayloadToCommand` and its anonymous namespace are gone, and `<ctype.h>` is no longer included)
+  - dispatch through `cmd.exec(...)` with source `Mqtt`, in `processPendingMessage()` on the netserver loop task
   - apply explicit non-WebUI blocklist rejections for unsupported MQTT-origin commands
 - Coupling:
-  - command behavior is now primarily centralized in commandhandler.
-  - `ARTWORK` queue events in `netserver` trigger MQTT status republishes even without a WebSocket payload.
+  - command behavior is primarily centralized in commandhandler.
+  - `netserver` no longer triggers MQTT republishes from its request stream (the ARTWORK/TITLE/STATION/ITEM/MODE/VOLUME hooks were removed); `Mqtt::loop()` owns that decision, so the state reported to MQTT cannot depend on queue entries that may be dropped or coalesced.
   - artwork payload data is read from `audioHandlers`, not from `config.station`.
-- Status buffer sizing now derives from `STATION_FIELD_LENGTH` plus `MQTT_URL_SIZE`, replacing the older duplicated browse-URL size macro.
+  - `NetServer::triggerMqttPlaylistSync()` existed only to wrap the Ticker that deferred the playlist publish, so it was removed along with the Ticker and the `mqttplaylistblock` wait the playlist download spun on inside the AsyncTCP task; a playlist import now calls `mqtt.publishPlaylist()` directly from commandhandler. `netserver.cpp`'s only MQTT interaction is the `mqtt.loop()` call in its loop, and `netserver.h` no longer mentions MQTT at all.
+  - `HA/custom_components/ehradio/media_player.py` is the consumer shipped with the firmware: it subscribes to `status`, `state`, `volume`, `mode`, `ip`, `playlist` and `availability`, maps the `off` token to `MediaPlayerState.STANDBY` because the radio has no true power switch, and builds the station-list URL from `ip` + `mode` so the source list follows the SD card. Firmware and component versions move together from here on, since this release changed the topic contract.
+- Status buffer sizing derives from `STATION_FIELD_LENGTH` plus `MQTT_URL_SIZE`, replacing the older duplicated browse-URL size macro.
 
 ## `src/core/utility.h` / `utility.cpp`
 - Shared helper module following the standard core `class + global instance` pattern (`Utility utility;`).
 - Current responsibilities:
-  - `stripWhitespace(char*)`
-  - `stripWrappingQuotes(char*)`
+  - `stripWhitespace(char*)` - trim leading/trailing whitespace plus `\r`/`\n` in place
+  - `stripWrappingQuotes(char*)` - remove one layer of matching `"` or `'` quotes
   - `ipToStr(...)`
   - `escapeQuotes(...)`
+  - shared command-ingress helpers, so the MQTT and Telnet paths own no parser of their own:
+    - `normalizeToCRLF(const char* input, char* output, size_t outputSize)` - expand every lone `\n` to CRLF (was the file-local `normalize_to_crlf` in `telnet.cpp`, the only snake_case helper left in the core)
+    - `isHttpUrl(const char* text)` - starts with `http://` or `https://`
+    - `parseCommandLine(const char* input, char* command, size_t commandSize, char* value, size_t valueSize)` - the shared command-line parser: bare URL, `key=value`, `key(value)`, `key value` or a bare key, plus trimming, one layer of wrapping quotes, and the `play` value-shape handling (`play` alone becomes `start`, `play <url>` becomes `burl`)
   - playlist CSV parsing and station lookup/load helpers
   - WiFi credential parse/save/import helpers
   - deep-sleep entrypoints (`doSleepW`, `sleepForAfter`)
-  - standby on/off helpers `standbyon()`, `standbyoff()`, `standbytoggle()` (shared by the `standbyon`/`turnon` and `standbyoff`/`turnoff` commands and the IR power button); `standbyoff()` also calls `network.cancelStreamRetry()`
+  - standby helpers `stopStandby()`, `startStandby()` and `toggleStandby()` (shared by the `stopstandby`, `startstandby` and `togglestandby` commands and the IR power button); `startStandby()` also calls `network.cancelStreamRetry()`
   - LittleFS file-maintenance helpers shared with startup and WebUI update paths:
     - `pruneLittleFS()`
     - `deleteMainwwwFile()`
     - `updateFile(...)`
+- `parseWsCommand(...)` deliberately stays separate from `parseCommandLine(...)` and stays strict: the WebSocket settings path only ever receives `key=value` and must reject anything else rather than execute a bare command, so the two are not merged.
 - Holds small reusable scratch/state buffers (`ipBuf`, `stationBuf`) plus the sleep duration state and sleep `Ticker`; it still does not own playback/artwork runtime state.
-- Current consumers include `audiohandlers.cpp`, `battery.cpp`, `commandhandler.cpp`, `config.cpp`, `display.cpp`, `netserver.cpp`, `network.cpp`, `player.cpp`, and startup/update flows.
+- Current consumers include `audiohandlers.cpp`, `battery.cpp`, `commandhandler.cpp`, `config.cpp`, `display.cpp`, `mqtt.cpp`, `netserver.cpp`, `network.cpp`, `player.cpp`, `telnet.cpp`, and startup/update flows.
 
 ## `src/core/battery.h` / `battery.cpp`
 - `battery.h` declares `class Battery` (real class under hardware guard; no-op stub in `#else`); `extern Battery battery;` provides the global instance.
@@ -716,6 +748,7 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   - timezone JSON loading and dropdown population
   - locale list loading and locale switch logic
   - weather provider field visibility logic
+  - MQTT credentials visibility: `setupMqttToggle()` collapses `#mqttsettings` while `#mqttenable` is off, synced on click and from the `getmqtt` payload; unlike the layout-driven groups this is not a device-reported `act` token
   - **theme/layout dropdown loading** — fetches `/themes.json` and `/layouts.json`, populates `#themeId`/`#layoutId` dropdowns, sends `websocket.send("theme=N")` / `websocket.send("layout=N")` on change
   - `afterSetupElement` hook restores current `themeId`/`layoutId` from WebSocket data
   - apply handlers for locale/weather/mqtt/wifi
@@ -1033,6 +1066,7 @@ Stack sizes and priorities are controlled by macros in `src/core/options.h` (`/*
 | `checkForOnlineUpdateTask` (lambda) | netserver.cpp | 8192 fixed | `LOW_TASK_PRIORITY` (1) | HTTPS — stack hardcoded |
 | `startOnlineUpdateTask` (lambda) | netserver.cpp | 16384 fixed | `NET_TASK_PRIORITY` (3) | OTA — stack hardcoded |
 | `startupServicesAsync` | startup.cpp | 8192 fixed | `LOW_TASK_PRIORITY` (1) | HTTPS — stack hardcoded |
+| MQTT client task (library-owned) | PsychicMqttClient | 6144 (library default) | `NET_TASK_PRIORITY` (3) | Plain TCP; `Mqtt::loop()` runs on `netserverLoopTask`, not here. Apply is held while the startup downloads are running |
 
 ### CORE_MONITOR debug feature (opt-in)
 
@@ -1218,7 +1252,7 @@ Frequent miss points:
 - WebUI: `commandhandler.cpp`
 - HTTP URL params: `netserver.cpp` `handleIndex()` multi-param loop -> `commandhandler.cpp` (with source blocklist)
 - Telnet/serial: normalized parser -> `commandhandler.cpp` (minimal local handling)
-- MQTT: normalized payload parser -> `commandhandler.cpp` (with source blocklist)
+- MQTT: payload parsing stays in `mqtt.cpp` (`processPendingMessage()` on the netserver loop task) -> `commandhandler.cpp` dispatch with the source blocklist
 - Physical controls: `controls.cpp`
 
 Implication:
@@ -1238,6 +1272,8 @@ Implication:
 `telnet.cpp` primarily acts as a command ingress path now. Most command behavior is owned by `commandhandler.cpp` and shared with MQTT/HTTP paths.
 
 Input-line handling is delimiter-based (`\r` or `\n`) with explicit 2000 ms timeouts, which avoids delayed command execution on clients that submit CR without LF.
+
+The command line itself is parsed by `Utility::parseCommandLine(...)`, shared with the MQTT ingress path; telnet's only private rule is the `mode 2` -> `-1` alias applied immediately after that call.
 
 If you add a setting command in `commandhandler.cpp`, telnet and MQTT generally inherit it automatically unless blocked by the shared HTTP/MQTT/Telnet non-WebUI policy.
 
