@@ -98,9 +98,6 @@
   #define SPIA_MOSI          14
 #elif defined(ES3C28P)
   #define SPIA_DEFAULT_XMISO           /* SCK/CLK 12 and MOSI/SDA 11 (no MISO) */
-  #define SPIB_SCK           38        /* Bus B pins (SD) */
-  #define SPIB_MISO          39
-  #define SPIB_MOSI          40
 #endif
 
 
@@ -241,8 +238,7 @@
 #endif
 
 #if defined(ST7735_PCM_1BUTTON) || defined(SH1106_VS1053_3BUTTONS) ||\
-   defined(ILI9488_PCM_1BUTTON) || defined(ILI9488_PCM_1BUTTON_FULL) ||\
-   defined(ES3C28P)
+   defined(ILI9488_PCM_1BUTTON) || defined(ILI9488_PCM_1BUTTON_FULL)
   #define SD_SPI          'B'     /* assign SD to Bus B */
   #define SD_CS           47
 #elif defined(SH1106_PCM_REMOTE) || defined(SH1106_PCM_1BUTTON)
@@ -258,6 +254,20 @@
   //#define RTC_CS         8 //oops
 #endif
 
+#if defined(ES3C28P)
+  //old SPI config:
+  //#define SD_SPI          'B'     /* assign SD to Bus B */
+  //#define SD_CS           47
+  #define SDMMC_CLK 38
+  #define SDMMC_CMD 40
+  #define SDMMC_D0 39
+  #define SDMMC_D1 41
+  #define SDMMC_D2 48
+  #define SDMMC_D3 47
+  //#define SDMMC_FREQ 20000 // in kHz: 0 = driver default (BOARD_MAX_SDMMC_FREQ = SDMMC_FREQ_HIGHSPEED, 40MHz); set
+#endif
+
+/* MQTT is enabled and configured from the WebUI (Settings > MQTT) - no build-time define needed. */
 
 /* --- Battery --- */
 

@@ -399,20 +399,29 @@ IR receivers like the VS1838 are cheap and work well.  You may need a pullup res
 An SD card reader may be added to the build. It is recommended to be wary of SD readers built onto displays.
 Although some may work, it is well-known that some may be lacking proper resistors or will interfere with display because it is forced onto the same SPI bus.
 
+### SPI SD Card Module
+
 It is highly recommended to use an SD card reader with a power regulator and a 74VHCT125A buffer for simplicity and reliability.
 If needing to make this type fit with a case, the excess PCB around the slot may be cut off carefully with a knife, sandpaper, or grinding tool.
 Wear a mask if filing or grinding! Fiberglass is bad for your lungs!
 
 ![image](images/hardware/sdreader.jpg)
 
-If using this type of simpler SD card reader on SPI, you may see random, unsolvable issues.
-Do not use this type on the same SPI bus as other devices.
+This type of module with a 74VHCT125A or similar level-shifter can not be used in SDIO/SDMMC mode.
+
+### SDIO SD Card Module (Only with ESP32-S3)
+
+If using this type of simpler-looking SD card reader on SPI, you may see random, unsolvable issues.
+Do not use this type as SPI if on the same SPI bus as other devices.
 
 ![image](images/hardware/sdreader2.jpg)
 
-But this type may be better-suited to using SDMMC mode which only an ESP32-S3 can do.
-Native SD host / SDMMC does not use an SPI bus at all which frees the bus for other devices and is faster than SPI.
+SDMMC does not use an SPI bus at all which frees the bus for other devices and is faster than SPI.
 There must be pull-ups on `CMD` and `D0`.
+
+If the card has been used in SPI mode, you must fully power-cycle the board if you switch the firmware to use SDMMC.
+An SD card latches its interface mode at powerup and only a full power cycle re-runs that detection.
+Reflashing or rebooting is not enough and you will see `sdmmc_init_ocr: send_op_cond ... returned 0x107` in the log.
 
 It is recommended to encode files on SD card using MP3 at a constant bit rate of 256kbps or less
 to avoid system stress and get maximum compatibility with the decoders.

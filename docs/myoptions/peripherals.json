@@ -56,7 +56,7 @@
     ]
   },
   {
-    "name": "SD Card Reader (SDMMC - ESP32-S3 only)",
+    "name": "SDIO Card Reader (SDMMC: ESP32-S3 only)",
     "info": "Native SD host instead of SPI. Define CLK, CMD, D0 for 1-bit (some may be marked with SPI: CLK=SCK, CMD=MOSI, D0=MISO). Define also for 4-bit: D1, D2, D3.\nDo NOT use with SD modules that carry a 74LVC125A or other level-shifter chip which blocks bidirectional CMD.",
     "pins": [ "SDMMC_CLK", "SDMMC_CMD", "SDMMC_D0" ],
     "defines": [
