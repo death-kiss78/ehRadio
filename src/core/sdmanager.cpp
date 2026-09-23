@@ -2,20 +2,23 @@
 #if SD_CS!=255 // ============================== Everything ignored if not defined ==============================
 #include <Arduino.h>
 #include <SPI.h>
-#include <SD.h>
 #include <vector>
 #include <algorithm>
 #include "vfs_api.h"
-#include "sd_diskio.h"
+#if !defined(SD_USE_MMC)
+  #include <SD.h>
+  #include "sd_diskio.h"
+#endif
 //#define USE_SD
 #include "config.h"
 #include "logging.h"
-#include "sdmanager.h"
+#include "sdmanager.h"  // pulls in <SD_MMC.h> (SDMMC transport) or <SD.h> (SPI transport)
 #include "display.h"
 #include "player.h"
 #include "utility.h"
 #include "../locale/dsplocale.h"
 
+#if !defined(SD_USE_MMC)
 // SPIB is declared and initialized in config.cpp (Config::init) — do not re-declare here.
 // SD uses Bus B if assigned via SD_SPI 'B', otherwise Bus A.
 #if defined(SD_SPI) && (SD_SPI == 'B') && defined(SPIB_SCK)
@@ -23,38 +26,74 @@
 #else
   #define SDREALSPI SPIA
 #endif
+#endif
 
 SDManager sdman(FSImplPtr(new VFSImpl()));
 
 bool SDManager::start() {
-  #if defined(SD_SPI) && (SD_SPI == 'B') && defined(SPIB_SCK) && defined(SPIB_SCK) && (SPIB_SCK != 255)
-    SPIB.end();
-    SPIB.begin(SPIB_SCK, SPIB_MISO, SPIB_MOSI);
-  #elif defined(SPIA_SCK) && (SPIA_SCK != 255)
-    SPI.end();
-    SPI.begin(SPIA_SCK, SPIA_MISO, SPIA_MOSI);
+  #if defined(SD_USE_MMC)
+    // ---- Native SDMMC host (ESP32-S3 only; configured by the SDMMC_ block in options.h) ----
+    // Pins must be set before the first begin(); setPins() is a no-op once the card is mounted.
+    #if SDMMC_D1==255 || SDMMC_D2==255 || SDMMC_D3==255
+      const bool sdmmc1bit = true;   // 1-bit: CLK, CMD, D0
+      setPins(SDMMC_CLK, SDMMC_CMD, SDMMC_D0);
+    #else
+      const bool sdmmc1bit = false;  // 4-bit: CLK, CMD, D0..D3
+      setPins(SDMMC_CLK, SDMMC_CMD, SDMMC_D0, SDMMC_D1, SDMMC_D2, SDMMC_D3);
+    #endif
+    #if SDMMC_FREQ > 0
+      const int sdmmcFreq = SDMMC_FREQ;           // myoptions.h override
+    #else
+      const int sdmmcFreq = BOARD_MAX_SDMMC_FREQ; // driver default (40 MHz high speed)
+    #endif
+    ready = begin("/sdcard", sdmmc1bit, false, sdmmcFreq);
+    if (ready) return ready;
+    vTaskDelay(10);
+    ready = begin("/sdcard", sdmmc1bit, false, sdmmcFreq);
+    if (ready) return ready;
+    vTaskDelay(20);
+    ready = begin("/sdcard", sdmmc1bit, false, sdmmcFreq);
+    if (ready) return ready;
+    vTaskDelay(50);
+    ready = begin("/sdcard", sdmmc1bit, false, sdmmcFreq);
+    if (!ready) ERRORLOG("SDMMC mount failed");
+    return ready;
+  #else
+    #if defined(SD_SPI) && (SD_SPI == 'B') && defined(SPIB_SCK) && defined(SPIB_SCK) && (SPIB_SCK != 255)
+      SPIB.end();
+      SPIB.begin(SPIB_SCK, SPIB_MISO, SPIB_MOSI);
+    #elif defined(SPIA_SCK) && (SPIA_SCK != 255)
+      SPI.end();
+      SPI.begin(SPIA_SCK, SPIA_MISO, SPIA_MOSI);
+    #endif
+    ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
+    if (ready) return ready;
+    vTaskDelay(10);
+    ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
+    if (ready) return ready;
+    vTaskDelay(20);
+    ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
+    if (ready) return ready;
+    vTaskDelay(50);
+    ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
+    return ready;
   #endif
-  ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
-  if (ready) return ready;
-  vTaskDelay(10);
-  ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
-  if (ready) return ready;
-  vTaskDelay(20);
-  ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
-  if (ready) return ready;
-  vTaskDelay(50);
-  ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
-  return ready;
 }
 
 void SDManager::stop() {
   end();
   ready = false;
 }
-#include "diskio_impl.h"
+#if !defined(SD_USE_MMC)
+  #include "diskio_impl.h"  // readRAW()/sectorSize() probe below is SPI-transport specific
+#endif
 bool SDManager::cardPresent() {
-
   if (!ready) return false;
+#if defined(SD_USE_MMC)
+  // SDMMCFS has no readRAW()/sectorSize(). cardSize() returns 0 once the card handle is gone,
+  // so a mounted card with non-zero capacity is the presence test here.
+  return cardSize() > 0;
+#else
   if (sectorSize()<1) {
     return false;
   }
@@ -62,6 +101,7 @@ bool SDManager::cardPresent() {
   bool bread = readRAW(buff, 1);
   if (sectorSize()>0 && !bread) return false;
   return bread;
+#endif
 }
 
 bool SDManager::_checkNoMedia(const char* path) {

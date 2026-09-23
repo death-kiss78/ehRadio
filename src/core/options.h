@@ -517,18 +517,14 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 
 /* ============================== SD CARD ============================== */
 #ifndef SD_CS
-  #define SD_CS 255 // SDCARD CS pin: 255 = disabled
+  #define SD_CS 255 // 255 = disabled, 254 = SDMMC (set below), else SPI CS pin
 #endif
+
+/* --- SD SPI --- */
 // myoptions.h should also define which SPI bus will be used:
 // #define SD_SPI 'A' // SD card on Bus A
 // #define SD_SPI 'B' // SD card on Bus B
-#if SD_CS!=255
-  #if !defined(SD_SPI)
-    #error SD_SPI not defined in myoptions.h
-  #else
-    #define USE_SD
-  #endif
-#endif
+
 #ifndef SDSPISPEED
   #if defined(ARDUINO_ESP32_DEV)
     #define SDSPISPEED 20000000 // safe
@@ -538,6 +534,63 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
     #define SDSPISPEED 20000000 // safe
   #endif
 #endif
+
+/* --- SDMMC (ESP32-S3 only) --- */
+// SDMMC uses the ESP32-S3's native SD host instead of an SPI bus: the card needs no CS line
+// set these in myoptions: SDMMC_CLK, SDMMC_CMD, SDMMC_D0 (some may be marked with SPI: CLK=SCK, CMD=MOSI, D0=MISO)
+// for 4-bit mode also define SDMMC_D1, SDMMC_D2, SDMMC_D3
+// Do NOT use SDMMC with SD modules that carry a 74LVC125A or other level-shifter chip as it blocks bidirectional CMD
+#ifndef SDMMC_CLK
+  #define SDMMC_CLK 255
+#endif
+#ifndef SDMMC_CMD
+  #define SDMMC_CMD 255
+#endif
+#ifndef SDMMC_D0
+  #define SDMMC_D0 255
+#endif
+#ifndef SDMMC_D1
+  #define SDMMC_D1 255
+#endif
+#ifndef SDMMC_D2
+  #define SDMMC_D2 255
+#endif
+#ifndef SDMMC_D3
+  #define SDMMC_D3 255
+#endif
+#ifndef SDMMC_FREQ
+  #define SDMMC_FREQ 0 // in kHz: 0 = driver default (BOARD_MAX_SDMMC_FREQ = SDMMC_FREQ_HIGHSPEED, 40MHz); set e.g. 20000 for 20MHz if a card is flaky
+#endif
+
+/* Any SDMMC_ pin selects the SDMMC transport */
+#if SDMMC_CLK!=255 || SDMMC_CMD!=255 || SDMMC_D0!=255 || SDMMC_D1!=255 || SDMMC_D2!=255 || SDMMC_D3!=255
+  #define SD_USE_MMC
+#endif
+
+#ifdef SD_USE_MMC
+  #if !defined(ARDUINO_ESP32S3_DEV)
+    #error SDMMC is only supported on ESP32-S3 (remove the SDMMC_ defines from myoptions.h)
+  #elif SDMMC_CLK!=255 && SDMMC_CMD!=255 && SDMMC_D0!=255 && \
+        ((SDMMC_D1==255 && SDMMC_D2==255 && SDMMC_D3==255) || \
+         (SDMMC_D1!=255 && SDMMC_D2!=255 && SDMMC_D3!=255))
+    // good config (1-bit when only CLK/CMD/D0 are set, 4-bit when all six are set):
+    // SD is present but not on SPI. 254 keeps every "SD exists" (SD_CS!=255) guard working.
+    #undef SD_CS
+    #define SD_CS 254
+  #else
+    #error Check SDMMC_CLK, SDMMC_CMD and SDMMC_D0 (1-bit), or set SDMMC_D1, SDMMC_D2 and SDMMC_D3 as well (4-bit)
+  #endif
+#endif
+
+/* --- SD Final Check --- */
+#if SD_CS!=255
+  #if SD_CS!=254 && !defined(SD_SPI)
+    #error SD_SPI not defined in myoptions.h
+  #endif
+  #define USE_SD
+#endif
+
+/* --- Other SD Options --- */
 #ifndef SD_CARD_DETECT_PIN
   #define SD_CARD_DETECT_PIN 255 // GPIO pin for mechanical SD card-detect switch (LOW=card present, HIGH=slot empty). 255 = disabled.
 #endif

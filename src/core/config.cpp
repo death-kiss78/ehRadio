@@ -852,10 +852,17 @@ void Config::bootInfo() {
     BOOTLOG("IR:\t\tPin: %d", IR_PIN);
   #endif
   #if SD_CS!=255
-    #if SD_CARD_DETECT_PIN!=255
-      BOOTLOG("SD:\t\tSPI%c Pin: %d Detect Pin: %d Autoplay: %s", SD_SPI, SD_CS, SD_CARD_DETECT_PIN, SD_AUTOPLAY?"true":"false");
+    #if defined(SD_USE_MMC)
+      #if SDMMC_D1==255 || SDMMC_D2==255 || SDMMC_D3==255
+        BOOTLOG("SD:\t\tSDMMC 1-bit CLK: %d CMD: %d D0: %d", SDMMC_CLK, SDMMC_CMD, SDMMC_D0);
+      #else
+        BOOTLOG("SD:\t\tSDMMC 4-bit CLK: %d CMD: %d D0: %d D1: %d D2: %d D3: %d", SDMMC_CLK, SDMMC_CMD, SDMMC_D0, SDMMC_D1, SDMMC_D2, SDMMC_D3);
+      #endif
     #else
       BOOTLOG("SD:\t\tSPI%c Pin: %d", SD_SPI, SD_CS);
+    #endif
+    #if SD_CARD_DETECT_PIN!=255
+      BOOTLOG("SD Detect:\tPin: %d Autoplay: %s", SD_CARD_DETECT_PIN, SD_AUTOPLAY?"true":"false");
     #endif
   #endif
   #if (TS_MODEL!=TS_MODEL_UNDEFINED)
