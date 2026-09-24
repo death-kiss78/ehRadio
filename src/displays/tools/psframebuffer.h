@@ -6,6 +6,7 @@
 #include "../dspfont.h"               // DSP_UNICODE_FONT definition
 #include "../icons.h"                  // ICON_TABLE for icon rendering
 #include "pretext.h"                   // preText() pipeline
+#include "dspstats.h"                  // Core Monitor counters
 
 /* PSRAM framebuffer size tracker — updated by psFrameBuffer on allocation */
 extern size_t psramFrameBufferBytes;
@@ -88,6 +89,7 @@ class  psFrameBuffer : public Adafruit_GFX {
     void display(){
       if(!buffer) return;
       _dspl->startWrite();
+      cmCountPush();
       _dspl->setAddrWindow(_ll, _tt, _ww, _hh);
       _dspl->writePixels((uint16_t*)buffer,  _ww * _hh);
       _dspl->endWrite();
@@ -124,8 +126,11 @@ class  psFrameBuffer : public Adafruit_GFX {
     }
 
   private:
-    void _writeGlyph(uint16_t cp) {
-      const GFXfont *f = &DisplayFont;
+    // cp is 32-bit: the decoder can produce four-byte sequences and truncating
+    // them here would turn a supplementary codepoint into a different glyph.
+    void _writeGlyph(uint32_t cp) {
+      cmCountGlyph();
+      const GFXfont *f = displayFont();
       // Icon codepoints (0x01-0x1F) — render directly from ICON_TABLE.
       // Must precede \n / \r checks so that \015 (0x0D = CR)
       // reaches the icon handler instead of being swallowed as carriage return.
@@ -160,13 +165,20 @@ class  psFrameBuffer : public Adafruit_GFX {
         cursor_x += (int16_t)spaceAdv * textsize_x;
         return;
       }
-      // Run optional pre-processing (allcaps, accent folding)
-      cp = preText(cp, f);
-
+      // Clock font dispatch happens BEFORE preText(), so the resolver is never
+      // asked about a font other than the one that will draw the glyph - the
+      // clock font has its own glyph set and the stock write() is single-byte.
       if (gfxFont != NULL && gfxFont != (GFXfont *)f) {
         Adafruit_GFX::write((uint8_t)(cp & 0xFF));
         return;
       }
+      // Resolve against the font actually used: keep the glyph when the font has
+      // it, fold to a base character when it does not, substitute otherwise.
+      // Returns a renderable codepoint, never 0.
+      // preText() narrows to a BMP codepoint, so the lookups below are 16-bit
+      // again - anything the font carries is inside its own (BMP) range.
+      uint16_t resolved = preText(cp, f);
+      cp = resolved;
       uint16_t first = pgm_read_word(&f->first);
       uint16_t last  = pgm_read_word(&f->last);
       if (cp >= first && cp <= last) {
@@ -200,21 +212,17 @@ class  psFrameBuffer : public Adafruit_GFX {
             }
           }
         } else {
-          // Empty glyph slot — try fallback mapping
-          uint16_t mapped = checkFallbackGlyph(cp, f);
-          if (mapped && mapped != cp) { _writeGlyph(mapped); return; }
-          // No fallback available — advance cursor by one space width so
-          // the missing glyph appears as a visible gap instead of being
-          // silently deleted (xAdvance is 0 for empty slots).
+          // preText() promises a renderable codepoint, so an empty slot here can
+          // only mean the font changed underneath us (clock font swap mid-frame).
+          // Advance one space width rather than drawing a zero-width glyph.
           uint8_t spaceAdv = pgm_read_byte(&((GFXglyph *)pgm_read_ptr(&f->glyph))->xAdvance);
           cursor_x += (int16_t)spaceAdv * textsize_x;
           return;
         }
         cursor_x += (int16_t)pgm_read_byte(&glyph->xAdvance) * textsize_x;
       } else {
-        uint16_t mapped = checkFallbackGlyph(cp, f);
-        if (mapped && mapped != cp) { _writeGlyph(mapped); return; }
-        // Unrenderable codepoint — advance by one character cell.
+        // Same defensive case as above: outside [first..last] after resolution
+        // means the font changed, not that preText() failed to find a glyph.
         uint8_t spaceAdv = pgm_read_byte(&((GFXglyph *)pgm_read_ptr(&f->glyph))->xAdvance);
         cursor_x += (int16_t)spaceAdv * textsize_x;
       }

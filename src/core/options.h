@@ -46,27 +46,26 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 // If I2C_SDA != 255 && I2C_SCL != 255 → I2C, otherwise SPI/parallel.
 // ST7735 sub-models uses DTYPE (required by Adafruit_ST7735 library).
 
+// The character LCDs (1602, 2004, Nokia 5110) and the ST7920 GLCD have been
+// removed: only the TFT and graphical-monochrome-OLED classes remain, so the
+// ids below are contiguous 0-16 with no gaps.
 #define DSP_DUMMY       0 // no display
-#define DSP_1602        1 // 16x2 (fixed in displayLC1602.h): Parallel or I2C (auto-detected from pins)
-#define DSP_2004        2 // 20x4 (fixed in displayLC1602.h): Parallel or I2C (auto-detected from pins)
-#define DSP_GC9A01A     3 // 240x240 round (fixed in displayGC9A01A.h)
-#define DSP_GC9106      4 // 160x80 (fixed in displayGC9106.h)
-#define DSP_ILI9225     5 // 220x176 (default)
-#define DSP_ILI9341     6 // 320x240 (fixed in displayILI9341.h)
-#define DSP_ILI9488     7 // 480x320 (default)
-#define DSP_ILI9486     8 // 480x320 (default) (not fully tested - see notes inside the library regarding gamma correction)
-#define DSP_NOKIA5110   9 // 84x48 (fixed in displayN5110.h)
-#define DSP_NV3007      10 // 428x142 (fixed in displayNV3007.h)
-#define DSP_SH1106      11 // 128x64 (default): SPI or I2C (auto-detected from pins)
-#define DSP_SH1107      12 // 128x64 (default): SPI or I2C (auto-detected from pins)
-#define DSP_SSD1305     13 // 128x64 (default): SPI or I2C (auto-detected from pins)
-#define DSP_SSD1306     14 // 128x64 (default): SPI or I2C (auto-detected from pins)
-#define DSP_SSD1322     15 // 256x64 (default): SPI
-#define DSP_SSD1327     16 // 128x64 (default): SPI or I2C (auto-detected from pins)
-#define DSP_ST7735      17 // 160x128 / 128x128 / 160x80 (dimensions derived from DTYPE in displayST7735.h)
-#define DSP_ST7789      18 // 320x240 (default)
-#define DSP_ST7796      19 // 480x320 (default)
-#define DSP_ST7920      20 // 128x64 (fixed in displayST7920.h)
+#define DSP_GC9A01A     1 // 240x240 round (fixed in displayGC9A01A.h)
+#define DSP_GC9106      2 // 160x80 (fixed in displayGC9106.h)
+#define DSP_ILI9225     3 // 220x176 (default)
+#define DSP_ILI9341     4 // 320x240 (fixed in displayILI9341.h)
+#define DSP_ILI9488     5 // 480x320 (default)
+#define DSP_ILI9486     6 // 480x320 (default) (not fully tested - see notes inside the library regarding gamma correction)
+#define DSP_NV3007      7 // 428x142 (fixed in displayNV3007.h)
+#define DSP_SH1106      8 // 128x64 (default): SPI or I2C (auto-detected from pins)
+#define DSP_SH1107      9 // 128x64 (default): SPI or I2C (auto-detected from pins)
+#define DSP_SSD1305     10 // 128x64 (default): SPI or I2C (auto-detected from pins)
+#define DSP_SSD1306     11 // 128x64 (default): SPI or I2C (auto-detected from pins)
+#define DSP_SSD1322     12 // 256x64 (default): SPI
+#define DSP_SSD1327     13 // 128x64 (default): SPI or I2C (auto-detected from pins)
+#define DSP_ST7735      14 // 160x128 / 128x128 / 160x80 (dimensions derived from DTYPE in displayST7735.h)
+#define DSP_ST7789      15 // 320x240 (default)
+#define DSP_ST7796      16 // 480x320 (default)
 
 /* Define your display as #define DSP_MODEL DSP_ILI9488 */
 
@@ -144,25 +143,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #define I2C_RST -1 // -1 means not used
 #endif
 
-/* --- LCD DISPLAY PINS --- */
-#ifndef LCD_RS
-  #define LCD_RS 255
-#endif
-#ifndef LCD_E
-  #define LCD_E 255
-#endif
-#ifndef LCD_D4
-  #define LCD_D4 255
-#endif
-#ifndef LCD_D5
-  #define LCD_D5 255
-#endif
-#ifndef LCD_D6
-  #define LCD_D6 255
-#endif
-#ifndef LCD_D7
-  #define LCD_D7 255
-#endif
 
 /* --- DISPLAY OPTIONS --- */
 #ifndef ROTATE_90
@@ -262,9 +242,7 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 /* Playlist Mode: some displays have trouble displaying the fancy "fade" playlist - this list may be incomplete */
 // ILI9488 uses 24 bits per pixel instead of 16 or 8, resulting in a 33% slower refresh rate... making a nasty slowdown on a big display when it needs to redraw the entire screen
 // use PLAYLIST_MODE_PAGED true if your display has issues on the playlist screen or if you just want to use page mode (but it doesn't scroll long station names)
-#if DSP_MODEL==DSP_1602 || DSP_MODEL==DSP_2004 // LCD tiny displays can't do different playlist modes
-  #undef PLAYLIST_MODE_PAGED
-#elif DSP_MODEL==DSP_ILI9488 || DSP_MODEL==DSP_ILI9486 // These screens are known to be slow to refresh and benefit from a simpler playlist mode
+#if DSP_MODEL==DSP_ILI9488 || DSP_MODEL==DSP_ILI9486 // These screens are known to be slow to refresh and benefit from a simpler playlist mode
   #ifndef PLAYLIST_MODE_PAGED
     #define PLAYLIST_MODE_PAGED true
   #endif
@@ -275,7 +253,7 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 
 /* Scrolling Speed: may be manually tweaked using myoptions.h */
-/* check dspcore.h for actual defaults, especially for LCD displays */
+/* check dspconf.h for the actual per-class defaults */
 // pixels per second = scrolldelta * 1000 / scrolltime]
 // Here are the defaults for OLED and TFT displays:
 // #define SCROLLDELAY 5000 // delay time (ms) for widgets: meta, title1, title2 / playlist mode scroll divides by 5
@@ -1520,13 +1498,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 #ifndef SCREEN_BRIGHTNESS
   #define SCREEN_BRIGHTNESS 100
-#endif
-#if defined(SCREEN_CONTRAST) && (SCREEN_CONTRAST < 1 || SCREEN_CONTRAST > 100)
-  #warning "define warning in myoptions.h: SCREEN_CONTRAST is out of range (1-100), reverting to default 55"
-  #undef SCREEN_CONTRAST
-#endif
-#ifndef SCREEN_CONTRAST
-  #define SCREEN_CONTRAST 55
 #endif
 #ifndef SS_NOTPLAYING
   #define SS_NOTPLAYING false

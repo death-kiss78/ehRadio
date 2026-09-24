@@ -111,6 +111,10 @@ void serialLogDot() {
   Serial.print(".");
 }
 
+void serialLogLf() {
+  serialLog("%s", ""); // blank line (or line-ending)
+}
+
 /* Boot stage timing - see logging.h.  Three separate stamps on purpose: each helper measures against its own previous
    call, so the config and LittleFS markers that appear inside a setup() stage do not disturb the setup() deltas (a single
    shared stamp would silently redefine every number in the log).  Both the log line and the stamp sit inside the

@@ -22,6 +22,7 @@ void bootLog(const char* fmt, ...) LOG_PRINTF_ATTR(1, 2);
 void bootLogX(const char* fmt, ...) LOG_PRINTF_ATTR(1, 2);
 void errorLog(const char* fmt, ...) LOG_PRINTF_ATTR(1, 2);
 void serialLogDot();
+void serialLogLf();
 void audioLog(const char* category, const char* fmt, ...) LOG_PRINTF_ATTR(2, 3);
 
 /* Boot stage timing.  Each of the three prints a stage name and the time since ITS OWN previous call, so consecutive
@@ -72,6 +73,14 @@ void configTimeLogReset();
 #define SERIALLOGDOT() \
   do { \
     serialLogDot(); \
+  } while (0)
+
+/* A bare blank line with no prefix, for separating groups of related reports
+   (the Core Monitor uses it between cycles).  Unlike SERIALLOGDOT(), this one
+   reaches telnet as well as serial. */
+#define SERIALLOGLF() \
+  do { \
+    serialLogLf(); \
   } while (0)
 
 /* Boot stage timing - no-ops without BOOTLOG_TIME, since the functions compile to empty bodies. */

@@ -407,7 +407,6 @@ void Config::defaultSettings(const char *val, uint8_t clientId) {
     saveValue(&store.vumeter, (bool)SHOW_VU_METER);
     saveValue(&store.vupeak, (bool)SHOW_VU_PEAK);
     saveValue(&store.vustyle, (uint8_t)VU_STYLE_DEFAULT);
-    saveValue(&store.contrast, (uint8_t)SCREEN_CONTRAST);
     saveValue(&store.dimmingEnabled, (bool)DIMMING_ENABLED);
     saveValue(&store.dimmingTimeout, (uint16_t)DIMMING_TIMEOUT);
     saveValue(&store.dimmingBrightness, (uint8_t)DIMMING_BRIGHTNESS);
@@ -424,7 +423,6 @@ void Config::defaultSettings(const char *val, uint8_t clientId) {
     display.flip();
     display.applyTheme(0);
     display.applyLayout(0);
-    display.setContrast();
     display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER);
     netserver.requestOnChange(GETSCREEN, clientId);
     return;
@@ -772,9 +770,6 @@ void Config::bootInfo() {
   #if I2C_SDA!=255
     BOOTLOG("\t\tI2C SDA: %d, SCL: %d, RST: %d", I2C_SDA, I2C_SCL, I2C_RST);
   #endif
-  #if LCD_RS!=255
-    BOOTLOG("\t\tLCD RS: %d, E: %d, D4: %d, D5: %d, D6: %d, D7: %d,", LCD_RS, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
-  #endif
   #if TFT_DC!=255
     BOOTLOG("\t\tTFT SPIA, CS: %d, RST: %d, DC: %d", TFT_CS, TFT_RST, TFT_DC);
   #endif
@@ -795,14 +790,14 @@ void Config::bootInfo() {
     #ifdef ES8311_I2C_SCL
       SERIALLOG(" I2C SCL: %d SDA: %d", ES8311_I2C_SCL, ES8311_I2C_SDA);
     #else
-      SERIALLOG("");
+      SERIALLOGLF();
     #endif
   #endif
   BOOTLOGX("\t\tVolume Scale: %d, Force Mono: %s", VOLUME_SCALE, PLAYER_FORCE_MONO?"true":"false");
   #if MUTE_PIN!=255
     SERIALLOG(", Mute Pin: %d, Mute Val: %d, Mute Lock: %s", MUTE_PIN, MUTE_VAL, MUTE_LOCK?"true":"false");
   #else
-    SERIALLOG("");
+    SERIALLOGLF();
   #endif
   #if BTN_DOWN!=255
     BOOTLOG("Button Down:\tPin: %d, Pullup: %s%s", BTN_DOWN, BTN_DOWN_PULLUP?"true":"false", _WBTN_DOWN ? ", Wake" : "");
@@ -954,7 +949,6 @@ const configKeyMap Config::keyMap[] = {
   CONFIG_KEY_ENTRY(vupeak, "vupeak"),
   CONFIG_KEY_ENTRY(vustyle, "vustyle"),
   CONFIG_KEY_ENTRY(brightness, "bright"),
-  CONFIG_KEY_ENTRY(contrast, "contrast"),
   CONFIG_KEY_ENTRY(screensaverEnabled, "scrnsvren"),
   CONFIG_KEY_ENTRY(screensaverBlank, "scrnsvrbl"),
   CONFIG_KEY_ENTRY(screensaverTimeout, "scrnsvrto"),

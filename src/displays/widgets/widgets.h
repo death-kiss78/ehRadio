@@ -3,13 +3,8 @@
 #if DSP_MODEL!=DSP_DUMMY
 #include "widgetsconfig.h"
 
-#ifndef DSP_LCD
-  #define CHARWIDTH   6
-  #define CHARHEIGHT  8
-#else
-  #define CHARWIDTH   1
-  #define CHARHEIGHT  1
-#endif
+#define CHARWIDTH   6
+#define CHARHEIGHT  8
 
 class psFrameBuffer;
 
@@ -228,9 +223,7 @@ class ClockWidget: public Widget {
     inline uint16_t clockHeight(){ return _clockheight; }
     inline uint16_t timeHeight(){ return _timeheight; }
   private:
-  #ifndef DSP_LCD
     Adafruit_GFX &getRealDsp();
-  #endif
   protected:
     char  _timebuffer[20]="00:00";
     char _tmp[64], _datebuf[30];
@@ -306,7 +299,6 @@ class PlayListWidget: public Widget {
     #else
       uint16_t _plTtemsCount, _plCurrentPos;
       void _drawFade(uint16_t currentItem);
-      void _drawOneLine(uint16_t currentItem);
     #endif
 };
 

@@ -55,7 +55,6 @@ class Display {
     String getLayoutListJson();
     void applyInvertTitle();
     void invert();
-    void setContrast();
     bool deepsleep();
     void wakeup();
     void updateProgress(const char* label, float progress);
@@ -140,7 +139,6 @@ class Display {
     uint8_t getThemeCount() { return 1; }
     void applyInvertTitle() {}
     void invert() {}
-    void setContrast() {}
     bool deepsleep() {return true;}
     void wakeup() {}
     void lock()   {}

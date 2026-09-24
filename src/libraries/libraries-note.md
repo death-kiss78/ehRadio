@@ -49,15 +49,8 @@ Sorry and good luck.
   - possibly irreplaceable due to how it manipulates ILI9486/8 quirks
     - seriously, after some deep investigation, I'm impressed this display works as well as it does compared to other libraries
 
-#### LiquidCrystalI2C
-  - slightly-modified from version 1.1.3 https://github.com/johnrickman/LiquidCrystal_I2C
-
 #### SSD1322
   - slightly-modified from initial commit https://github.com/JamesHagerman/Jamis_SSD1322
-
-#### ST7920
-  - very similar or modified (or perhaps share a common source) with https://github.com/BornaBiro/ST7920_GFX_Library
-  - may be worth looking at as well: https://github.com/BornaBiro/ST7920_GFX_Library
 
 
 ### Audio Decoder Drivers

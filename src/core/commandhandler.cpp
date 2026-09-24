@@ -147,12 +147,9 @@ bool CommandHandler::exec(const char *command, const char *value, uint8_t cid, C
   if (cmdIs(command, "vumeter"))       { config.saveValueButWait(&config.store.vumeter, static_cast<bool>(atoi(value)), 5000); display.putRequest(SHOWVUMETER); return true; }
   if (cmdIs(command, "vupeaks"))       { config.saveValueButWait(&config.store.vupeak, static_cast<bool>(atoi(value)), 5000); return true; }
   if (cmdIs(command, "vustyle"))       { uint8_t id = constrain(atoi(value), 0, VU_STYLE_COUNT - 1); config.saveValueButWait(&config.store.vustyle, id, 5000); display.putRequest(SHOWVUMETER); return true; }
-  if (cmdIs(command, "contrast"))             { int con=atoi(value); config.saveValueButWait(&config.store.contrast, (uint8_t)(con < 0 ? 0 : (con > 100 ? 100 : con)), 5000); display.setContrast(); return true; }
-  /* De-deplicated helper for screensaver / No-op for LCDs */
+  /* De-deplicated helper for the screensaver commands */
   auto screensaverHelper = []() {
-    #ifndef DSP_LCD
-      display.putRequest(NEWMODE, PLAYER);
-    #endif
+    display.putRequest(NEWMODE, PLAYER);
   };
   if (cmdIs(command, "brightness", "dim")) {
     if (!config.store.dspon) netserver.requestOnChange(DSPON, 0);

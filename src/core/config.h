@@ -133,7 +133,6 @@ struct config_t // specify defaults here (and macros in options.h) (defaults are
   bool      vumeter = SHOW_VU_METER;
   bool      vupeak = SHOW_VU_PEAK;
   uint8_t   vustyle = VU_STYLE_DEFAULT;   // which visualiser the VU box draws; see vuStyle_e
-  uint8_t   contrast = SCREEN_CONTRAST;
   uint8_t   brightness = SCREEN_BRIGHTNESS;
   bool      dimmingEnabled = DIMMING_ENABLED;
   uint16_t  dimmingTimeout = DIMMING_TIMEOUT;

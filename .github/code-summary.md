@@ -149,12 +149,12 @@ This codebase is strongly compile-time modular. Runtime behavior can differ sign
 - Display backend:
   - selected display model changes driver implementation and capabilities.
   - **Resolution/interface system**: `DSP_MODEL` = controller chip, `DSP_WIDTH`/`DSP_HEIGHT` = panel resolution, SPI or I2C type may be detected by `I2C_SDA` and `I2C_SCL` pins defines. Resolution defaults per DSP_MODEL in `options.h`, overridable in `myoptions.h`.
-  - **dspcore.h**: one `#elif` per DSP_MODEL, sets feature flags (`PSFBUFFER`, `DSP_OLED`, `DSP_LCD`).
+  - **dspcore.h**: one `#elif` per DSP_MODEL, sets the feature flags (`PSFBUFFER` for the TFT class, `DSP_OLED` for the monochrome class).
   - **dspfont.h** (new): selects bootlogo, clock font, TIME_SIZE by resolution.
   - **dspconf.h** (new): selects `conf/display*conf.h` by resolution × display category.
   - Display `.h` files now delegate conf/font/bootlogo to these central files — no per-file branches for resolution.
   - Conf files no longer define DSP_WIDTH/DSP_HEIGHT (set upstream in options.h).
-  - **Removed enum values** (collapsed into resolution variants): DSP_ST7789_240, DSP_ST7789_76, DSP_SSD1306x32, DSP_SSD1305I2C, DSP_1602I2C, DSP_2004I2C, DSP_SSD1327_64. I2C variants detected by `I2C_SDA` and `I2C_SCL`.
+  - **Removed enum values** (collapsed into resolution variants): DSP_ST7789_240, DSP_ST7789_76, DSP_SSD1306x32, DSP_SSD1305I2C, DSP_SSD1327_64. I2C variants detected by `I2C_SDA` and `I2C_SCL`.
   - ST7735 DTYPE still required for library; resolution auto-derived from DTYPE in displayST7735.h.
 - Network/update features:
   - some online update and service behavior is compiled out by feature flags.
@@ -840,7 +840,7 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   - `displayST7735*`, `displayST7789*`, `displayST7796*`
   - `displayILI9341*`, `displayILI9488*`, `displayILI9225*`
   - `displaySSD1306*`, `displaySSD1305*`, `displaySH1106*`, `displaySSD1327*`, `displaySSD1322*`
-  - `displayN5110*`, `displayGC9A01A*`, `displayGC9106*`, `displayST7920*`, `displayLC1602*`
+  - `displayGC9A01A*`, `displayGC9106*`, `displayNV3007*`
 
 ## Display config files (`src/displays/conf/*.h`)
 - Mostly widget coordinates/sizing/visibility for each panel class.
@@ -856,12 +856,12 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
 - All conf files must define every `WidgetConfig` / `FillConfig` / `ScrollConfig` / `ProgressConfig` / `VUBandsConfig` / `MoveConfig` field that `display.cpp` references — nothing is optional at link time. Disabling a feature is done by zeroing the relevant struct (e.g. `height=0`, `buffsize=0`, `dimension=0`); `display.cpp` checks those sentinel values at runtime and skips the widget. This eliminates the old `HIDE_*` compile-time macro system entirely.
 
 ## Display tools
-- `src/displays/tools/utf8To.*`
-- `src/displays/tools/utf8_common.*`
-- `src/displays/tools/utf8Latin.*`
-- `src/displays/tools/utf8Cyrillic.*`
+- `src/displays/tools/pretext.h` / `pretext.cpp` — `preText()` font-aware text resolver (keep / fold / replace), `allCaps()`, `foldToBase()`, `glyphAvailable()`, `utf8_strlen()`, `utf8_offset()`.
+- `src/displays/tools/dspstats.h` — Core Monitor counters (`cmGlyphCount`, `cmPreTextCalls`, `cmPreTextHits`, `cmFillCount`, `cmPushCount`, `cmDspCore`) with increment helpers that vanish unless `CORE_MONITOR` is defined. Definitions live in `core/display.cpp`; the fields are printed and documented under CORE_MONITOR below.
+- `src/displays/tools/gen_fold_table.py` → `pretext_fold.h` — generator for the stepping tables, plus the generated header (3,624 entries, 14,496 bytes, emitted in two halves so supplementary keys still fit 4-byte entries). `--stats` reports coverage per Unicode block.
 - `src/displays/tools/commongfx.h`
 - `src/displays/tools/psframebuffer.h`
+- The old `utf8To.*`, `utf8_common.*`, `utf8Latin.*` and `utf8Cyrillic.*` files are **gone** (they were replaced by the Unicode GFXfont pipeline); `localization-guide.md` still described them as "retained for reference".
 - `src/displays/tools/oledcolorfix.h` — OLED monochrome color initialization. `DSP_INVERT_TITLE` ifdef removed; `metafill` corrected to `TFT_FG` (was `TFT_BG` — invisible on black screen).
 
 Purpose:
@@ -876,12 +876,17 @@ Purpose:
 
 `DspCore::_writeGlyph(uint16_t cp)` is the central glyph renderer replacing the legacy 256-slot glcdfont system. Key behaviors:
 
-- **Dispatch:** When `gfxFont != NULL && gfxFont != &DisplayFont` (a special clock font is active), delegates to `Adafruit_GFX::write()` which uses the font's native `drawChar`. Otherwise renders via `&DisplayFont` (the configured Unicode GFXfont).
+- **Dispatch:** When `gfxFont != NULL && gfxFont != &DisplayFont` (a special clock font is active), delegates to `Adafruit_GFX::write()` which uses the font's native `drawChar`. This check now runs **before** `preText()`, so the resolver is never asked about a font other than the one that will draw the glyph.
 - **Icon rendering:** Codepoints `0x01-0x1F` map to `ICON_TABLE[]`; rendered with `startWrite()`/`endWrite()` wrapping (needed for Adafruit SPI TFT drivers).
 - **Font glyph rendering:** Similarly wrapped in `startWrite()`/`endWrite()`. The inner loop iterates all `width` bitmap columns but only renders columns where `(xOffset + xx) < xAdvance` — prevents glyph bleed beyond the cell boundary (fixes colon/digit overlap on SH1106 YO_MONO). Bleed columns have their bits consumed from the bitmap stream but are not rendered.
-- **Space handler:** Advances cursor by the font's first-glyph `xAdvance` without drawing pixels.
-- **Unrenderable fallback:** Falls through `foldAccent()`; if still unmapped, advances cursor by the font's `xAdvance` (blank space).
-- **`psframebuffer.h`** mirrors the same `_writeGlyph` logic for PSRAM-framebuffer TFT displays.
+- **Space handler:** Advances cursor by the font's first-glyph `xAdvance` without drawing pixels. Space is handled *before* `preText()`, because resolving it would turn the gap into the substitute character.
+- **Resolution (`preText`) is a chain, not a single mapping:** keep the glyph when the font has it, else walk `preTextFoldStep()` -- which folds within the script first (U+1F00 → U+03B1) and then to an ASCII lookalike (→ `a`) -- re-testing the font after every step, and substitute `_` only when the chain runs out. One table therefore serves fonts of different coverage. The generator's rule is overrides → canonical base → first ASCII of the NFKD form → name lookalike, and a non-ASCII base counts as a step only when it can itself progress (otherwise Hangul would claim 11,172 dead-end Jamo steps).
+- **The one-in-one-out contract still holds** (`utf8_strlen(text) * charWidth` is computed on the string as stored), and never 0. Codepoints are 32-bit through `preText()`/`glyphAvailable()`/`_writeGlyph()` because four-byte sequences would otherwise be truncated into a different glyph; the **result** is always BMP.
+- **`preTextString()` resolves a whole string once, at ingress** — `TextWidget::setText`, `ScrollWidget::setText`, `NumWidget::setText` and the scroll separator. A scrolling label re-prints its window every scroll step, so this removes the repetition and makes measurement and drawing use the same bytes. Invisible codepoints (combining marks, zero-width, variation selectors) are dropped there and only there; the per-glyph path substitutes for them instead.
+- **Unrenderable codepoints are memoised** in a 128-slot direct-mapped cache keyed on the codepoint *and the font pointer*, so a font change invalidates it for free. `preTextInvalidateCache()` is for a font whose data changes in place.
+- **Forced fold:** `PRETEXT_FOLDACCENT` / `PRETEXT_FOLDCYRILLIC` no longer enable the fallback (it is unconditional); they now force the fold even where the glyph exists. `PRETEXT_ALLCAPS` is unchanged in intent.
+- **Cursor advance** in the two glyph branches is now defensive only (font swapped mid-frame); the old post-`preText` fallback and its `_writeGlyph()` recursion are gone, so `preText()` is the single place that decides what is drawn.
+- **`psframebuffer.h`** mirrors the same `_writeGlyph` logic for PSRAM-framebuffer TFT displays — any change to one must be applied to both.
 
 Important rendering invariants:
 - Never call `startWrite()`/`endWrite()` in `write()` or `writePixel`/`writeFillRect` overrides — SPI nesting causes hangs on Adafruit TFT drivers.
@@ -919,7 +924,7 @@ Each config type has its own field that makes a widget meaningful, and that is w
 
 ## VU Widget Rendering (TFT vs OLED, and the runtime style)
 
-`VuWidget` lives in **`src/displays/widgets/widget_vu.h` / `widget_vu.cpp`** — it moved out of `widgets.h`/`widgets.cpp` because it is now seven draw paths over one box. `widget_vu.h` includes `widgets.h`; **`widgets.h` must not include `widget_vu.h`** (that is the include cycle) — `display.cpp` includes it explicitly instead. It is compiled for every graphics display (`#if !defined(DSP_LCD)`); character LCDs get inert stubs in the same file.
+`VuWidget` lives in **`src/displays/widgets/widget_vu.h` / `widget_vu.cpp`** — it moved out of `widgets.h`/`widgets.cpp` because it is now seven draw paths over one box. `widget_vu.h` includes `widgets.h`; **`widgets.h` must not include `widget_vu.h`** (that is the include cycle) — `display.cpp` includes it explicitly instead. It is compiled for every display.
 
 `_draw()` is a **dispatcher**: it resolves the area once into `_len`/`_thk`/`_cw`/`_ch`, calls `_levels()`, fills the whole area with the background, then switches on `config.store.vustyle` and blits once at the end. The styles are `vuStyle_e` from `widgetsconfig.h` — **seven of them**: Bars (0), Digital LED (1), History (2), Spectrum Reflect (3), Waveform (4), Lissajous (5), Spectrum Mirror (6). The ids are persisted in `config.store.vustyle` and are the keys in `/visuals.json`, so they must never be renumbered again (Spectrum A was cut, and the ids shifted, before the first release) — Spectrum Mirror is id 6 rather than id 4 for exactly that reason, and `/visuals.json` lists it beside Spectrum Reflect so the two still sit together in the dropdown. `_fillLocal()` is the only helper that knows the pixel surface:
 
@@ -954,7 +959,7 @@ The shared box fill in `_draw()` is the clear for **every** style, including the
 
 `config.theme.vumax` / `vumin` are set per driver, not via `dspcolors.h`:
 
-- 1-bit panels (`tools/oledcolorfix.h`, `displayN5110.cpp`): both `TFT_FG`. A single bit cannot express two colours, so level reads from geometry alone.
+- 1-bit panels (`tools/oledcolorfix.h`): both `TFT_FG`. A single bit cannot express two colours, so level reads from geometry alone.
 - `OLED_GREYSCALE` with `core/options.h`, default `false` selects the driver's grayscale palette (instead of 1-bit mono), and is only valid for `SSD1322` (support removed from`SSD1327`)
 
 `dspcolors.h` is deliberately minimal: only `BOOT_PRG_COLOR`, `BOOT_TXT_COLOR`, `TFT_BG`, `TFT_FG`. Panel-specific palettes live with their own drivers.
@@ -1074,17 +1079,30 @@ Stack sizes and priorities are controlled by macros in `src/core/options.h` (`/*
 
 ### CORE_MONITOR debug feature (opt-in)
 
-Enable by adding `#define CORE_MONITOR` to `myoptions.h`. Zero impact on binary when not defined.
+Enabled by `ALL_DEBUG_LOGS`, or directly with `#define CORE_MONITOR` in `myoptions.h` — `options.h` only defines it inside the `ALL_DEBUG_LOGS` block. The counters and helpers in `src/displays/tools/dspstats.h` compile to nothing when it is not defined, so a build without the monitor pays nothing for them.
 
-When active, emits a `FUNCTIONLOG("Core Monitor", ...)` line to serial+telnet every 5 seconds:
-- **Dual-core output**: `Core0(+Audio) loops/s: 82 (12.15ms/loop) | Core1(Main+Net+TCP+Disp) loops/s: 15327 (0.07ms/loop) | MaxMainLoopUs: 5197 | Heap: 163732`
-  - The labels in parentheses are built at compile time via `CORE_0` / `CORE_1` string macros defined in `options.h`. Each macro concatenates component tokens (`+Audio`, `+Net`, `+TCP`, `+Disp`) conditioned on where `AUDIO_CORE`, `NETWORK_CORE`, `CONFIG_ASYNC_TCP_RUNNING_CORE`, and `DSP_TASK_CORE_ID` are assigned. These macros are only defined when both `CORE_MONITOR` and `!CONFIG_FREERTOS_UNICORE` are true.
-- **Unicore C3 output**: `Core0 loops/5s: N (worst: N) | Core0(Main) loops/5s: N (worst: N) | MaxMainLoopUs: N | Heap: N` — `CORE_0`/`CORE_1` are not available on unicore; labels are static strings
-- **Also shows LittleFS information**: `Used: N / N bytes, Free: N bytes`
+Emits to serial + telnet every 5 seconds:
+
+- **Task rates**: `DspTask(core1) loops/s: 77 (12.99ms/loop), Main(core1) loops/s: 824 (1.21ms/loop), Max Main Loop Time: 12.580ms, Free Heap: 139880`
+  - The two figures are per **task**, not per core. Field 1 is the display task (`cmDspLoopCount`, incremented in `loopDspTask`), field 2 is the Arduino `loop()` (`cmMainCount`). Each is labelled with the core it actually runs on: the display task reports its own core via `cmDspCore`, the main loop via `xPortGetCoreID()`. **Do not read field 1 as "core 0"** — in the common configuration both tasks are pinned to core 1, so the old literal `Core0`/`Core1` prefixes attached core 0's subsystem names to the display task's counter and a display-task change looked like a core-0 regression.
+  - The display task sleeps `DSP_TASK_DELAY` (10 ms) after every iteration, so its period is work + 10 ms and its ceiling is ~100 loops/s: a figure at the ceiling means the display was idle, below it means it was drawing.
+  - Rates are per **measured** second (the `millis()` delta between prints, which includes the time the printing itself takes). Dividing by a hardcoded 5 inflated every figure by 5-7% - that is what made a display task on its 10 ms floor report 107 loops/s.
+- **Display work**: `DspTask work/s: glyphs 1830, fills 240, preText 1830 (hit 99%), fb flushes 77 (1.0/loop)`
+  - `glyphs` is counted at the top of `_writeGlyph()` in both `commongfx.h` and `psframebuffer.h`. `fills` is counted in `DspCore::writeFillRect()` after its clip test, so it is the class-agnostic "how much rectangle drawing reached the panel" figure - every `dsp.fillRect()` on either class passes through it.
+  - `preText` calls and hits live in `pretext.cpp`; a hit is an answer that did not need the fold chain. On real station names the hit rate sits at **100%**, because the display font carries every codepoint they use: the fold table is a safety net, not a hot path.
+  - `fb flushes` counts OLED `display()` calls and TFT **PSRAM region blits only**. On a TFT build only `ScrollWidget` and `ClockWidget` draw through a `psFrameBuffer`; every other widget writes straight to the driver over SPI, so this is not "the panel was written" and it can legitimately read 0 while the screen is visibly updating - scrolling the playlist is exactly that case.
+  - `glyphs` exceeds `preText` calls by the number of spaces and control codepoints, which `preText()` answers before it starts counting.
+- **Core layout**: `Core layout: core0 (Audio+Net+TCP), core1 (Main+Disp)` — built at compile time from the `CORE_0` / `CORE_1` string macros in `options.h`, which concatenate `+Audio`, `+Net`, `+TCP` and `+Disp` according to where `AUDIO_CORE`, `NETWORK_CORE`, `CONFIG_ASYNC_TCP_RUNNING_CORE` and `DSP_TASK_CORE_ID` are assigned. Only defined on a dual-core build.
+- **Stack high water marks**: `Main`, `Display`, `Netserver` minima, never reset between windows.
+- **LittleFS, Heap and PSRAM lines**, rate-limited by `CORE_MONITOR_ETC_LOOPS` (default 5 cycles = 25 s).
+
+- **The monitor does not measure audio.** It counts the display task and the Arduino `loop()`; on the common builds both are pinned to core 1, so a `Core layout: core0 (Audio)` line means core 0 carries no counter at all and its load has to be read from the `[PSRAM] Audio buffered` figure instead.
+- **Each group ends with a blank line** via `SERIALLOGLF()` - a prefix-free `serialLog("%s", "")` in `core/logging.cpp`, so serial and telnet both get a bare CRLF. That keeps consecutive reports separable, including when the LittleFS, Heap and PSRAM lines print alongside them.
 
 Implementation:
-- `src/core/display.cpp`: `volatile uint32_t cmDspLoopCount` incremented each `loopDspTask` iteration
-- `src/main.cpp`: `extern` reference to `cmDspLoopCount` + per-loop timing via `micros()`; worst-case counters are all-time minimums (never reset between windows)
+- `src/displays/tools/dspstats.h` — counter declarations plus the increment helpers, which are no-ops when `CORE_MONITOR` is undefined
+- `src/core/display.cpp` — defines the counters beside `cmDspLoopCount`; the display task reports its own core on every iteration
+- `src/main.cpp` — reads and resets them, times the main loop with `micros()`, and prints the lines above plus the trailing blank line
 
 ---
 
@@ -1127,9 +1145,7 @@ These are **not** third-party packages installable via PlatformIO's registry. Th
 - `Adafruit_ST7796S/` — ST7796S TFT driver (same origin)
 - `ILI9225Fix/` — ILI9225 TFT driver (heavily modified)
 - `ILI9488/` — ILI9486/ILI9488 SPI driver (modified from ZinggJM)
-- `LiquidCrystalI2C/` — I2C LCD driver (slightly modified from johnrickman)
 - `SSD1322/` — SSD1322 OLED driver (slightly modified from JamesHagerman)
-- `ST7920/` — ST7920 GLCD driver
 
 ### Audio decoder libraries
 - `I2S_Audio/` — software I2S audio decoder (adapted from schreibfaul1/ESP32-audioI2S via Maleksm's yoRadio mod). PSRAM buffer size now configurable via `PSRAM_BUFSIZE` macro.
@@ -1147,7 +1163,7 @@ These are **not** third-party packages installable via PlatformIO's registry. Th
   - `ILI9225Fix/TFT_22_ILI9225Fix.cpp` (`DEBUG` macro print path)
 
 ### Include conventions in library files
-- Library `.cpp` files that reference project defines begin with `#include "../../core/options.h"` as the **first line** (before any `#if` guard), then gate all remaining includes and code behind the relevant `#if` condition (e.g., `#if DSP_MODEL==DSP_ST7920`, `#if defined(USE_AUDIO_I2S) || defined(USE_AUDIO_ESP32_DAC)`, `#if defined(USE_AUDIO_VS1053)`). This pattern is acceptable and intentional.
+- Library `.cpp` files that reference project defines begin with `#include "../../core/options.h"` as the **first line** (before any `#if` guard), then gate all remaining includes and code behind the relevant `#if` condition (e.g., `#if DSP_MODEL==DSP_ILI9488`, `#if defined(USE_AUDIO_I2S) || defined(USE_AUDIO_ESP32_DAC)`, `#if defined(USE_AUDIO_VS1053)`). This pattern is acceptable and intentional.
 - Library `.h` files do not include `options.h`; they are self-contained and guarded with `#ifndef`/`#pragma once`.
 
 ---

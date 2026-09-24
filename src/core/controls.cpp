@@ -399,9 +399,6 @@ bool Controls::screenSaverExit() {
   config.screensaverTicks = 0;
   config.screensaverPlayingTicks = 0;
   display.putRequest(NEWMODE, PLAYER);
-  #ifdef DSP_LCD
-    delay(200);
-  #endif
   return true;
 }
 
@@ -504,9 +501,6 @@ void Controls::onBtnClick(int id) {
         }
         if (display.mode() == STATIONS) {
           display.putRequest(NEWMODE, PLAYER);
-          #ifdef DSP_LCD
-            delay(200);
-          #endif
           display.putRequest(CLOSEPLAYLIST, display.currentPlItem);
           //player.sendCommand({PR_PLAY, display.currentPlItem});
         }

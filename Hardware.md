@@ -93,7 +93,7 @@ The ST7735 has several subtypes in the Adafruit driver, as specified by `DTYPE`,
 
 If you have a `160x128` and the default `BLACKTAB` doesn't work, try `GREENTAB` and `REDTAB`.
 
-### OLED Monoochrome Displays
+### Monochrome OLED Displays
 
 OLEDs are cheap, beautiful (in a retro way) and just as functional.
 
@@ -109,17 +109,7 @@ OLEDs are cheap, beautiful (in a retro way) and just as functional.
 All OLED displays support various resolutions: `256x64`, `128x128`, `128x64`, and `128x32`.
 Non-default width or height must be specified in `myoptions.h`.
 
-### LCD Displays
-
-Not recommended but supported anyways, thanks to inheriting ёRadio display architecture.
-LCD displays like the 1602, 2004, and Nokia 5110 may work but will not be as good-looking as the others.
-
-| Display   | Interface       | Default Resolution |
-| --------- | --------------- | ------------------ |
-| 1602      | Parallel or I2C | 16x2 characters    |
-| 2004      | Parallel or I2C | 20x4 characters    |
-| NOKIA5110 | SPI             | 84x48 dot-matrix   |
-| ST7920    | SPI             | 128x64 dot-matrix  |
+Note that the SSD1322 is actually greyscale.
 
 ---
 

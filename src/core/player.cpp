@@ -200,6 +200,17 @@ void Player::loop() {
     }
   }
   Audio::loop();
+
+  /* Clear the "connecting" placeholder on player state, not on the library's "stream ready"
+     message: only some library routes emit it (an HLS playlist never does), and handleInfo()
+     discards the event entirely while lockOutput is set.  A state check also matches the rest
+     of the firmware, which already treats !isRunning() as still-connecting - and it clears the
+     title, which makes isConnecting() false, so it fires once per station. */
+  if (isRunning() && isConnecting()) {
+    config.setTitle("");
+    FUNCTIONLOG("Player", "Stream running - cleared the connecting placeholder");
+  }
+
   if (!isRunning() && _status==PLAYING) {
     // Stream died unexpectedly - trigger reconnection if WiFi is still up
     if (config.getMode() == PM_WEB && WiFi.status() == WL_CONNECTED && !network.lostPlaying) {

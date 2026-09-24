@@ -197,8 +197,9 @@ Skipping columns entirely would misalign the bit counter.
 ### Space Handling
 
 The stock library handles space (0x20) as a special case. Some GFXfonts
-start at codepoint 0x21 (exclamation mark), so space would fall through
-to `foldAccent()` and never advance the cursor — causing characters to
+start at codepoint 0x21 (exclamation mark), so the space has no glyph of its
+own; resolving it through `preText()` would replace it with the substitute
+rather than a gap, and either way the cursor must advance or characters
 render on top of each other.
 
 **Fix**: Explicit space check before any font lookup:
@@ -343,55 +344,145 @@ font is active (NULL) or when the display font itself was set via `setFont()`
 ## The `preText` Pipeline
 
 Before rendering, every codepoint passes through `preText()` in
-[`pretext.cpp`](../tools/pretext.cpp). This is a chain of optional
-preprocessors controlled by compile-time macros:
+[`pretext.cpp`](../tools/pretext.cpp). It walks a **chain** of ever-coarser
+representations and stops at the first one the font actually carries:
+
+| Step | Result |
+|---|---|
+| the font has the glyph | render it unchanged |
+| a step lands on something the font has | render that |
+| the chain runs out | render a substitute, `_` (`?`, then space, back it up) |
+
+The chain is what lets ONE table serve fonts of different coverage. For U+1F00
+(polytonic alpha) the steps are `U+03B1` then `a`, so a font with polytonic
+Greek keeps the original, a mono-tonic font shows `α`, and a Latin-only font
+shows `a`. Nothing is special-cased per script: there is one stepping table and
+a loop.
+
+Two compile-time transforms are layered on top, and neither is needed to make
+the fallback happen at all:
+
+- `PRETEXT_ALLCAPS` uppercases first, for fonts that carry capitals only.
+- `PRETEXT_FOLDACCENT` / `PRETEXT_FOLDCYRILLIC` mean **force one step even
+  where the glyph exists** — an intentionally ASCII-only display. A force-fold
+  happens only where the table has a step, so these macros can no longer destroy
+  glyphs the font actually carries.
 
 ```cpp
-uint16_t preText(uint16_t cp, const GFXfont *font) {
-    #ifdef PRETEXT_ALLCAPS
-        cp = allCaps(cp);
-    #endif
-    #ifdef PRETEXT_FOLDACCENT
-        cp = foldAccent(cp, font);
-    #endif
-    return cp;
+// Simplified - the real implementation is in pretext.cpp.
+#ifdef PRETEXT_ALLCAPS
+  cp = allCaps(cp);
+#endif
+if (font == nullptr || glyphAvailable(cp, font)) return cp;   // kept
+for (step = 0; step < 4; step++) {
+  cp = preTextFoldStep(cp);                                   // one table step
+  if (cp unchanged) break;
+  if (glyphAvailable(cp, font)) return cp;                    // folded
 }
+return substituteGlyph(font);                                 // replaced
 ```
+
+Codepoints are 32-bit here: the decoder produces four-byte sequences, and
+narrowing to 16 bits would turn a supplementary codepoint into a different
+glyph. The *result* is always BMP, which the generator asserts.
+
+### The one-in-one-out contract
+
+`preText()` maps **one codepoint in to exactly one codepoint out, and never
+returns 0**. This is load-bearing rather than stylistic: `widgets.cpp` sizes
+scrolling text as `utf8_strlen(text) * charWidth` from the *raw* string, before
+resolution runs. A mapping that changed the codepoint count, or that returned
+0, would desynchronise measurement from drawing — so the substitution count is
+fixed by the layout maths, not chosen for looks.
+
+The older `foldAccent()` broke this in two ways: it folded **unconditionally**
+(so `ă` rendered as `a` even where the font carried `ă`, making the intended
+`stăîâ` result unreachable) and it returned **0** for every codepoint outside
+Latin-1 / Latin Extended-A, which destroyed Greek, Cyrillic, `ẞ` and `•` —
+all of which the shipped fonts contain — whenever `PRETEXT_FOLDACCENT` was
+enabled.
+
+The clock font is dispatched **before** `preText()` runs, so the resolver is
+never asked about a font other than the one that will draw the glyph.
+
+### `preTextFoldStep()` — the stepping table
+
+The tables are **generated** by
+[`gen_fold_table.py`](../tools/gen_fold_table.py) into
+[`pretext_fold.h`](../tools/pretext_fold.h), and the whole rule is:
+
+1. `OVERRIDES` — the hand-picked choice, and every place a decomposition would
+   be wrong or would lead somewhere silly.
+2. **canonical base** — NFD with the combining marks stripped, which keeps the
+   same script where possible: `U+1F00`→`U+03B1`, `U+0450`→`U+0435`.
+3. **first ASCII character of the NFKD form** — this is what covers the letter
+   and digit forms without a hand-written table: fullwidth (`U+FF21`→`A`),
+   mathematical alphanumerics (`U+1D400`→`A`), enclosed alphanumerics
+   (`U+2460`→`1`), Roman numerals (`U+216B`→`X`), number forms (`U+00BD`→`1`),
+   superscripts, presentation forms (`U+FB03`→`f`) and letterlike symbols.
+4. **name lookalike** — Greek and Cyrillic base letters have no decomposition at
+   all, so their ASCII stand-in comes from the letter name
+   (`CYRILLIC SMALL LETTER DE`→`d`).
+
+A non-ASCII base is only accepted as a step once the base itself resolves.
+Without that guard the 11,172 Hangul syllables would each claim a Jamo base that
+leads nowhere — 44 KB of flash for no benefit.
+
+Note what the rule deliberately does **not** do: decorative symbols have no
+decomposition, so `☺` and `✓` fall through to the substitute instead of being
+"translated" into punctuation. That is the agreed policy, and Unicode data
+enforces it rather than a hand-maintained deny list.
+
+The table is emitted in two halves, both with 4-byte entries: the BMP half is
+keyed on the codepoint, the plane-1 half on the offset from `0x10000`.
+
+| Cost | Value |
+|---|---|
+| Entries | 3,624 (14,496 bytes) |
+| BMP / plane-1 | 2,551 / 1,073 |
+| Lookup | binary search, and only for codepoints the font cannot draw |
+
+Regenerate with `python src/displays/tools/gen_fold_table.py`, and see where the
+gaps are with `--stats`, which reports coverage per Unicode block. Output must
+stay in ascending codepoint order — the lookup is a binary search, so an
+out-of-order entry would silently miss. Never edit the generated header by hand;
+add an override to the generator and re-run it. The generator also **asserts**
+that no step grows a codepoint's UTF-8 length, which is what makes the in-place
+ingress rewrite below safe.
+
+### Resolving once, at ingress
+
+`preText()` is O(1) for a codepoint the font has, but a scrolling label
+re-prints its whole window on every scroll step: the same fifty-odd characters,
+fifty times a second. So [`preTextString()`](../tools/pretext.cpp) resolves a
+string **once**, where it enters a widget — `TextWidget::setText`,
+`ScrollWidget::setText`, `NumWidget::setText` and the scroll separator.
+
+That also removes a latent divergence: measurement and drawing then work from
+the same bytes by construction, instead of agreeing only because resolution
+happens to be 1:1.
+
+Invisible codepoints — combining marks, zero-width characters, variation
+selectors — are dropped **there and only there**, which is sound because the
+buffer a widget measures and draws is the string this function returns. The
+per-glyph path keeps its 1:1 contract and shows a substitute for them instead,
+so nothing is ever silently swallowed mid-pipeline.
+
+Codepoints the font cannot draw are also **memoised**, in a 128-slot
+direct-mapped cache keyed on the codepoint and the font pointer. Keying on the
+pointer is what makes invalidation free: a different font simply misses every
+entry. `preTextInvalidateCache()` covers a font whose data is rewritten in place
+rather than replaced by a new pointer.
 
 ### `allCaps()` — Uppercase Conversion
 
-When `PRETEXT_ALLCAPS` is defined, converts lowercase to uppercase for
-scripts where the font only has uppercase glyphs. Covers:
-- ASCII a–z → A–Z
-- Latin-1 Supplement (à–ÿ → À–Ÿ)
-- Latin Extended-A (ā–ž → Ā–Ž)
-- Cyrillic (а–я → А–Я, ё → Ё)
-
-### `foldAccent()` — Diacritic Stripping
-
-When `PRETEXT_FOLDACCENT` is defined, strips diacritical marks from
-Latin-1 and Latin Extended-A characters if the accented glyph is NOT
-present in the font. Maps é→e, ñ→n, ü→u, etc.
-
-```cpp
-// First check: does the glyph exist in the font?
-if (cp >= font->first && cp <= font->last) {
-    uint16_t idx = cp - font->first;
-    if (pgm_read_byte(&font->glyph[idx].width) > 0 &&
-        pgm_read_byte(&font->glyph[idx].height) > 0)
-        return cp;  // glyph exists, keep as-is
-}
-// Glyph not in font — try accent folding
-if (cp >= 0x00C0 && cp <= 0x00C5) return 'A';
-// ... etc ...
-```
-
-**Important**: `foldAccent` proactively checks existence BEFORE folding.
-If the accented glyph exists (even with w==0 or h==0 as a placeholder slot),
-it returns unchanged. Only truly missing glyphs get folded.
-
-This allows a font to include common accented characters (é, ñ) while
-falling back to ASCII for rare ones (ŵ, ṽ).
+When `PRETEXT_ALLCAPS` is defined, converts lowercase to uppercase for fonts
+that only carry capitals. Covers ASCII, Latin-1 Supplement, Latin Extended-A
+and Cyrillic. The Extended-A parity rule needs three exceptions, all handled:
+`ı` (U+0131) uppercases to plain `I` rather than `İ`, `ĸ` (U+0138) and `ŉ`
+(U+0149) have no uppercase form, and the U+0139–U+0142 / U+0143–U+0148 ranges
+put the uppercase letter on the *odd* slot — the opposite of the surrounding
+block, which the previous version got backwards.
 
 ---
 
@@ -473,12 +564,13 @@ When adding Unicode GFXfont support to a new display driver or project:
    - Newline/carriage-return handling
    - Icon codepoint rendering (if using icons)
    - Space special case
-   - `preText()` call before glyph lookup
-   - Clock/external font dispatch check
+   - Clock/external font dispatch check (**before** resolution, so the resolver
+     is only ever asked about the font that will draw the glyph)
+   - `preText()` call before glyph lookup — it performs keep/fold/replace, so
+     do **not** add a second fallback path after it
    - Glyph bleed clip: `if ((xo + xx) < xAdvance)` before rendering
    - Background fill: `else if (textbgcolor != textcolor)`
-   - `foldAccent()` fallback for missing glyphs
-   - Cursor advance for unrenderable codepoints
+   - Cursor advance reserved for the defensive case (font changed mid-frame)
 4. **Wrap rendering blocks** in `startWrite()`/`endWrite()` (SPI TFTs) — skip for OLEDs
 5. **Call `resetUTF8()`** before every `print()` in scroll/repeat rendering
 6. **Duplicate `_writeGlyph`** in the PSRAM framebuffer class if using one
@@ -496,7 +588,8 @@ When adding Unicode GFXfont support to a new display driver or project:
 | [`bdf2adafruit3.py`](bdf2adafruit3.py) | BDF → GFXfont converter (target 6×8 cell) |
 | [`commongfx.h`](../tools/commongfx.h) | `DspCore` with `write()` and `_writeGlyph()` |
 | [`psframebuffer.h`](../tools/psframebuffer.h) | PSRAM framebuffer with duplicated `_writeGlyph()` |
-| [`pretext.h`](../tools/pretext.h) / [`pretext.cpp`](../tools/pretext.cpp) | `preText()`, `allCaps()`, `foldAccent()`, `utf8_strlen()` |
+| [`pretext.h`](../tools/pretext.h) / [`pretext.cpp`](../tools/pretext.cpp) | `preText()` chain resolver, `preTextString()` ingress pass, `allCaps()`, `preTextFoldStep()`, `glyphAvailable()`, `utf8_strlen()` |
+| [`gen_fold_table.py`](../tools/gen_fold_table.py) → [`pretext_fold.h`](../tools/pretext_fold.h) | generator and the generated stepping tables (two halves) |
 | [`dspfont.h`](../dspfont.h) | Font selection macros (`DISPLAYFONT`, `DisplayFont`) |
 | [`icons.h`](../icons.h) | Icon bitmaps and `ICON_TABLE[]` |
 | [`MatrixLight8x6.h`](MatrixLight8x6.h) | GFXfont: MatrixLight 6×8, ~400 glyphs |

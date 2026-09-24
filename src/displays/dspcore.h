@@ -7,9 +7,9 @@
 // ==========================================================================
 // dspcore.h — Display driver dispatcher
 // ==========================================================================
-// Selects the display driver header, sets feature flags (PSFBUFFER, DSP_OLED,
-// DSP_LCD), then delegates font/bootlogo/TIME_SIZE to dspfont.h and conf file
-// selection to dspconf.h.
+// Selects the display driver header, sets the feature flags — PSFBUFFER for the
+// TFT class, DSP_OLED for the monochrome class — then delegates
+// font/bootlogo/TIME_SIZE to dspfont.h and conf file selection to dspconf.h.
 //
 // One #elif branch per DSP_MODEL (controller). Resolution variants and
 // interface variants (I2C) are handled by downstream files.
@@ -18,10 +18,6 @@
 #if DSP_MODEL==DSP_DUMMY
   #define DSP_NOT_FLIPPED
   #define DISPLAY_MODEL_NAME "None"
-
-#elif DSP_MODEL==DSP_1602 || DSP_MODEL==DSP_2004
-  #define DSP_LCD
-  #include "displayLC1602.h"
 
 #elif DSP_MODEL==DSP_GC9A01A
   #define PSFBUFFER
@@ -47,10 +43,6 @@
   #define PSFBUFFER
   #define DSP_TFT
   #include "displayILI9488.h"
-
-#elif DSP_MODEL==DSP_NOKIA5110
-  #define DSP_OLED
-  #include "displayN5110.h"
 
 #elif DSP_MODEL==DSP_NV3007
   #define PSFBUFFER
@@ -91,10 +83,6 @@
   #define PSFBUFFER
   #define DSP_TFT
   #include "displayST7796.h"
-
-#elif DSP_MODEL==DSP_ST7920
-  #define DSP_OLED
-  #include "displayST7920.h"
 
 #endif
 

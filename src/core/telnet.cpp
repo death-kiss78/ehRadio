@@ -70,7 +70,7 @@ bool Telnet::begin(bool quiet) {
   if (network.status==SDOFFLINE) {
     BOOTLOG("Ready in SD Mode!");
     BOOTLOG("------------------------------------------------");
-    BOOTLOG("");
+    SERIALLOGLF();
     return true;
   }
   if (!quiet) BOOTLOGX("telnet.begin\t");
@@ -79,10 +79,10 @@ bool Telnet::begin(bool quiet) {
     server.setNoDelay(true);
     if (!quiet) {
       SERIALLOG("done");
-      BOOTLOG("");
+      SERIALLOGLF();
       BOOTLOG("Ready! Go to http://%s/ to configure", WiFi.localIP().toString().c_str());
       BOOTLOG("------------------------------------------------");
-      BOOTLOG("");
+      SERIALLOGLF();
     }
     return true;
   } else {

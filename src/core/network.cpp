@@ -80,34 +80,32 @@ void ticks() {
       network.forceWeather = true;
     }
   }
-  #ifndef DSP_LCD
-    bool connectingStream = display.mode()==PLAYER && !player.isRunning() && strcmp_P(config.station.title, l10n(L10N_MSG_CONNECT)) == 0;
-    if (connectingStream) {
-      config.screensaverTicks = 0;
-      config.screensaverPlayingTicks = 0;
-    } else {
-      if (config.store.screensaverEnabled && display.mode()==PLAYER && !player.isRunning()) {
-        config.screensaverTicks++;
-        if (config.screensaverTicks > config.store.screensaverTimeout+SCREENSAVERSTARTUPDELAY) {
-          if (config.store.screensaverBlank) {
-            display.putRequest(NEWMODE, SCREENBLANK);
-          } else {
-            display.putRequest(NEWMODE, SCREENSAVER);
-          }
-        }
-      }
-      if (config.store.screensaverPlayingEnabled && display.mode()==PLAYER && player.isRunning()) {
-        config.screensaverPlayingTicks++;
-        if (config.screensaverPlayingTicks > config.store.screensaverPlayingTimeout*60+SCREENSAVERSTARTUPDELAY) {
-          if (config.store.screensaverPlayingBlank) {
-            display.putRequest(NEWMODE, SCREENBLANK);
-          } else {
-            display.putRequest(NEWMODE, SCREENSAVER);
-          }
+  bool connectingStream = display.mode()==PLAYER && !player.isRunning() && strcmp_P(config.station.title, l10n(L10N_MSG_CONNECT)) == 0;
+  if (connectingStream) {
+    config.screensaverTicks = 0;
+    config.screensaverPlayingTicks = 0;
+  } else {
+    if (config.store.screensaverEnabled && display.mode()==PLAYER && !player.isRunning()) {
+      config.screensaverTicks++;
+      if (config.screensaverTicks > config.store.screensaverTimeout+SCREENSAVERSTARTUPDELAY) {
+        if (config.store.screensaverBlank) {
+          display.putRequest(NEWMODE, SCREENBLANK);
+        } else {
+          display.putRequest(NEWMODE, SCREENSAVER);
         }
       }
     }
-  #endif //#ifndef DSP_LCD
+    if (config.store.screensaverPlayingEnabled && display.mode()==PLAYER && player.isRunning()) {
+      config.screensaverPlayingTicks++;
+      if (config.screensaverPlayingTicks > config.store.screensaverPlayingTimeout*60+SCREENSAVERSTARTUPDELAY) {
+        if (config.store.screensaverPlayingBlank) {
+          display.putRequest(NEWMODE, SCREENBLANK);
+        } else {
+          display.putRequest(NEWMODE, SCREENSAVER);
+        }
+      }
+    }
+  }
   #if RTCSUPPORTED
     if (config.isRTCFound()) {
       rtc.getTime(&network.timeinfo);
@@ -357,9 +355,9 @@ bool MyNetwork::wifiBeginFast(bool silent) {
       network.loopImprov();
       // Deliberately impatient: a directed association takes a second or two, so past WIFI_FAST_ATTEMPTS
       // the AP has moved or gone and every extra second delays the scan that would find it.
-      if (++errcnt > WIFI_FAST_ATTEMPTS) { SERIALLOG(""); break; }
+      if (++errcnt > WIFI_FAST_ATTEMPTS) { SERIALLOGLF(); break; }
     }
-    if (WiFi.status() == WL_CONNECTED) { SERIALLOG(""); return true; }
+    if (WiFi.status() == WL_CONNECTED) { SERIALLOGLF(); return true; }
     FUNCTIONLOG("Network", "direct reconnect failed, falling back to a scan");
   }
   return wifiBegin(silent);
@@ -477,7 +475,7 @@ bool MyNetwork::wifiBegin(bool silent) {
         if (!assocLogged && WiFi.RSSI() != 0) {
           assocLogged = true;
           if (!silent) {
-            SERIALLOG("");
+            SERIALLOGLF();
             BOOTLOG("Associated after %lums (RSSI %d) - waiting for the address",
                     (unsigned long)(millis() - tCandidate), WiFi.RSSI());
             BOOTLOGX("\t");
@@ -492,7 +490,7 @@ bool MyNetwork::wifiBegin(bool silent) {
             //   down and the DHCP client's DISCOVER backoff resets) and the window is then widened
             retried = true;
             if (!silent) {
-              SERIALLOG("");
+              SERIALLOGLF();
               BOOTLOG("No address after %lums - restarting the network and trying %s once more",
                       (unsigned long)(millis() - tCandidate), config.ssids[configIdx].ssid);
               BOOTLOGX("\t");
@@ -504,12 +502,12 @@ bool MyNetwork::wifiBegin(bool silent) {
             assocLogged = false;
             continue;
           }
-          SERIALLOG("");
+          SERIALLOGLF();
           break;  // Failed, try next match
         }
       }
       if (WiFi.status() == WL_CONNECTED) {
-        SERIALLOG("");
+        SERIALLOGLF();
         WiFi.scanDelete();
         config.setLastSSID(configIdx + 1);
         return true;
@@ -540,7 +538,7 @@ bool MyNetwork::wifiBegin(bool silent) {
         if (!assocLogged && WiFi.RSSI() != 0) {
           assocLogged = true;
           if (!silent) {
-            SERIALLOG("");
+            SERIALLOGLF();
             BOOTLOG("Associated after %lums (RSSI %d) - waiting for the address",
                     (unsigned long)(millis() - tCandidate), WiFi.RSSI());
             BOOTLOGX("\t");
@@ -554,7 +552,7 @@ bool MyNetwork::wifiBegin(bool silent) {
             // Second/last attempt at this candidate, with the same network restart and widened window
             retried = true;
             if (!silent) {
-              SERIALLOG("");
+              SERIALLOGLF();
               BOOTLOG("No address after %lums - restarting the network and trying %s once more",
                       (unsigned long)(millis() - tCandidate), config.ssids[ls].ssid);
               BOOTLOGX("\t");
@@ -571,11 +569,11 @@ bool MyNetwork::wifiBegin(bool silent) {
         }
       }
       if (WiFi.status() != WL_CONNECTED && ls == startedls) {
-        SERIALLOG("");
+        SERIALLOGLF();
         return false;
       }
       if (WiFi.status() == WL_CONNECTED) {
-        SERIALLOG("");
+        SERIALLOGLF();
         config.setLastSSID(ls + 1);
         return true;
       }
@@ -687,7 +685,7 @@ void MyNetwork::begin() {
     // Regular SD (from NVS) or Web mode — Wi-Fi as normal; if fails, go to AP
     if (!wifiBegin()) {
       raiseSoftAP();
-      SERIALLOG("");
+      SERIALLOGLF();
       BOOTLOG("Raise SoftAP done");
       return;
     }
@@ -803,7 +801,7 @@ void MyNetwork::raiseSoftAP() {
   #endif
   dnsServer = new DNSServer();
   dnsServer->start(53, "*", WiFi.softAPIP());
-  BOOTLOG("");
+  SERIALLOGLF();
   BOOTLOG("************************************************");
   BOOTLOG("Running in AP/Improv mode");
   #ifdef AP_PASSWORD

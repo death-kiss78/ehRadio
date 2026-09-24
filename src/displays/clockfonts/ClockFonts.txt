@@ -4,12 +4,6 @@ This folder ONLY contains fonts used by the clock (and on the volume page screen
 
 First, the breakdown of what I found in the yoRadio codebase (and the initial Chunky fonts I added later):
 
-yofont5x7 and yofont10x14
-were ONLY used by ILI9225 - but eliminated at some point...
-
-TinyFont5 and TinyFont6
-are ONLY used by displayN5110.h (Nokia) for Clock
-
 font15 = Chunky6_15, Chunky6_15_px
 displaySH1106.h
 displaySSD1306.h

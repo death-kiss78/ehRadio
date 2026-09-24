@@ -6,8 +6,8 @@
 //
 // Only four macros are consumed outside this file:
 //   BOOT_PRG_COLOR / BOOT_TXT_COLOR - boot screen (core/display.cpp)
-//   TFT_BG / TFT_FG                 - OLED theme init (tools/oledcolorfix.h,
-//                                     displayN5110.cpp) and DspCore::clearDsp()
+//   TFT_BG / TFT_FG                 - OLED theme init (tools/oledcolorfix.h)
+//                                     and DspCore::clearDsp()
 //
 // Panel-specific palettes live with their own driver instead, so this file
 // stays a minimal shared contract.  The grayscale OLED palette for SSD1327 is
@@ -18,28 +18,18 @@
   #define TFT_BG            SH110X_BLACK
   #define TFT_FG            SH110X_WHITE
 
-#elif DSP_MODEL==DSP_SSD1306 || DSP_MODEL==DSP_SSD1305 || DSP_MODEL==DSP_SSD1322 || DSP_MODEL==DSP_ST7920
+#elif DSP_MODEL==DSP_SSD1306 || DSP_MODEL==DSP_SSD1305 || DSP_MODEL==DSP_SSD1322
   #define BOOT_PRG_COLOR    WHITE
   #define BOOT_TXT_COLOR    WHITE
   #define TFT_BG            BLACK
   #define TFT_FG            WHITE
   // looking for other SSD1322 colors?  They are in display1322.cpp
 
-#elif DSP_MODEL==DSP_NOKIA5110
-  #define BOOT_PRG_COLOR    BLACK
-  #define BOOT_TXT_COLOR    BLACK
-  #define TFT_BG            WHITE
-  #define TFT_FG            BLACK
-
 #elif DSP_MODEL==DSP_SSD1327
   #define BOOT_PRG_COLOR    0x7F
   #define BOOT_TXT_COLOR    0x7F
   #define TFT_BG            0x00
   #define TFT_FG            0x7F
-
-#elif DSP_MODEL==DSP_1602 || DSP_MODEL==DSP_2004
-  #define BOOT_PRG_COLOR    0x1
-  #define BOOT_TXT_COLOR    0x1
 
 #else
   #define BOOT_PRG_COLOR    0xE68B

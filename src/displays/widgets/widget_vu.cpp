@@ -17,7 +17,6 @@
 /************************
       VU WIDGET
  ************************/
-#if !defined(DSP_LCD)
 VuWidget::~VuWidget() {
   #if defined(DSP_TFT)
     if (_canvas) { delete _canvas; _canvas = nullptr; }
@@ -935,15 +934,5 @@ void VuWidget::_reset(){
     _fills = 0;
   #endif
 }
-#else // DSP_LCD - character LCDs have no pixel drawing, so the widget stays inert
-VuWidget::~VuWidget() { }
-void VuWidget::init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t vupeakcolor, uint16_t bgcolor) {
-  Widget::init(wconf, bgcolor, bgcolor);
-}
-void VuWidget::_draw(){ }
-void VuWidget::loop(){ }
-void VuWidget::_clear(){ }
-void VuWidget::_reset(){ }
-#endif
 
 #endif // #if DSP_MODEL!=DSP_DUMMY

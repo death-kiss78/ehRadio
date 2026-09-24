@@ -339,7 +339,7 @@ For that and other major needed changes to the codebase, there is a `code-issues
 
 | Date       | Release Notes    |
 | ---------- | ---------------- |
-| 2026.09.22 `dev` | ***Breaking changes*** LittleFS (not SPIFFS), Boot speed improved, major work on layouts and VU: OLEDs now can get VU, timing fixed, bar orientation, peak bars, visualizations added (I2S gets more), fixes to: SSD1327, `ROTATE_90` for square displays, TFT display resolutions, volume page, Firefox mobile, IR code overhauled and mute/power added, recover from network stack crashes, Wi-fi and stream reconnects improved, library change: `elims/PsychicMqttClient` & MQTT/HA better (state topic, availability with last will, mode/ip topics, playlist revision), NV3007 added (work in progress) |
+| 2026.09.23 `dev` | ***Breaking changes*** LittleFS (not SPIFFS), LCD displays removed, Boot speed improved, major work on layouts and VU: OLEDs now can get VU, timing fixed, bar orientation, peak bars, visualizations added (I2S gets more), fixes to: SSD1327, `ROTATE_90` for square displays, TFT display resolutions, volume page, Firefox mobile, IR code overhauled and mute/power added, recover from network stack crashes, Wi-fi and stream reconnects improved, library change: `elims/PsychicMqttClient` & MQTT/HA better (state topic, availability with last will, mode/ip topics, playlist revision), NV3007 added (work in progress) |
 | 2026.08.19 | Stability and bug fixes (SD Offline), documentation |
 | 2026.08.13 | Memory usage, stability, and bug fixes (especially to SD, VS1053) |
 | 2026.08.03 | Minor fixes (and whoops) fixed Search and Curated |
@@ -379,8 +379,8 @@ A full history of ёRadio from v0.4.177 to v0.9.533 can be seen in the [old Read
 ### Credit
 
 Thanks to:
-
-  - [kle7rx](https://github.com/kle7rx) - `ru_RU` translation, debugging, mute feature, VS1053/I2S fixing, amplifier schematics, SSD1327 fixes, NV3007 support, OLED128x164 Minimal & Compact layouts
+  - [death-kiss78](https://github.com/death-kiss78) - SDMMC testing, SD file manager (hidden feature for now)
+  - [kle7rx](https://github.com/kle7rx) - `ru_RU` translation, debugging, mute feature, VS1053/I2S fixing, amplifier schematics, SSD1327 fixes, SD1322 fixes, NV3007 support, OLED128x164 Minimal & Compact layouts
   - [Kasperaitis](https://github.com/kasperaitis) - `lt_LT` translation, initiating locales, battery support and widget, and a bunch of work for ES3C28P (including ES8311 decoder, FT6336 touchscreen)
   - [e2002](https://github.com/e2002) - for [ёRadio](https://github.com/e2002/yoradio/) without which ehRadio would not be possible
 

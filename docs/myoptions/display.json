@@ -1,36 +1,10 @@
 [ { "title": "Display",
-    "info": "It is highly recommended to choose an OLED or TFT Screen.\nST7796 is more capable that ILI9488. ST7735 is well-supported." },
+    "info": "Choose an OLED or TFT screen.\nST7796 is more capable than ILI9488. ST7735 is well-supported." },
   {
     "name": "Dummy (no physical display)",
     "type": "",
     "info": "",
     "define": "DSP_MODEL DSP_DUMMY"
-  },
-  {
-    "name": "1602 (Parallel 16x2 LCD)",
-    "type": "Parallel",
-    "define": "DSP_MODEL DSP_1602",
-    "pins": [ "LCD_RS", "LCD_E", "LCD_D4", "LCD_D5", "LCD_D6", "LCD_D7" ]
-  },
-  {
-    "name": "1602 (I2C 16x2 LCD)",
-    "type": "I2C",
-    "define": "DSP_MODEL DSP_1602",
-    "pins": [ "I2C_SDA", "I2C_SCL" ],
-    "build_src_filter": "+<libraries/LiquidCrystalI2C/*>"
-  },
-  {
-    "name": "2004 (Parallel 20x4 LCD)",
-    "type": "Parallel",
-    "define": "DSP_MODEL DSP_2004",
-    "pins": [ "LCD_RS", "LCD_E", "LCD_D4", "LCD_D5", "LCD_D6", "LCD_D7" ]
-  },
-  {
-    "name": "2004 (I2C 20x4 LCD)",
-    "type": "I2C",
-    "define": "DSP_MODEL DSP_2004",
-    "pins": [ "I2C_SDA", "I2C_SCL" ],
-    "build_src_filter": "+<libraries/LiquidCrystalI2C/*>"
   },
   {
     "name": "GC9A01A (SPI 240x240 TFT)",
@@ -122,18 +96,6 @@
       { "define": "BIG_BOOT_LOGO", "type": "boolean", "default": true, "optional": true, "comment": "set to false to save space" }
     ],
     "build_src_filter": "+<libraries/ILI9488/*>"
-  },
-  {
-    "name": "NOKIA5110 (SPI 84x48 LCD)",
-    "type": "SPI",
-    "info": "Uses SPI Bus A Pins: SPIA_SCK & SPIA_MOSI",
-    "define": "DSP_MODEL DSP_NOKIA5110",
-    "pins": [ "TFT_DC" ],
-    "defines": [
-      { "define": "TFT_CS", "type": "pin", "default": 255, "optional": false, "comment": "pin CS is attached to (255 = tied to GND)" },
-      { "define": "TFT_RST", "type": "pin", "default": -1, "optional": true, "comment": "pin RST is attached to (-1 = EN pin)" }
-    ],
-    "lib_deps": "${library.n5110}"
   },
   {
     "name": "NV3007 (SPI 428x142 TFT)",
@@ -361,15 +323,5 @@
       { "define": "BIG_BOOT_LOGO", "type": "boolean", "default": true, "optional": true, "comment": "set to false to save space" }
     ],
     "build_src_filter": "+<libraries/Adafruit_ST7796S/*>"
-  },
-  {
-    "name": "ST7920 (SPI 128x64 LCD)",
-    "type": "SPI",
-    "info": "Uses SPI Bus A Pins: SPIA_SCK & SPIA_MOSI",
-    "define": "DSP_MODEL DSP_ST7920",
-    "defines": [
-      { "define": "TFT_CS", "type": "pin", "default": 255, "optional": false, "comment": "pin CS is attached to (255 = tied to GND)" }
-    ],
-    "build_src_filter": "+<libraries/ST7920/*>"
   }
 ]

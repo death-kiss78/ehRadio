@@ -28,12 +28,17 @@
   #define DisplayFont MatrixChunky8x6
 #endif
 
+/* --- ACTIVE FONT ACCESSOR ---
+/* The one place the active display font is chosen, so runtime font switching changes only
+   this function - see plans/runtime-font-switching.md for the obligations that come with
+   it.  Any font returned here must stay on the 6x8 metric class (xAdvance 6, yAdvance 8):
+   widget layout comes from CHARWIDTH/CHARHEIGHT, not from the font. */
+inline const GFXfont *displayFont() { return &DisplayFont; }
+
 /* --- TIME_SIZE --- */
-// Outlier overrides (checked before height-based rules)
+// Outlier override (checked before the height-based rules)
 #if DSP_MODEL==DSP_DUMMY
   #define TIME_SIZE 0
-#elif DSP_MODEL==DSP_ST7920
-  #define TIME_SIZE 2
 
 // Height-based defaults
 #elif DSP_HEIGHT >= 320        // 480x320
@@ -48,10 +53,6 @@
   #define TIME_SIZE 15
 #elif DSP_HEIGHT == 64         // non-OLED 64px-high (fallback)
   #define TIME_SIZE 35
-#elif DSP_HEIGHT == 48         // 84x48 Nokia
-  #define TIME_SIZE 15
-#elif defined(DSP_LCD)         // character LCDs
-  #define TIME_SIZE 1
 #else                          // 128x32
   #define TIME_SIZE 1
 #endif
@@ -74,9 +75,7 @@
   #include "bootlogo/62x40.h"
 #elif DSP_HEIGHT >= 64            // 128x64, 256x64
   #include "bootlogo/110x32mono.h"
-#elif DSP_HEIGHT >= 48            // 84x48 Nokia
-  #include "bootlogo/36x32mono.h"
-// 128x32, character LCDs: no bootlogo
+// 128x32: no bootlogo
 #endif
 
 /* ---  CLOCK FONT --- */
@@ -88,12 +87,9 @@
   #include "clockfonts/font35.h"
 #elif DSP_HEIGHT == 64 && defined(DSP_OLED) && DSP_WIDTH >= 256  // 256x64 OLED
   #include "clockfonts/font35.h"
-#elif DSP_HEIGHT == 64 && defined(DSP_OLED) && DSP_MODEL!=DSP_ST7920  // 128x64 OLED
+#elif DSP_HEIGHT == 64 && defined(DSP_OLED)  // 128x64 OLED
   #include "clockfonts/font15.h"
-#elif DSP_HEIGHT == 48            // 84x48 Nokia
-  #include "clockfonts/TinyFont5.h"
-  #include "clockfonts/TinyFont6.h"
-// 128x32, character LCDs: use GLCD font (no include)
+// 128x32: use the GLCD font (no include)
 #endif
 
 #endif // dspfont_h

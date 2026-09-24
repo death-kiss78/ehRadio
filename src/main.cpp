@@ -18,6 +18,8 @@
 #include "core/startup.h"
 #include "core/telnet.h"
 #include "displays/tools/psframebuffer.h"
+#include "displays/tools/dspstats.h"
+#include "core/filemanager_S.h"
 
 SET_LOOP_TASK_STACK_SIZE(LOOP_TASK_STACK_SIZE * 1024);
 
@@ -25,7 +27,7 @@ SET_LOOP_TASK_STACK_SIZE(LOOP_TASK_STACK_SIZE * 1024);
 size_t psramFrameBufferBytes = 0;
 
 #ifdef CORE_MONITOR
-  extern volatile uint32_t cmDspLoopCount;
+  // The counters themselves are declared in displays/tools/dspstats.h
   extern TaskHandle_t dspTaskHandle;
   extern TaskHandle_t nsTaskHandle;
   static uint32_t cmMainCount     = 0;
@@ -136,6 +138,11 @@ void setup() {
   netserver.setBootReady(true);
   config.saveValue(&config.store.SDoffline, false);
   BOOTTIMELOG("setBootReady");
+
+// === FileManager SD pe portul 8080 ===
+fmServer.begin();
+fms_registerRoutes();
+
 }
 
 void loop() {
@@ -196,15 +203,39 @@ void loop() {
     uint32_t cmDur = micros() - cmLoopStart;
     if (cmDur > cmMaxMainLoop) cmMaxMainLoop = cmDur;
     if (millis() - cmLastPrint >= 5000) {
+      /* Rates are per MEASURED second.  The window is 5000ms PLUS the time this block spends
+         printing, and cmLastPrint is only stamped at the end of it, so the old fixed "/5"
+         inflated every figure by 5-7% - a display task sitting on its 10ms DSP_TASK_DELAY
+         floor reported 107 loops/s when its ceiling is 100. */
+      const uint32_t elapsed = (uint32_t)(millis() - cmLastPrint);
+      const float perSec = 1000.0f / (float)(elapsed ? elapsed : 1);
       uint32_t d = cmDspLoopCount;  cmDspLoopCount = 0;
       uint32_t m = cmMainCount;     cmMainCount = 0;
       uint32_t mx = cmMaxMainLoop;  cmMaxMainLoop = 0;
-      #ifdef CONFIG_FREERTOS_UNICORE
-        FUNCTIONLOG("Core.monitor", "Core0 loops/s: %u (%.2fms/loop), Core0(Main) loops/s: %u (%.2fms/loop), Max Main Loop Time: %.3fms, Free Heap: %u",
-            d/5, d>0 ? 5000.0f/d : 0.0f, m/5, m>0 ? 5000.0f/m : 0.0f, mx / 1000.0f, (unsigned)ESP.getFreeHeap());
-      #else
-        FUNCTIONLOG("Core.monitor", "Core0" CORE_0 " loops/s: %u (%.2fms/loop), Core1" CORE_1 " loops/s: %u (%.2fms/loop), Max Main Loop Time: %.3fms, Free Heap: %u",
-            d/5, d>0 ? 5000.0f/d : 0.0f, m/5, m>0 ? 5000.0f/m : 0.0f, mx / 1000.0f, (unsigned)ESP.getFreeHeap());
+      uint32_t gl = cmGlyphCount;   cmGlyphCount = 0;
+      uint32_t pc = cmPreTextCalls; cmPreTextCalls = 0;
+      uint32_t ph = cmPreTextHits;  cmPreTextHits = 0;
+      uint32_t fi = cmFillCount;    cmFillCount = 0;
+      uint32_t pu = cmPushCount;    cmPushCount = 0;
+      /* Both figures are per TASK and each is labelled with the core that task runs on.
+         Field 1 is the display task, field 2 is this Arduino loop().  The old "Core0"/"Core1"
+         prefixes were ordinal only - they put core 0's subsystem names on the display task's
+         counter, so a display-task change looked like a core-0 regression. */
+      FUNCTIONLOG("Core.monitor", "DspTask(core%u) loops/s: %u (%.2fms/loop), Main(core%u) loops/s: %u (%.2fms/loop), Max Main Loop Time: %.3fms, Free Heap: %u",
+          (unsigned)cmDspCore,
+          (unsigned)(d * perSec), d ? (float)elapsed / (float)d : 0.0f,
+          (unsigned)xPortGetCoreID(),
+          (unsigned)(m * perSec), m ? (float)elapsed / (float)m : 0.0f,
+          mx / 1000.0f, (unsigned)ESP.getFreeHeap());
+      /* What the display task actually did with the time.  glyphs and preText calls are both
+         "work units per second": they measure volume, and the hit rate says how much of the
+         resolution was answered without walking the fold chain. */
+      FUNCTIONLOG("Core.monitor", "DspTask work/s: glyphs %u, fills %u, preText %u (hit %u%%), fb flushes %u (%.2f/loop)",
+          (unsigned)(gl * perSec), (unsigned)(fi * perSec), (unsigned)(pc * perSec),
+          pc ? (unsigned)(ph * 100UL / pc) : 0U,
+          (unsigned)(pu * perSec), d ? (float)pu / (float)d : 0.0f);
+      #ifndef CONFIG_FREERTOS_UNICORE
+        FUNCTIONLOG("Core.monitor", "Core layout: core0 " CORE_0 ", core1 " CORE_1);
       #endif
       FUNCTIONLOG("Core.monitor", "High Water Mark (free bytes in stacks): Main: %u, Display: %u, Netserver: %u",
           (unsigned)uxTaskGetStackHighWaterMark(NULL),
@@ -232,9 +263,13 @@ void loop() {
               heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024);
         }
       }
+      SERIALLOGLF();   // blank line, so consecutive reports are separable at a glance
       cmLastPrint = millis();
     }
   #endif
+
+// ... codul ehRadio din loop()
+fmServer.handleClient();   // FileManager SD
 }
 
 

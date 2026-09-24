@@ -21,6 +21,7 @@
 #include "../displays/widgets/pages.h"
 #include "../displays/widgets/widgets.h"
 #include "../displays/widgets/widget_vu.h"
+#include "../displays/tools/dspstats.h"
 #include "battery.h"
 
 extern const char batterytxtFmt[] PROGMEM;
@@ -158,6 +159,12 @@ QueueHandle_t displayQueue;
 
 #ifdef CORE_MONITOR
   volatile uint32_t cmDspLoopCount = 0;
+  volatile uint32_t cmGlyphCount    = 0;
+  volatile uint32_t cmPreTextCalls  = 0;
+  volatile uint32_t cmPreTextHits   = 0;
+  volatile uint32_t cmFillCount     = 0;
+  volatile uint32_t cmPushCount     = 0;
+  volatile uint8_t  cmDspCore       = 255;  // recorded by the task itself; 255 = not yet run
 #endif
 
 TaskHandle_t dspTaskHandle = NULL;
@@ -168,9 +175,9 @@ static void loopDspTask(void * pvParameters) {
       if (displayQueue==NULL) break;
       display.loop();
     #endif
-    #ifdef CORE_MONITOR
-      cmDspLoopCount++;
-    #endif
+    /* The task reports its own core, so the Core Monitor can never print this
+       counter next to the wrong core's name. */
+    cmCountDspLoop((uint8_t)xPortGetCoreID());
     vTaskDelay(pdMS_TO_TICKS(DSP_TASK_DELAY));
   }
   vTaskDelete(NULL);
@@ -233,7 +240,7 @@ void Display::init() {
   #endif
   _activeLocale = l10n_findLocale(config.store.locale_display);
   dsp.initDisplay();
-  dsp.setFont((GFXfont *)&DisplayFont);
+  dsp.setFont((GFXfont *)displayFont());
   displayQueue=NULL;
   displayQueue = xQueueCreate(5, sizeof(requestParams_t));
   if (displayQueue==NULL) { ERRORLOG("DISPLAY: displayQueue alloc failed. Rebooting."); delay(10); ESP.restart(); }
@@ -302,14 +309,8 @@ void Display::_buildPager() {
   if (title2Conf_ptr->buffsize > 0) {
     _title2 = new ScrollWidget("*", *title2Conf_ptr, config.theme.title2, config.theme.background);
   }
-  #if !defined(DSP_LCD) && DSP_MODEL!=DSP_NOKIA5110
-    _plbackground = new FillWidget(*playlBGConf_ptr, config.theme.plcurrentfill);
-    _metabackground = new FillWidget(*metaBGConf_ptr, config.theme.metafill);
-  #endif
-  #if DSP_MODEL==DSP_NOKIA5110
-    _plbackground = new FillWidget(*playlBGConf_ptr, 1);
-    //_metabackground = new FillWidget(*metaBGConf_ptr, 1);
-  #endif
+  _plbackground = new FillWidget(*playlBGConf_ptr, config.theme.plcurrentfill);
+  _metabackground = new FillWidget(*metaBGConf_ptr, config.theme.metafill);
   if (vuConf_ptr->textsize > 0) {
     _vuwidget = new VuWidget(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background);
   }
@@ -396,10 +397,8 @@ void Display::_buildPager() {
     pages[PG_DIALOG]->addWidget(_updValue);
   #endif
   
-  #if !defined(DSP_LCD) && DSP_MODEL!=DSP_NOKIA5110
-    pages[PG_DIALOG]->addPage(_footer);
-  #endif
-  #if !defined(DSP_LCD) && !PLAYLIST_MODE_PAGED
+  pages[PG_DIALOG]->addPage(_footer);
+  #if !PLAYLIST_MODE_PAGED
     if (_plbackground) {
       pages[PG_PLAYLIST]->addWidget(_plbackground);
       _plbackground->setHeight(_plwidget->itemHeight());
@@ -418,11 +417,8 @@ void Display::_apScreen() {
     _boot = nullptr;
     _bootstring = nullptr;
   }
-  #ifndef DSP_LCD
     _boot = new Page();
-    #if DSP_MODEL!=DSP_NOKIA5110
-      _boot->addWidget(new FillWidget(*metaBGConf_ptr, config.theme.metafill));
-    #endif
+    _boot->addWidget(new FillWidget(*metaBGConf_ptr, config.theme.metafill));
     uint16_t mfg = config.store.inverttitle ? config.theme.metabg : config.theme.meta;
     uint16_t mbg;
     #ifdef DSP_TFT
@@ -450,9 +446,6 @@ void Display::_apScreen() {
     bootSett->setText(utility.ipToStr(WiFi.softAPIP()), l10n(L10N_MSG_CONNECT_OPEN));
     _pager->addPage(_boot);
     _pager->setPage(_boot);
-  #else
-    dsp.apScreen();
-  #endif
 }
 
 void Display::_start() {
@@ -526,10 +519,6 @@ void Display::_start() {
 void Display::_showDialog(const char *title) {
   dsp.setScrollId(NULL);
   _pager->setPage(pages[PG_DIALOG]);
-  /* Character LCDs re-lay the meta line for dialogs; non-LCD confs leave the macro undefined. */
-  #ifdef LCD_META_MOVE
-    _meta->moveTo(LCD_META_MOVE);
-  #endif
   _meta->setAlign(WA_CENTER);
   _meta->setText(title);
 }
@@ -558,14 +547,7 @@ void Display::_swichMode(displayMode_e newmode) {
       _clock->moveBack();
       if (_weather) _weather->moveBack();
     }
-    #ifdef DSP_LCD
-      dsp.clearDsp();
-    #endif
     numOfNextStation = 0;
-    /* Put the meta line back.  Must match the macro name in _showDialog(), or the move is never undone. */
-    #ifdef LCD_META_MOVE
-      _meta->moveBack();
-    #endif
     _meta->setAlign(metaConf_ptr->widget.align);
     _meta->setText(config.station.name);
     _nums->setText("");
@@ -1105,15 +1087,9 @@ void Display::_reinitWidgets() {
      _fb deref, so lock()/clear() cannot reach uninitialised geometry - the old boot loop. */
   if (clockInLayout()) { _clock->init(*clockConf_ptr, 0, 0); showByLayout(_clock); }
   else hideByLayout(_clock);
-  #if DSP_MODEL==DSP_NOKIA5110
-    _plcurrent->init("*", *playlistConf_ptr, 0, 1);
-  #else
-    _plcurrent->init("*", *playlistConf_ptr, config.theme.plcurrent, config.theme.plcurrentbg);
-  #endif
+  _plcurrent->init("*", *playlistConf_ptr, config.theme.plcurrent, config.theme.plcurrentbg);
   _plwidget->init(_plcurrent);
-  #if !defined(DSP_LCD)
-    _plcurrent->moveTo({TFT_FRAMEWDT, (uint16_t)(_plwidget->currentTop()), (int16_t)playlistConf_ptr->width});
-  #endif
+  _plcurrent->moveTo({TFT_FRAMEWDT, (uint16_t)(_plwidget->currentTop()), (int16_t)playlistConf_ptr->width});
   // --- Player-page optional widgets (lazy-create if newly enabled) ---
   if (title2InLayout()) {
     if (!_title2) {
@@ -1223,18 +1199,13 @@ void Display::_reinitWidgets() {
   if (numInLayout()) { _nums->init(*numConf_ptr, 10, false, config.theme.digit, config.theme.background); showByLayout(_nums); }
   else hideByLayout(_nums);
   // Background fills
-  #if !defined(DSP_LCD) && DSP_MODEL!=DSP_NOKIA5110
-    if (_plbackground) _plbackground->init(*playlBGConf_ptr, config.theme.plcurrentfill);
-    if (_metabackground) _metabackground->init(*metaBGConf_ptr, config.theme.metafill);
-  #endif
-  #if DSP_MODEL==DSP_NOKIA5110
-    if (_plbackground) _plbackground->init(*playlBGConf_ptr, 1);
-  #endif
+  if (_plbackground) _plbackground->init(*playlBGConf_ptr, config.theme.plcurrentfill);
+  if (_metabackground) _metabackground->init(*metaBGConf_ptr, config.theme.metafill);
   /* _plbackground->init() above resets _height and _config.top back to playlBGConf.
      Its geometry is meant to follow the live playlist rows, so re-apply the same
      values _buildPager() uses — otherwise the highlight band keeps the conf
      height/position instead of matching itemHeight(). */
-  #if !defined(DSP_LCD) && !PLAYLIST_MODE_PAGED
+  #if !PLAYLIST_MODE_PAGED
     if (_plbackground) {
       _plbackground->setHeight(_plwidget->itemHeight());
       _plbackground->moveTo({0,(uint16_t)(_plwidget->currentTop()-playlistConf_ptr->widget.textsize*2), (int16_t)playlBGConf_ptr->width});
@@ -1274,16 +1245,14 @@ void Display::_applyState() {
   #ifdef DSP_TFT
     memcpy_P(&config.theme, &_themes[config.store.themeId], sizeof(ThemeData));
   #endif
-  #if !defined(DSP_LCD) && DSP_MODEL!=DSP_NOKIA5110
-    if (config.store.inverttitle) {
-      #ifdef DSP_TFT
-        config.theme.metafill = config.theme.div;
-      #endif
-      metaBGConf_ptr = (activeLayout.metaBGConfInv.height > 0) ? &activeLayout.metaBGConfInv : &activeLayout.metaBGConf;
-    } else {
-      metaBGConf_ptr = &activeLayout.metaBGConf;
-    }
-  #endif
+  if (config.store.inverttitle) {
+    #ifdef DSP_TFT
+      config.theme.metafill = config.theme.div;
+    #endif
+    metaBGConf_ptr = (activeLayout.metaBGConfInv.height > 0) ? &activeLayout.metaBGConfInv : &activeLayout.metaBGConf;
+  } else {
+    metaBGConf_ptr = &activeLayout.metaBGConf;
+  }
   _reinitWidgets();
   /* Re-apply every feature lock: _reinitWidgets() may just have shown a widget the new layout brought
      back.  A widget is live only when the layout provides it AND its feature is on. */
@@ -1357,14 +1326,8 @@ void Display::applyInvertTitle() {
 
 void Display::invert() { dsp.invert(); }
 
-void  Display::setContrast() {
-  #if DSP_MODEL==DSP_NOKIA5110
-    dsp.setContrast(config.store.contrast);
-  #endif
-}
-
 bool Display::deepsleep() {
-#if defined(LCD_I2C) || defined(DSP_OLED) || BRIGHTNESS_PIN!=255
+#if defined(DSP_OLED) || BRIGHTNESS_PIN!=255
   dsp.sleep();
   return true;
 #endif
@@ -1372,7 +1335,7 @@ bool Display::deepsleep() {
 }
 
 void Display::wakeup() {
-  #if defined(LCD_I2C) || defined(DSP_OLED) || BRIGHTNESS_PIN!=255
+  #if defined(DSP_OLED) || BRIGHTNESS_PIN!=255
     dsp.wake();
   #endif
 }

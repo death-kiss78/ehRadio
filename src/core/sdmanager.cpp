@@ -185,7 +185,7 @@ void SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uin
         SERIALLOGDOT();
         if (display.mode()==SDCHANGE) display.putRequest(SDFILEINDEX, _sdFCount+1);
         _sdFCount++;
-        if (_sdFCount % 64 == 0) SERIALLOG("");
+        if (_sdFCount % 64 == 0) SERIALLOGLF();
       }
     }
     free(filePath);
@@ -218,7 +218,7 @@ void SDManager::indexSDPlaylist() {
 
   playlist.flush();
   playlist.close();
-  SERIALLOG("");
+  SERIALLOGLF();
   delay(50);
 }
 
