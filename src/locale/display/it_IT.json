@@ -78,5 +78,7 @@
   "msg_w_rain_showers":"Rovesci di pioggia",
   "msg_w_snow_showers":"Rovesci di neve",
   "msg_w_thunderstorm":"Temporale",
-  "msg_w_thunderstorm_hail": "Temporale con grandine"
+  "msg_w_thunderstorm_hail": "Temporale con grandine",
+  "lbl_sdman": "GESTORE SD",
+  "msg_open": "Apri HTTP://%s"
 }

@@ -78,5 +78,7 @@
   "msg_w_rain_showers": "Averse",
   "msg_w_snow_showers": "Ninsoare",
   "msg_w_thunderstorm": "Furtună",
-  "msg_w_thunderstorm_hail": "Furtună cu grindină"
+  "msg_w_thunderstorm_hail": "Furtună cu grindină",
+  "lbl_sdman": "MANAGER SD",
+  "msg_open": "Deschide HTTP://%s"
 }
