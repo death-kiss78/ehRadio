@@ -9,6 +9,9 @@
 #include "network.h"
 #include <SD.h>
 #include "sdmanager.h"
+#ifdef USE_SD
+  #include "filemanager.h"
+#endif
 
 #if IR_PIN!=255
   #include <assert.h>
@@ -180,12 +183,18 @@ void Controls::loop() {
 
 void Controls::encoder1Loop() {
   #if ENC_DT!=255
+    #ifdef USE_SD
+      if (filemanager.active()) { encoder.encoderChanged(); return; } // drain first
+    #endif
    encodersLoop(&encoder, true);
   #endif
 }
 
 void Controls::encoder2Loop() {
   #if ENC2_DT!=255
+    #ifdef USE_SD
+      if (filemanager.active()) { encoder2.encoderChanged(); return; } // drain first
+    #endif
     encodersLoop(&encoder2, false);
   #endif
 }
@@ -203,6 +212,9 @@ void Controls::irBlink() {
 }
 
 void Controls::irNumber(uint8_t num) {
+  #ifdef USE_SD
+    if (filemanager.active()) return;
+  #endif
   #if IR_PIN!=255
     uint16_t s;
     if (display.numOfNextStation == 0 && num == 0) return;
@@ -216,6 +228,9 @@ void Controls::irNumber(uint8_t num) {
 }
 
 void Controls::irLoop() {
+  #ifdef USE_SD
+    if (filemanager.active()) return;
+  #endif
   #if IR_PIN!=255
     if (irrecv.decode(&irResults)) {
       if (irResults.value<256) return;
@@ -331,6 +346,9 @@ void Controls::irLoop() {
 }
 
 void Controls::onBtnLongPressStart(int id) {
+  #ifdef USE_SD
+    if (filemanager.active()) return;
+  #endif
   switch ((controlEvt_e)id) {
     case EVT_BTN_DOWN:
     case EVT_BTN_UP:
@@ -358,6 +376,9 @@ void Controls::onBtnLongPressStart(int id) {
 }
 
 void Controls::onBtnLongPressStop(int id) {
+  #ifdef USE_SD
+    if (filemanager.active()) { lpId = -1; return; } // release latch first
+  #endif
   switch ((controlEvt_e)id) {
     case EVT_BTN_DOWN:
     case EVT_BTN_UP:
@@ -403,6 +424,9 @@ bool Controls::screenSaverExit() {
 }
 
 void Controls::onBtnDuringLongPress(int id) {
+  #ifdef USE_SD
+    if (filemanager.active()) return;
+  #endif
   if (network.status != CONNECTED && network.status!=SDOFFLINE) return;
   if (checklpdelay(BTN_LONGPRESS_LOOP_DELAY, lpDelay)) {
     switch ((controlEvt_e)id) {
@@ -447,6 +471,9 @@ void Controls::onBtnDuringLongPress(int id) {
 }
 
 void Controls::controlsEvent(bool toRight, int8_t volDelta) {
+  #ifdef USE_SD
+    if (filemanager.active()) return;
+  #endif
   if (screenSaverExit()) {
     return;  // Don't perform action, just exit screensaver
   }
@@ -477,6 +504,9 @@ void Controls::controlsEvent(bool toRight, int8_t volDelta) {
 }
 
 void Controls::onBtnClick(int id) {
+  #ifdef USE_SD
+    if (filemanager.active()) return;
+  #endif
   if (screenSaverExit()) return;
   bool passBnCenter = (controlEvt_e)id==EVT_BTN_PLAY || (controlEvt_e)id==EVT_ENC_SW || (controlEvt_e)id==EVT_ENC2_SW;
   controlEvt_e btnid = static_cast<controlEvt_e>(id);
@@ -562,6 +592,9 @@ void Controls::onBtnClick(int id) {
 }
 
 void Controls::onBtnDoubleClick(int id) {
+  #ifdef USE_SD
+    if (filemanager.active()) return;
+  #endif
   if (screenSaverExit()) return;
   switch ((controlEvt_e)id) {
     case EVT_BTN_DOWN: {

@@ -194,11 +194,9 @@ A `has_wmo` flag ensures code 0 ("Clear sky") is not confused with "no WMO data"
 
 ### Display locale
 
-1. **Create the display JSON:**
-   ```
-   py display_tool.py xx_XX --create
-   ```
-   This copies `en_US.json` to `src/locale/display/xx_XX.json` with empty translation values.
+1. **Add the display JSON** — copy `en_US.json` (or a locale you can read, if that helps) to
+   `src/locale/display/xx_XX.json` and set `locale_code`, `locale`, `locale_en` and the values in it. No command
+   creates a locale file: the tools only ever edit files that already exist.
 
 2. **Translate:**
    ```
@@ -214,11 +212,9 @@ A `has_wmo` flag ensures code 0 ("Clear sky") is not confused with "no WMO data"
 
 ### WebUI locale
 
-1. **Create the www JSON:**
-   ```
-   py www_tool.py xx_XX --create
-   ```
-   Copies `src/locale/www/en_US.json` with empty values.
+1. **Add the www JSON** — copy `src/locale/www/en_US.json` (or a locale you can read) to
+   `src/locale/www/xx_XX.json` and work in that. No command creates a locale file: the tools only ever edit files
+   that already exist.
 
 2. **Translate:**
    ```
@@ -232,6 +228,88 @@ A `has_wmo` flag ensures code 0 ("Clear sky") is not confused with "no WMO data"
    Gzip-compresses all www JSONs into PROGMEM byte arrays.
 
 4. **Rebuild firmware** — both `dsplocale.h` and `wwwlocale.h` are compile-time includes.
+
+### Making the template to send out
+
+A translator works best from a list of just the keys their language is missing, with the current source text beside each
+one. `--newkeys` writes exactly that:
+
+```
+py display_tool.py * --newkeys --sort
+py www_tool.py * --newkeys --sort
+```
+
+- It writes `src/locale/display_newkeys.json` and `src/locale/www_newkeys.json` - **beside the tools, not in the locale
+  folders**, which both generators glob and validate as locale files. `-k FILE` puts the template somewhere else.
+- Beside each key sits the master text, so the translator can see what they are translating. Nothing is empty.
+- `*` is the useful form: the keys are unioned across every locale and the file is written once, because a key missing
+  from one language is almost always missing from all of them.
+- Run it again after adding keys to the source: keys already in the template are **left exactly as they are**, so a
+  translator's work in progress is never overwritten, and only genuinely new keys are added. `--clean` drops template
+  keys the master no longer has; `--sort` orders the file the way the locale files are ordered.
+- It is a **pre-pass, not an alternative to the normal run**: give it a mode and the collection happens first, while the
+  keys are still missing, and the pass then fills the locales - so one command gives both the filled files and the list
+  to send out:
+
+  ```
+  py display_tool.py * --translate --fast --clean --sort --newkeys
+  py www_tool.py * --translate --fast --clean --sort --newkeys
+  ```
+
+  On its own, with no mode, it collects and stops, because the normal pass would start prompting. `--merge` is the one
+  option it refuses, being the opposite direction.
+- The template is the record of what this release added. The machine translations are in the locale files already; the
+  English source in the template is what a native speaker should review.
+
+### Merging a translator's partial file
+
+A contributor can send a small JSON holding only the keys they worked on. Merge it into the locale that already
+exists: the file is upserted, so the keys they sent are updated or added and everything else is left alone.
+
+```
+py display_tool.py ro_RO --merge changes.json
+py www_tool.py ro_RO --merge changes.json
+```
+
+- One locale at a time. `*` is refused, because a partial file is written for a single language.
+- `--clean` and `--sort` may follow. Without them nothing is removed and the key order is left as it is, and a merge
+  never asks a question, so it can be run unattended over a contributor's file.
+- A key the master does not know is skipped and named, and the rest of the file merges as usual — typically the
+  translator worked from an older copy and handed back a key that has since been retired, and their other work should
+  not be thrown away over it. Either the key name is wrong, the key is old, or it is new and has to go into the source
+  and the master first. Writing such a key is what must never happen: `make_dsplocale.py` treats an unknown key as a
+  build error.
+- Afterwards the tool reports how many keys are still missing and how many are present but empty — that list is what
+  to send back to the translator.
+- The target file must already exist: a merge edits a locale, it never makes one. Copy the master, or another locale,
+  to the name you want and translate it first.
+
+### Redoing one key
+
+When a source string changes, or a translation turns out to be wrong in every language, an ordinary run cannot help:
+the key is present everywhere, so nothing is missing and nothing is touched. `--key NAME` narrows a run to that one
+key and writes it even where it already exists.
+
+```
+py www_tool.py * --translate --fast --clean --sort --key msg_sd_manager_closed
+py display_tool.py * --translate --fast --clean --sort --key msg_open
+```
+
+- `--key` is the whole pass: every other key is ignored, so the run is one key per locale instead of a whole file. It
+  composes with the modes and with `--translate`, which is what makes re-translating a single key possible.
+- The argument is the key, not the text, and it needs no quotes, because key names contain no spaces. Change the
+  source text first (the page for www, `en_US.json` for the display), then run this, and every locale picks up the
+  new wording.
+- The key must exist in that tool's master: the `data/www` scan for `www_tool.py`, `en_US.json` for
+  `display_tool.py`. A name nothing uses cannot be redone, and the run stops with one clear error rather than one per
+  locale.
+- `--fast` overwrites without asking. In the interactive modes the key is prompted even though the locale already has
+  a value, and the current text is shown as `[JSON]`, so ESC keeps it instead of letting the source text replace it
+  unseen.
+- `--merge` and `--newkeys` are refused with it: one writes a whole partial file, the other collects the keys the
+  locales lack, and neither has anything to select.
+- One key per run. Sweeping for many is still `--ndiff`, which finds the places where a locale still holds the source
+  text.
 
 ---
 
@@ -302,10 +380,32 @@ WebUI locale JSONs live in `src/locale/www/`.
 
 | Tool | Purpose |
 |---|---|
-| `www_tool.py` | Scan HTML/JS for i18n keys, check/add/translate/sort/clean www locale JSONs. Use `--create` to create new locale from `en_US`. |
-| `display_tool.py` | Manage display JSONs against master (`en_US.json`). Sort uses master key order. Clean never touches master. `--create` copies master with empty values. |
+| `www_tool.py` | Scan HTML/JS for i18n keys, check/add/translate/sort/clean www locale JSONs. `--merge <file.json>` upserts a partial file into one locale; `--newkeys` collects the keys the locales still lack into a template. |
+| `display_tool.py` | Manage display JSONs against master (`en_US.json`). Sort uses master key order. Clean never touches master. Same `--merge` and `--newkeys` options as `www_tool.py`. |
 | `trans_deepl.py` | Auto-translation via DeepL API |
 | `trans_deepl.md` | Setup instructions for DeepL (API key, installation, usage) |
+
+### When a translation comes back unchanged
+
+Some strings legitimately come back from a translation service unchanged - a symbols-only label such as
+`* SD MANAGER *` has nothing to translate - and a service that is down or rate-limited returns nothing at all. Both
+cases stop and ask, because writing the source text into a locale is a decision:
+
+| Answer | Automatic pass (`--fast`) | Interactive prompt |
+| --- | --- | --- |
+| `y` | use the source text for this key | the same, and the key then goes to the normal edit prompt |
+| `a` | **accept** the source text for this key for the rest of the run without asking again | not offered |
+| `n` | stop the run: the key's text is worth a look, or the service needs a moment. Locales already finished are saved; the one in progress is not | skip this key - in the review modes it keeps the JSON as it is |
+
+The automatic pass asks once per key per locale, so `a` is what stops a `* --translate` run from asking about the same
+symbols-only key 49 times. That answer holds for the run; the next run does not ask again either, because by then the
+key is no longer missing.
+
+**`a` suppresses the question, never the translation.** The service is asked for every key first, and the answer is
+only consulted when what came back was empty or identical to the source text. A key settled with `a` therefore still
+gets a proper translation in any locale where the service produces one; the source text is used only where it cannot.
+The answer is per key, not per run, so a service that is failing everywhere still asks once per key - which is exactly
+what `n` is for: stop, and run the command again once the service has recovered.
 
 ### Translation discovery
 

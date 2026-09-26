@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#eecccc">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="stylesheet" id="themeCSS" href="theme.css" type="text/css">
+  <link rel="stylesheet" id="styleCSS" href="style.css" type="text/css">
+  <title>ehRadio - SD File Manager</title>
+</head>
+<body class="sdman">
+
+<div id="pleditorwrap">
+  <div id="pleditor">
+    <h2><span data-i18n="ttl_sd_file_manager">SD File Manager</span></h2>
+
+    <div id="sdmaninfo" class="pleditorwarning hidden"></div>
+    <div id="sdmanpath" class="sdpath"></div>
+
+    <div id="pleheader">
+      <span class="sdico"></span>
+      <span class="space sdcheck"><input type="checkbox" id="selectAllCheckbox"></span>
+      <span class="sdname sdsort" id="sdmanSortName" data-i18n="lbl_name">Name</span>
+      <span class="sdsize sdsort" id="sdmanSortSize" data-i18n="lbl_size">Size</span>
+      <span class="sdload"></span>
+    </div>
+
+    <ol id="pleditorcontent"></ol>
+
+    <div class="formbuttons">
+      <div class="fb" id="sdmanNewDir" data-i18n="btn_new_folder">New folder</div>
+      <!-- Two upload buttons.  Replace writes over a name that is already there, Skip Existing leaves it
+           alone and says so.  The mode rides on the input as data-skip, because both share one handler. -->
+      <label class="fb" id="sdmanUploadLbl" for="sdmanupload" data-i18n="btn_upload_replace">Upload (Replace)</label>
+      <input id="sdmanupload" type="file" multiple hidden data-skip="0">
+      <label class="fb" id="sdmanUploadSkipLbl" for="sdmanuploadskip" data-i18n="btn_upload_skip">Upload (Skip Existing)</label>
+      <input id="sdmanuploadskip" type="file" multiple hidden data-skip="1">
+      <div class="fb" id="sdmanDelete" data-i18n="btn_delete">Delete</div>
+      <div class="fb" id="sdmanDone" data-i18n="btn_done">Done</div>
+    </div>
+  </div>
+</div>
+
+<div id="progress" class="hidden"><span id="loader"></span><div id="progresslabel"></div></div>
+
+<script src="locale.js"></script>
+<script>
+/* SD card file manager.  Every /sdman/* route is on the device; the sorting happens here, because the device
+   streams a directory once and does not sort it.  This page only exists while the mode is open - the device
+   serves it at "/" for as long as the mode is up, and hands the root back to the player after that.  With no
+   network it is reachable in AP mode too, where the card is simply portable storage.
+
+   Translation calls go straight to t(), never through a wrapper of our own: src/locale/www_tool.py collects
+   keys by scanning for the two-argument call written with literal strings, so a wrapper would make every
+   string here invisible to it - and its --clean pass would then delete the keys as unused, which is exactly
+   what happened once already.  Do not write that call form into a comment either: the scanner cannot tell
+   prose from code, and this very paragraph once produced a bogus key. */
+(function () {
+  'use strict';
+
+  var state = { path: '/', entries: [], sortKey: 'n', sortDir: 1, armed: false, arming: false, card: '', locked: false };
+
+  /* The download glyph is the one the curated list uses (see the source reference there, svgviewer.dev).
+     The rename glyph is a filled drawing, so it follows the project's .fill convention rather than .stroke:
+     stroke rules would render it as an outline of outline paths. */
+  var SVG_RENAME = '<svg viewBox="0 0 20 20" class="fill"><path d="M17,20H1c-0.6,0-1-0.4-1-1V3c0-0.6,0.4-1,1-1h9v2H2v14h14v-8h2v9C18,19.6,17.6,20,17,20z"/><path d="M9.3,10.7c-0.4-0.4-0.4-1,0-1.4l9-9c0.4-0.4,1-0.4,1.4,0s0.4,1,0,1.4l-9,9C10.3,11.1,9.7,11.1,9.3,10.7z"/></svg>';
+  var SVG_LOAD   = '<svg viewBox="0 0 24 24" class="stroke"><path d="m19 14-7 7-7-7m7 7V3"/></svg>';
+  var SVG_UP     = '<svg viewBox="0 0 24 24" class="stroke"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>';
+
+  function $(id) { return document.getElementById(id); }
+  function enc(p) { return encodeURIComponent(p); }
+  function join(dir, name) { return (dir === '/' ? '' : dir) + '/' + name; }
+  function parentOf(p) { var i = p.lastIndexOf('/'); return i <= 0 ? '/' : p.substring(0, i); }
+
+  /* Entities are assembled from pieces rather than written out, because a literal entity in this file is
+     rewritten by the tooling that copies it around, which would silently corrupt the replacements. */
+  var AMP = '&' + 'amp;', LT = '&' + 'lt;', GT = '&' + 'gt;', QUOT = '&' + 'quot;', APOS = '&' + '#39;';
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': AMP, '<': LT, '>': GT, '"': QUOT, "'": APOS }[c];
+    });
+  }
+
+  function fmtSize(b) {
+    if (!b) return '';
+    var u = ['B', 'KB', 'MB', 'GB'], i = 0;
+    while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+    return (i ? b.toFixed(1) : String(b)) + ' ' + u[i];
+  }
+
+  function busy(on, text) {
+    $('progress').classList.toggle('hidden', !on);
+    $('progresslabel').textContent = on ? (text || '') : '';
+  }
+
+  function notice(msg, isError) {
+    var n = $('sdmaninfo');
+    n.classList.toggle('hidden', !msg);
+    n.textContent = msg || '';
+    n.style.borderColor = (msg && isError) ? '#d33' : '';
+  }
+
+  /* Server error codes to something the user can act on.  A switch rather than a key/value table, so every
+     message sits inside a literal two-argument call carrying its own strings - the only form the key collector
+     in src/locale/www_tool.py can see.  Writing that call form out in a comment is a trap of its own: the
+     scanner cannot tell prose from code, and this comment used to invent a bogus entry in every locale. */
+  function errText(code) {
+    switch (code) {
+      /* in_use and not_connected have no case of their own.  in_use can only be reached by a race against the
+         stop that entering the mode performs, and not_connected went with the AP-mode restriction, so both
+         fall through to the general failure.  The device still refuses both; it reports them the same way.
+
+         not_found, no_dir and no_parent are one answer on purpose.  The device tells them apart for its own log -
+         a stale item, an upload target folder that went away, a parent folder that went away - but to the user
+         they are all the same situation: the path named is not on the card, so the listing on screen is out of
+         date.  What to do about it is identical, and one message is one message to translate. */
+      case 'protected':     return t('msg_item_protected', 'That item is protected and cannot be changed.');
+      case 'exists':        return t('msg_file_folder_exists', 'File/folder with that name already exists.');
+      case 'no_space':      return t('msg_sd_no_space', 'There is not enough space on the card.');
+      case 'not_found':
+      case 'no_dir':
+      case 'no_parent':     return t('msg_file_folder_not_found', 'File/folder not found.');
+      case 'no_card':       return t('msg_no_sd', 'No SD card is mounted.');
+      case 'bad_name':      return t('msg_name_not_allowed', 'That name is not allowed.');
+      case 'not_dir':       return t('msg_not_folder', 'That is not a folder.');
+      case 'not_active':    return t('msg_sd_file_manager_closed', 'SD File Manager was closed.');
+      default:              return t('msg_operation_failed', 'The operation failed.');
+    }
+  }
+
+  function post(url, body) {
+    return fetch(url, { method: 'POST', body: body || null }).then(function (r) {
+      return r.json().catch(function () { return { ok: false, error: 'bad_response' }; });
+    });
+  }
+
+  function renderPath() {
+    $('sdmanpath').textContent = state.path + (state.card ? '  \u00b7  ' + state.card : '');
+  }
+
+  /* Every response carries the mode's remaining idle time, so the tab can end itself at the same moment the
+     device does rather than sitting on a stale screen until the next click.  The reload is deliberately a
+     couple of seconds late: firing exactly at zero could arrive before the device has processed its own
+     timeout, land back in the manager and start the cycle again. */
+  var idleTimer = null;
+  function scheduleIdleReload(ms) {
+    if (idleTimer) window.clearTimeout(idleTimer);
+    if (!ms) return;
+    idleTimer = window.setTimeout(function () { window.location.replace('/'); }, ms + 2000);
+  }
+
+  function sortEntries() {
+    state.entries.sort(function (a, b) {
+      if (a.d !== b.d) return b.d - a.d;                       // folders always first
+      var r = (state.sortKey === 's') ? (a.s - b.s)
+                                      : a.n.localeCompare(b.n, undefined, { numeric: true, sensitivity: 'base' });
+      return r * state.sortDir;
+    });
+  }
+
+  function selection() {
+    var out = [], boxes = document.querySelectorAll('#pleditorcontent input.sdcheck:checked');
+    for (var i = 0; i < boxes.length; i++) out.push(boxes[i].value);
+    return out;
+  }
+
+  /* The Delete button is a two-step control: the first press only arms it and says so, and presses within the
+     next second are ignored, so a double-tap cannot delete anything by accident. */
+  function armDelete(armed) {
+    state.armed = armed;
+    var d = $('sdmanDelete'), n = selection().length;
+    d.removeAttribute('data-i18n');
+    /* The count belongs to the confirmation step.  The first press says only Delete - it does nothing yet -
+       and the press that will actually remove something reports how many it is about to remove. */
+    d.textContent = (armed && n) ? t('btn_delete_n', 'Delete {0}?', n) : t('btn_delete', 'Delete');
+    d.classList.toggle('off', state.locked || !n);
+  }
+
+  /* The whole directory is rendered at once and the list scrolls.  There is no paging anywhere: not on the
+     device, which streams every entry in one response, and not here, so select-all means the whole folder
+     rather than the part of it a page happened to show. */
+  function render() {
+    renderPath();
+
+    /* /data holds the playlists, the SD index and the saved credentials, and the device refuses every change
+       inside it.  Rather than offer controls that would only be rejected, they are dimmed and made inert
+       here - while browsing into the folder stays allowed, because seeing what is in it is the point. */
+    var locked = (state.path === '/data' || state.path.indexOf('/data/') === 0);
+    state.locked = locked;
+
+    var html = '';
+    if (state.path !== '/') {
+      /* The tip is built with t() as the row is drawn, exactly like the rename and download tips, and the row
+         deliberately carries no data-i18n.  data-i18n was worse than useless here: the key collector in
+         src/locale/www_tool.py reads the attribute, then everything up to the next ">", then the text up to
+         the next "<" - and inside a concatenation that next ">" is the one closing the attribute, so the tool
+         recorded the following concatenation fragment as this string's source text in every locale. */
+      html += '<li class="pleitem sdup" data-up="' + esc(parentOf(state.path)) + '">'
+            + '<span class="sdico"><span class="sdiconbtn" title="'
+            + esc(t('ttl_up', 'Up one level')) + '">' + SVG_UP + '</span></span>'
+            + '<span class="sdcheck"></span>'
+            + '<span class="sdname">..</span><span class="sdsize"></span><span class="sdload"></span></li>';
+    }
+
+    for (var i = 0; i < state.entries.length; i++) {
+      var e = state.entries[i];
+      var full = join(state.path, e.n);
+      /* Every control carries the name or path it acts on as its title, so which row a control belongs to
+         is checkable on hover rather than assumed.  The rename and download tips name a file, so they are
+         built with t() as the rows are rendered. */
+      var renameCell = locked
+        ? '<span class="sdiconbtn off">' + SVG_RENAME + '</span>'
+        : '<span class="sdiconbtn" data-act="rename" title="'
+          + esc(t('ttl_rename', 'Rename {0}', e.n)) + '">' + SVG_RENAME + '</span>';
+      html += '<li class="pleitem' + (e.d ? ' dir' : '') + '" data-p="' + esc(full) + '">'
+            + '<span class="sdico">' + renameCell + '</span>'
+            + '<span class="sdcheck"><input type="checkbox" class="sdcheck" value="' + esc(full)
+            + '" title="' + esc(full) + '"' + (locked ? ' disabled' : '') + '></span>'
+            + '<span class="sdname" title="' + esc(full) + '">' + esc(e.n) + '</span>'
+            + '<span class="sdsize">' + (e.d ? '' : fmtSize(e.s)) + '</span>'
+            + '<span class="sdload">' + (e.d ? '' : '<a class="sdiconbtn" href="/sdman/download?path='
+            + enc(full) + '" download title="' + esc(t('ttl_download', 'Download {0}', e.n)) + '">'
+            + SVG_LOAD + '</a>') + '</span>'
+            + '</li>';
+    }
+    /* Folders are rendered in full, so an empty one really is empty rather than a page of one, and the notice
+       applies at any depth instead of only at the root. */
+    if (!state.entries.length) {
+      html += '<li class="pleitem sdnotice">' + esc(t('msg_folder_empty', 'This folder is empty')) + '</li>';
+    }
+    $('pleditorcontent').innerHTML = html;
+
+    $('sdmanNewDir').classList.toggle('off', locked);
+    $('sdmanUploadLbl').classList.toggle('off', locked);
+    $('sdmanUploadSkipLbl').classList.toggle('off', locked);
+    $('selectAllCheckbox').checked = false;
+    $('selectAllCheckbox').disabled = locked;
+    armDelete(false);
+    notice(locked ? t('msg_folder_protected', 'This folder is protected.') : '');
+  }
+
+  function load(path, keepScroll, retried) {
+    var box = $('pleditorcontent');
+    var wasScroll = keepScroll ? box.scrollTop : 0;
+    box.innerHTML = '<li class="pleitem sdnotice"><span class="plloader"><span class="loader"></span></span></li>';
+
+    return fetch('/sdman/list?path=' + enc(path)).then(function (r) {
+      return r.json().catch(function () { return { ok: false, error: 'bad_response' }; });
+    }).then(function (j) {
+      /* The mode times out after SDMAN_AUTO_EXIT_MS with no requests.  A tab that is still open means the
+         user is still here, so ask for the mode back once and carry on rather than showing an error. */
+      if (!j.ok && j.error === 'not_active' && !retried) {
+        return fetch('/sdman/enter').then(function () { return load(path, keepScroll, true); });
+      }
+      if (!j.ok) {
+        notice(errText(j.error), true);
+        if (j.error === 'no_card') {
+          box.innerHTML = '<li class="pleitem sdnotice"><a href="/">'
+                        + esc(t('btn_back', 'Back to the player')) + '</a></li>';
+        } else {
+          box.innerHTML = '';
+        }
+        return;
+      }
+      notice('');
+      state.path = j.path || path;
+      state.entries = j.entries || [];
+      scheduleIdleReload(j.idle);
+      sortEntries();
+      render();
+      box.scrollTop = wasScroll;
+    }).catch(function () {
+      notice(errText('bad_response'), true);
+      box.innerHTML = '';
+    });
+  }
+
+  function loadInfo() {
+    return fetch('/sdman/info').then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.ok) return;
+      if (!j.mounted) { notice(errText('no_card'), true); return; }
+      scheduleIdleReload(j.idle);
+      state.card = t('msg_sd_used', 'Used {0} of {1}', fmtSize(j.used), fmtSize(j.total));
+      renderPath();
+    }).catch(function () {});
+  }
+
+  function mutate(url, okMsg) {
+    busy(true, t('msg_working', 'Working...'));
+    return post(url).then(function (j) {
+      busy(false);
+      notice(j.ok ? (okMsg || '') : errText(j.error), !j.ok);
+      if (j.ok) return load(state.path, true);
+    });
+  }
+
+  function doRename(full) {
+    var base = full.substring(full.lastIndexOf('/') + 1);
+    var nn = window.prompt(t('msg_new_name', 'New name'), base);
+    if (nn === null) return;
+    nn = nn.trim();
+    if (!nn || nn === base) return;
+    mutate('/sdman/rename?from=' + enc(full) + '&to=' + enc(nn));
+  }
+
+  function doDelete() {
+    var paths = selection();
+    if (!paths.length) return;
+    busy(true, t('msg_deleting', 'Deleting...'));
+    /* One request for the whole selection, so a multi-delete costs one walk of the card and one reload
+       instead of one of each per file. */
+    post('/sdman/delete', paths.join('\n')).then(function (j) {
+      busy(false);
+      /* One count, one message.  The device still separates a refused removal from a failed one in its log,
+         but the page does not split hairs over why something stayed.  refused is read as well as failed, so a
+         selection the device refused outright - nothing deleted, ok still false - is reported too. */
+      var gone = (j.failed || 0) + (j.refused || 0);
+      notice(gone ? t('msg_delete_failed', '{0} could not be deleted.', gone) : '', gone > 0);
+      return load(state.path, true);
+    });
+  }
+
+  /* ---- events ------------------------------------------------------------------------------------- */
+
+  $('pleditorcontent').addEventListener('click', function (ev) {
+    var li = ev.target.closest('li.pleitem');
+    if (!li) return;
+    if (li.dataset.up) { load(li.dataset.up); return; }
+    if (ev.target.closest('[data-act="rename"]')) { doRename(li.dataset.p); return; }
+    if (ev.target.closest('a')) return;                     // the download link does its own thing
+    if (ev.target.closest('input')) return;                 // the checkbox does its own thing
+    if (li.classList.contains('dir')) load(li.dataset.p);   // tapping a folder opens it
+  });
+
+  $('pleditorcontent').addEventListener('change', function (ev) {
+    if (ev.target.classList.contains('sdcheck')) armDelete(false);
+  });
+
+  /* Select-all covers every row in the folder, because every row is rendered. */
+  $('selectAllCheckbox').onchange = function () {
+    var boxes = document.querySelectorAll('#pleditorcontent li.pleitem:not(.sdup) input.sdcheck');
+    for (var i = 0; i < boxes.length; i++) boxes[i].checked = this.checked;
+    armDelete(false);
+  };
+
+  $('sdmanDelete').onclick = function () {
+    if (state.locked || !selection().length) return;
+    if (!state.armed) {
+      armDelete(true);
+      state.arming = true;
+      window.setTimeout(function () { state.arming = false; }, 1000);
+      return;
+    }
+    if (state.arming) return;
+    doDelete();
+  };
+
+  $('sdmanNewDir').onclick = function () {
+    if (state.locked) return;
+    var nn = window.prompt(t('msg_new_folder_name', 'New folder name'), '');
+    if (nn === null) return;
+    nn = nn.trim();
+    if (!nn) return;
+    mutate('/sdman/mkdir?path=' + enc(join(state.path, nn)));
+  };
+
+  /* Uploads go one file per request, as multipart: one request per file keeps the device's upload handler
+     unambiguous about where a file starts, and XHR is what can report progress on the way up.
+
+     Both upload buttons run this.  Replace leaves the device's default alone: the target is opened for
+     writing, which truncates, so an existing name is overwritten.  Skip Existing asks for skip=1, and the
+     device then leaves an existing name untouched and reports it instead of writing.  A name that is not
+     there yet is written either way. */
+  function startUpload(input) {
+    if (state.locked) return;
+    var files = input.files;
+    if (!files || !files.length) return;
+    input.value = '';
+    var skip = input.dataset.skip === '1';
+    var skipped = [];
+    var i = 0;
+    (function next() {
+      if (i >= files.length) {
+        busy(false);
+        /* Skipped names are reported once, after the batch.  A notice per file would be overwritten by the
+           next file's busy line, so only the last one would ever be seen. */
+        if (skipped.length) {
+          notice(t('msg_upload_skipped', '{0} already existed and was skipped.', skipped.join(', ')));
+        }
+        load(state.path, true);
+        return;
+      }
+      var f = files[i++];
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/sdman/upload?path=' + enc(state.path) + '&name=' + enc(f.name)
+                + (skip ? '&skip=1' : ''));
+      xhr.upload.onprogress = function (e) {
+        if (e.lengthComputable) {
+          busy(true, t('msg_uploading', 'Uploading') + ' ' + f.name + ' '
+                    + Math.round(e.loaded * 100 / e.total) + '%');
+        }
+      };
+      xhr.onload = function () {
+        var j = { ok: false, error: 'bad_response' };
+        try { j = JSON.parse(xhr.responseText); } catch (e) {}
+        if (j.ok && j.skipped) skipped.push(f.name);
+        else if (!j.ok) notice(errText(j.error), true);
+        next();
+      };
+      xhr.onerror = function () {
+        busy(false);
+        notice(t('msg_upload_failed', 'The upload failed.'), true);
+      };
+      busy(true, t('msg_uploading', 'Uploading') + ' ' + f.name);
+      var fd = new FormData();
+      fd.append('file', f, f.name);
+      xhr.send(fd);
+    })();
+  }
+  $('sdmanupload').onchange = function () { startUpload(this); };
+  $('sdmanuploadskip').onchange = function () { startUpload(this); };
+
+  function toggleSort(key) {
+    if (state.sortKey === key) state.sortDir = -state.sortDir;
+    else { state.sortKey = key; state.sortDir = 1; }
+    sortEntries();
+    render();
+    $('pleditorcontent').scrollTop = 0;
+  }
+  $('sdmanSortName').onclick = function () { toggleSort('n'); };
+  $('sdmanSortSize').onclick = function () { toggleSort('s'); };
+
+  /* Done closes the mode on the device and hands "/" back to whatever serves it - the player in station mode,
+     the AP settings page when the device has no network.  There is no message for it: the redirect replaces
+     the page in the same tick, so the button needs no state of its own. */
+  $('sdmanDone').onclick = function () {
+    fetch('/sdman/done', { method: 'POST' }).then(function () { window.location.replace('/'); })
+                                             .catch(function () { window.location.replace('/'); });
+  };
+
+  /* locale.js fetches locale.json and then calls applyI18n().  The tooltips are built with t() as the rows
+     are rendered, so wrap it to re-render once the translations have actually arrived - otherwise a page
+     that rendered before the fetch finished would keep English tooltips.  Skipped while anything is ticked,
+     so an in-progress selection is never thrown away by a re-render. */
+  var _applyI18n = window.applyI18n;
+  window.applyI18n = function (root) {
+    if (typeof _applyI18n === 'function') _applyI18n(root);
+    if (state.entries.length && !selection().length) render();
+  };
+
+  /* Open the mode, then move to "/" - the mode takes the root over, so the root is where the manager lives,
+     and seeing the player's address with the manager on screen is the point.  location.replace keeps the
+     /sdmanager.html visit out of the history, so going Back does not land on it again. */
+  fetch('/sdman/enter').then(function (r) { return r.json(); }).catch(function () {
+    return { ok: false, error: 'bad_response' };
+  }).then(function (j) {
+    if (!j.ok) { notice(errText(j.error), true); return; }
+    if (window.location.pathname !== '/') { window.location.replace('/'); return; }
+    return load('/').then(loadInfo);
+  });
+})();
+</script>
+</body>
+</html>

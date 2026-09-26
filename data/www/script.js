@@ -130,7 +130,7 @@ function onMessage(event) {
     if(typeof data.playermode !== 'undefined') { //Web, SD
       modesd = data.playermode=='modesd';
       classEach('modeitem', function(el){ el.classList.add('hidden') });
-      if(modesd) { getId('toggleplaylist').classList.add('sd-mode'); showById(['modesd', 'sdsvg', 'shuffle'],['plsvg']); } else { getId('toggleplaylist').classList.remove('sd-mode'); showById(['modeweb','plsvg','bitinfo'],['sdsvg','shuffle']); }
+      if(modesd) { getId('toggleplaylist').classList.add('sd-mode'); showById(['modesd', 'sdmanbtn', 'shuffle'],['plsvg']); } else { getId('toggleplaylist').classList.remove('sd-mode'); showById(['modeweb','plsvg','bitinfo'],['sdmanbtn','shuffle']); }
       /* if sdslider is ever fixed, it will be hidden without the next line to unhide it */
       // if(modesd) { showById(['volslider', 'sdslider'],[]); } else { showById(['volslider'],['sdslider']); }
       showById(['volslider'],[]);
@@ -407,7 +407,7 @@ function initPLEditor(){
 function handlePlaylistData(fileData) {
   const ul = getId('playlist');
   ul.innerHTML='';
-  if (!fileData) return;
+  if (!fileData) { alignPlaylistStripes(); return; }
   const lines = fileData.split(/\r?\n/);
   let li='', html='';
   for(var i = 0;i < lines.length;i++){
@@ -419,9 +419,27 @@ function handlePlaylistData(fileData) {
     }
   }
   ul.innerHTML=html;
+  alignPlaylistStripes();
   setCurrentItem(currentItem);
   if(!modesd) initPLEditor();
 }
+
+/* The playlist's stripes are a background pattern on the scroll box whose bands are 39px - one single-line
+   row. A wrapped name makes its row taller than that, so instead of calibrating the pattern the offset is
+   set from where the list actually ends: background-attachment: local keeps the pattern with the rows while
+   the list scrolls, and the offset puts the colour the next row would have had under the last one, so the
+   empty space reads as the list continuing. Re-run on resize, which is what rewraps the names. */
+function alignPlaylistStripes() {
+  const ul = getId('playlist');
+  if (!ul) return;
+  const rows = ul.children, band = 39, cycle = band * 2;
+  if (!rows.length) { ul.style.backgroundPositionY = '0px'; return; }
+  const last = rows[rows.length - 1];
+  const end = last.offsetTop + last.offsetHeight;
+  const shift = (rows.length % 2) ? band : 0;   // an odd number of rows leaves an even colour next
+  ul.style.backgroundPositionY = (((end - shift) % cycle + cycle) % cycle) + 'px';
+}
+window.addEventListener('resize', alignPlaylistStripes);
 function generatePlaylist(path){
   getId('playlist').innerHTML='<div class="plloader"><span class="loader"></span></div>';
   var xhr = new XMLHttpRequest();
@@ -1279,6 +1297,9 @@ function continueLoading(mode){
           case "webboard": window.location.href=`http://${hostname}/webboard`; break;
           case "setupir": window.location.href=`http://${hostname}/ir.html`; break;
           case "search": window.location.href=`http://${hostname}/search.html`; break;
+          // The page opens the mode itself, then replaces itself with "/"; when the mode is up the device
+          // redirects it to "/" anyway.
+          case "sdfilemanager": window.location.href=`http://${hostname}/sdmanager.html`; break;
           case "applyweather": applyWeather(); break;
           case "applytz": applyTZ(); break;
           case "applylocale": applyLocale(); break;

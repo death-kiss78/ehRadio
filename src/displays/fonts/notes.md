@@ -38,7 +38,7 @@ swap character sets at build time.
 - 400+ glyphs (MatrixLight/MatrixChunky) or 1421 glyphs (X11)
 - Render any supported script at runtime — no codepage switching
 - Accent folding fallback for missing glyphs
-- Same code path for all display drivers (OLED, TFT, LCD)
+- Same code path for all display drivers (OLED, TFT)
 
 ---
 

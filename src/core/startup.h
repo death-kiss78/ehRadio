@@ -17,6 +17,10 @@ public:
   void getDefaultPlaylist();
   void cleanStaleSearchResults();
   bool servicesBusy() const { return _servicesBusy; } // true only while the services task is actually downloading
+  /* Created but not finished: the task may still be parked (SD playback or the manager), counting down, or
+     downloading.  Unlike servicesBusy() this covers the whole window, which is what a caller needs to hold a job
+     back until the services are out of the way. */
+  bool servicesPending() const { return _services == SVC_WILL_RUN; }
   bool safeMode() const { return _safeMode; }
   /* The boot-mode glyph drawn at the end of the boot dots line: the SD pair when the card is the source, PAUSE
      for a boot that never proved itself, PLAY for smart start, VOL_75 otherwise. Read it where the boot screen is

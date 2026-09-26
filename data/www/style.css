@@ -59,7 +59,7 @@ input[type=range] {
 #content.idx { max-width: 960px; }
 #content.upd { padding: 30px; min-width: 580px; }
 #playerwrap #modeplaying { display: none; flex-direction: column; }
-#playerwrap { max-width: 440px; height: 100%; padding: 20px 20px 0 20px; margin: 0 auto; display: flex; flex-direction: column; }
+#playerwrap { max-width: 440px; width: 100%; height: 100%; padding: 20px 20px 0 20px; margin: 0 auto; display: flex; flex-direction: column; }
 #logow { display: flex; align-items: center; }
 #copy { text-align: center; padding-top: 14px; font-size: 14px; }
 
@@ -70,6 +70,7 @@ input[type=range] {
                -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
 .gb.nb { border-color: transparent; }
 #toggleplaylist.sd-mode { pointer-events: none; }
+#toggleplaylist.sd-mode .gb { pointer-events: auto; }
 @media (hover: hover) and (pointer: fine) { /* mouse only */
   .gb:hover, .fb:hover { background-color: var(--accent-dark); border-color: var(--accent-color); }
   .gb:hover svg { stroke: var(--main-bg-color); fill: none; }
@@ -87,6 +88,7 @@ input[type=range] {
 /* PLAYER & PLAYLIST EDITOR */
 #nameset { text-transform: var(--tt-uppercase); font-weight: bold; font-size: 22px; min-height: 26px; color: var(--accent-color); margin: 20px 0 8px 0; text-align: center; user-select: text; }
 #meta { text-transform: var(--tt-uppercase); font-size: 16px; min-height: 19px; margin-bottom: 14px; text-align: center; color: var(--main-hl-color); user-select: text; }
+#nameset, #meta { overflow-wrap: anywhere; }
 #playernav { display: flex; justify-content: space-between; }
 #equalizerwrap { position: relative; display: flex; flex: 1; flex-direction: column; align-items: center; }
 #equalizerbg { position: absolute; left: -20px; right: -20px; bottom: 0; top: 2px; background: rgba(0, 0, 0, 0.1); backdrop-filter: blur(1px); z-index: 7; }
@@ -122,11 +124,13 @@ input[type=range] {
 .fb.hl { background: var(--accent-dark); color: var(--accent-text-color); text-decoration: none; }
 .fb.done { margin-left: calc(50%); transform: translateX(-50%); margin-top: 20px; margin-bottom: 10px; max-width: 140px; }
 #playlist {
-  position: relative; scroll-behavior: smooth; scrollbar-color: var(--accent-dark) var(--main-bg-color); overflow: auto; overflow-y: auto; border: solid 1px var(--accent-color); flex: 1 1 auto; height: 0px; width: 100%; 
-  background-image: url('data:image/png; base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAABOAQMAAAAw4lVwAAAABlBMVEUnJycAAADxyujSAAAADklEQVQI12OgLjhATQgAdZgdQbNqrBUAAAAASUVORK5CYII='); 
+  position: relative; scroll-behavior: smooth; scrollbar-color: var(--accent-dark) var(--main-bg-color); overflow: auto; overflow-y: auto; border: solid 1px var(--accent-color); flex: 1 1 auto; height: 0px; width: 100%;
+  background-color: var(--main-bg-color);
+  background-image: url('data:image/png; base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAABOAQMAAAAw4lVwAAAABlBMVEUnJycAAADxyujSAAAADklEQVQI12OgLjhATQgAdZgdQbNqrBUAAAAASUVORK5CYII=');
+  background-attachment: local;
 }
 #playlist li { display: flex; overflow: hidden; background: var(--main-bg-color); cursor: pointer; }
-#playlist li span.text { flex: 1; font-size: 20px; padding: 8px 0 8px 16px; text-transform: var(--tt-uppercase); word-break: break-word; }
+#playlist li span.text { flex: 1; font-size: 20px; padding: 8px 0 8px 10px; text-transform: var(--tt-uppercase); word-break: break-word; }
 #playlist li span.count { display: flex; flex-direction: column; justify-content: center; padding: 0 10px; text-align: right; font-size: 14px; vertical-align: middle; }
 #playlist li span { color: var(--accent-dark); }
 #playlist li:nth-child(odd) { background: var(--odd-bg-color); }
@@ -341,12 +345,47 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
 .irtitle { line-height: 48px; margin: 5px 0; text-align: center; padding-top: 10px; text-transform: var(--tt-uppercase); font-weight: bold; font-size: 26px; color: var(--accent-color); width: 100%; }
 #done_ir, #back_ir { background: var(--accent-color); color: var(--main-bg-color); margin: 40px auto 0 auto; max-width: 120px; user-select: none; display: block; }
 #back_ir { margin-top: 20px; }
-/* Centre both Done buttons within the form column. The old calc(50% + 18px) + translateX(-50%) offset
-   assumed the wide desktop form and pushed the button right of centre (and over the remote on mobile).
-   Scoped with #playerwrap so it outranks `#playerwrap .fb { margin: 3px }` in the <=375px block, which
-   otherwise left-aligns these buttons on small screens. */
 #playerwrap #back_ir, #playerwrap #done_ir { margin-left: auto; margin-right: auto; transform: none; }
 .irclear { width: 22px; height: 22px; background: var(--odd-bg-color) url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMBAMAAACkW0HUAAAAFVBMVEUAAABUVFRUVFRUVFRUVFRUVFRUVFTyq8WEAAAABnRSTlMA9T3ruK3N/zxkAAAAOElEQVQI12NwVmBgYDJhMBNiYFBMZlBMVGASE2IAYiCLAcgFchiAXCAHSkEFoUqgGmDag0GGmQIAZPIIklXNC10AAAAASUVORK5CYII=') center center no-repeat; border-radius: 50%; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; }
+
+/*  SD Card Manager */
+body.sdman #pleditorwrap { top: 0; }
+body.sdman #pleditor { min-width: 0; max-width: 1100px; margin: 0 auto; }
+body.sdman #pleditorcontent li.pleitem:not(.sdnotice) { height: 32px; }
+body.sdman .sdpath { text-align: center; color: var(--accent-color); padding: 2px 6px 8px 6px; word-break: break-all; font-size: 15px; }
+body.sdman .sdsort { cursor: pointer; }
+body.sdman #pleheader { border-bottom: var(--accent-color) 2px solid; margin-bottom: 2px; }
+body.sdman #pleditorcontent .pleitem { align-items: center; }
+/* A fixed cell must not flex, or a long name inflates the row and squeezes them - which wrapped the size text.
+   sdname is the only item that grows or shrinks, and it truncates. */
+body.sdman .sdico { flex: 0 0 34px; display: flex; align-items: center; justify-content: center; }
+body.sdman .sdload { flex: 0 0 34px; display: flex; align-items: center; justify-content: center; }
+body.sdman .sdname { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                     padding: 0 8px; text-align: left; align-items: flex-start; font-size: 18px; }
+body.sdman .sdico, body.sdman .sdcheck, body.sdman .sdname, body.sdman .sdload { border: none; }
+body.sdman .sdsize { flex: 0 0 100px; text-align: right; padding: 0 8px; font-size: 18px; border: none;
+                     border-left: var(--odd-bg-color) 1px solid; }
+body.sdman #pleheader .sdname, body.sdman #pleheader .sdsize { font-size: 18px; }
+body.sdman .sdcheck { flex: 0 0 30px; display: flex; align-items: center; justify-content: flex-end; }
+body.sdman #pleditorcontent .sdiconbtn { width: 22px; height: 22px; min-width: 22px; box-sizing: border-box;
+                        border: var(--accent-color) 2px solid; border-radius: 20px;
+                        display: flex; align-items: center; justify-content: center; cursor: pointer;
+                        color: var(--accent-color); background: var(--odd-bg-color); text-decoration: none; }
+body.sdman #pleditorcontent .sdiconbtn svg { width: 16px; height: 16px; stroke: var(--accent-color);
+                        stroke-width: 4px; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+body.sdman #pleditorcontent .sdiconbtn svg.fill { fill: var(--accent-color); stroke: none; }
+@media (hover: hover) and (pointer: fine) { /* mouse only */
+  body.sdman #pleditorcontent .sdiconbtn:hover { background: var(--accent-dark); border-color: var(--accent-color); }
+  body.sdman #pleditorcontent .sdiconbtn:hover svg { stroke: var(--accent-text-color); }
+  body.sdman #pleditorcontent .sdiconbtn:hover svg.fill { fill: var(--accent-text-color); stroke: none; }
+}
+body.sdman #pleditorcontent .sdiconbtn.off { opacity: 0.35; cursor: default; }
+body.sdman .pleitem.dir .sdname { font-weight: bold; cursor: pointer; }
+body.sdman .sdnotice { justify-content: center; padding: 18px; }
+body.sdman .fb.off { opacity: 0.4; cursor: default; }
+body.sdman .formbuttons { justify-content: center; }
+body.sdman #progresslabel { position: absolute; left: 0; right: 0; top: 62%; text-align: center; color: var(--accent-color); }
+
 
 /* For mobile devices 375px to 1100px */
 @media screen and (max-width: 1100px) {
@@ -354,7 +393,7 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
   #content { max-width: auto; padding: 0px; }
   #content.idx { max-width: 98%; }
   #content.upd { padding: 0px; min-width: auto; }
-  #playerwrap { max-width: auto; padding: 0px; }
+  #playerwrap { max-width: auto; padding: 0 12px; }
   /* PLAYER CONTROLS */
   .gb { width: 44px; height: 44px; }
   /* PLAYER & PLAYLIST EDITOR */
@@ -369,12 +408,17 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
   #pleditor .gb { width: 32px; height: 32px; }
   .pleitem span { width: 2.5em; padding: 0 0.5em; font-size: 14px; }
   .pleitem span.pleplay { width: 28px!important; height: 28px; font-size: 16px!important; }
-  .pleitem input { font-size: 24px}
+  .pleitem input { font-size: 20px}   /* matches body.sdman .sdname */
   .plecheck { width: 30px!important;  }
   .plename { width: auto!important; flex: 5 1 0!important; min-width: 80px!important; }
   .pleurl { width: auto!important; flex: 2 1 0!important; min-width: 40px!important; }
   .pleovol { width: 2.5em!important; font-size: 14px!important; }
   #previewinfo { line-height: 20px; height: 20px; font-size: 14px; text-align: center; color: var(--main-text-color); margin-bottom: 4px; }
+  /* SD MANAGER */
+  body.sdman .sdico, body.sdman .sdload { flex: 0 0 32px; }
+  body.sdman .sdname, body.sdman #pleheader .sdname { font-size: 20px; }
+  body.sdman .sdsize, body.sdman #pleheader .sdsize { flex: 0 0 74px; font-size: 14px; }
+  body.sdman .sdpath { font-size: 14px; }
   /* SETTINGS */
   #settingswrap { overflow-y: auto; flex: 1; display: flex; position: relative; width: 100%; }
   .navigation { margin: 0 0 10px 0; }
@@ -420,7 +464,7 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
   #playerwrap .fb { font-size: 13px; min-width: 64px; padding: 6px 4px; margin: 3px; }
   #playerwrap #info, #playerwrap #info > .infoitem { font-size: 12px; }
   #playerwrap #info > .infoitem { min-width: 90px; padding: 0 3px; }
-  #playerwrap #playlist li span.text { font-size: 16px; padding: 6px 0 6px 10px; }
+  #playerwrap #playlist li span.text { font-size: 16px; padding: 6px 0 6px 6px; }
   #playerwrap #playlist li span.count { font-size: 12px; padding: 0 6px; }
   #copy { font-size: 12px; padding-top: 4px; }
   /* Settings page */
@@ -432,9 +476,13 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
   .navigation { font-size: 13px; }
   /* Playlist editor */
   #pleditorwrap h2 { font-size: 18px; line-height: 26px; }
-  #pleditorwrap .pleitem input { font-size: 19px; }
+  #pleditorwrap .pleitem input { font-size: 20px; }   /* matches body.sdman .sdname */
   #pleditorwrap .pleitem span { font-size: 12px; padding: 0 4px; }
   #pleditorwrap .pleitem span.pleplay { font-size: 13px !important; }
+  /* SD MANAGER */
+  body.sdman .sdico, body.sdman .sdload { flex: 0 0 30px; }
+  body.sdman .sdname, body.sdman #pleheader .sdname { font-size: 20px; padding: 0 4px; }
+  body.sdman .sdsize, body.sdman #pleheader .sdsize { flex: 0 0 64px; font-size: 12px; }
   /* Search & curated quick buttons */
   .quicksearchtable .quicksearch { font-size: 13px; }
   .sort-row { font-size: 10px; }
@@ -464,6 +512,7 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
   #pleditorwrap .pleitem input { font-size: 30px; }
   #pleditorwrap .pleitem span { font-size: 18px; }
   #pleditorwrap .pleitem span.pleplay { font-size: 20px !important; }
+  body.sdman .sdname, body.sdman #pleheader .sdname { font-size: 30px; }
   .quicksearchtable .quicksearch { font-size: 20px; }
   #irremote .irbutton { width: 42px; height: 42px; font-size: 19px; line-height: 38px; }
   #playerwrap, #pleditorwrap { padding-bottom: 20px; }
@@ -498,6 +547,8 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
   #pleditorwrap .pleitem input { font-size: 36px; }
   #pleditorwrap .pleitem span { font-size: 21px; }
   #pleditorwrap .pleitem span.pleplay { font-size: 24px !important; }
+  body.sdman .sdname, body.sdman #pleheader .sdname { font-size: 36px; }
+  body.sdman .sdsize, body.sdman #pleheader .sdsize { flex: 0 0 118px; font-size: 21px; }
   .quicksearchtable .quicksearch { font-size: 24px; }
   #irremote .irbutton { width: 44px; height: 44px; font-size: 20px; line-height: 40px; }
   #playerwrap, #pleditorwrap { padding-bottom: 20px; }

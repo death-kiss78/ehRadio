@@ -19,6 +19,7 @@
 #include "netserver.h"
 #include "network.h"
 #include "player.h"
+#include "startup.h"
 #include "telnet.h"
 #include "utility.h"
 #include "../locale/wwwlocale.h"
@@ -37,6 +38,7 @@
 #endif
 #ifdef USE_SD
   #include "sdmanager.h"
+  #include "filemanager.h"   // the /sdman page and the mode that gates the player
 #endif
 
 // Global list for Radio-Browser servers to persist across searches
@@ -47,10 +49,10 @@ volatile TaskHandle_t g_searchTaskHandle = NULL;
 volatile TaskHandle_t g_curatedTaskHandle = NULL;
 TaskHandle_t nsTaskHandle = NULL;
 portMUX_TYPE taskSpawnMux = portMUX_INITIALIZER_UNLOCKED;
-#define FS_REQUIRED_FREE_SPACE 150 // in KB - must be minimum x1.5 of the limit_per_page in search.js (100)
+#define FS_REQUIRED_FREE_SPACE 150 // in KB - must be minimum x1.5 of the limit_per_page in search.html javascript (100)
 #define SEARCHRESULTS_BUFFER_BYTES (SEARCHRESULTS_BUFFER * 1024)
 
-/* PSRAM-backed static file cache implementation */
+// PSRAM-backed static file cache implementation
 // Determine MIME type from filename extension
 static const char* mimeTypeForFile(const char* filename) {
     const char* ext = strrchr(filename, '.');
@@ -372,6 +374,10 @@ bool NetServer::begin(bool quiet) {
   });
   webserver.on("/search", HTTP_GET, handleSearch);
   webserver.on("/search", HTTP_POST, handleSearchPost);
+  #ifdef USE_SD
+    // SD card file manager.  GET /sdman opens the mode and the API lives under the same prefix; the page itself is served by handleIndex, which hands the root over while the mode is up
+    filemanager.registerRoutes(webserver);
+  #endif
 
   // Captive portal detection ??redirect probes from iOS, Android, Windows to the web UI
   auto captiveRedirect = [](AsyncWebServerRequest *request) { request->redirect("/"); };
@@ -395,7 +401,7 @@ bool NetServer::begin(bool quiet) {
 
   websocket.onEvent(onWsEvent);
   webserver.addHandler(&websocket);
-  /* Ensure any connected web clients receive the current battery status immediately */
+  // Ensure any connected web clients receive the current battery status immediately
   requestOnChange(GETBATTERY, 0);
   #if USE_OTA
     if (strlen(config.store.mdnsname)>0) ArduinoOTA.setHostname(config.store.mdnsname);
@@ -866,7 +872,7 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
   switch (type) {
     case WS_EVT_CONNECT:
         FUNCTIONLOG("Websocket", "client #%u connected from %s", client->id(), client->remoteIP().toString().c_str());
-        /* Send current battery status to the newly connected client immediately */
+        // Send current battery status to the newly connected client immediately
         netserver.requestOnChange(GETBATTERY, client->id());
         break;
     case WS_EVT_DISCONNECT: FUNCTIONLOG("Websocket", "client #%u disconnected", client->id()); break;
@@ -1213,6 +1219,10 @@ void launchPlaybackTask(const String& url, const String& name) {
   static unsigned long clickDelayStart = 0;
   static bool clickDelayActive = false;
   static char pendingClickUrl[256] = {0};
+  // Longest a click may be held for the startup services, counted from the end of the click delay.  The cap is there
+  // in case they never finish, so a stuck state cannot wedge the feature - the same rule Mqtt::servicesWaitLimitMs has.
+  static constexpr uint32_t rbClickServicesWaitMs = 60000;
+  static bool rbClickHoldLogged = false;
   // Helper: Make HTTPS request and extract a specific JSON key's value
   // Returns extracted value or empty string on failure
   String streamJsonExtract(const String& url, const char* key) {
@@ -1312,6 +1322,7 @@ void radioBrowserSendClick(const char* stationUrl) {
   #ifdef RADIO_BROWSER_SEND_CLICKS
     // If a new request comes in, cancel the pending one and start fresh
     if (clickDelayActive) FUNCTIONLOG("RB Click", "New station - canceling pending click");
+    rbClickHoldLogged = false;  // the held message belongs to one queued click
     // Store the URL and start the delay timer
     strlcpy(pendingClickUrl, stationUrl, sizeof(pendingClickUrl));
     clickDelayStart = millis();
@@ -1357,13 +1368,27 @@ void processRadioBrowserClick() {
     if (millis() - clickDelayStart < (RADIO_BROWSER_SEND_CLICK_DELAY*1000)) {
       return; // Still waiting
     }
-    clickDelayActive = false;
-    // Abandon click if switched to SD mode during the delay —
-    // HTTPS would drain DRAM and starve SD SPI reads + MP3 decoding
-    if (config.getMode() == PM_SDCARD) {
+    // Abandon the click while the card is off limits - HTTPS would drain DRAM and starve SD SPI reads + MP3 decoding,
+    // and the SD File Manager is rewriting the card underneath itself.  Both are the user's own doing, so it is dropped.
+    bool cardOffLimits = (config.getMode() == PM_SDCARD);
+    #ifdef USE_SD
+      cardOffLimits = cardOffLimits || filemanager.active();
+    #endif
+    if (cardOffLimits) {
+      clickDelayActive = false;
       FUNCTIONLOG("RB Click", "Abandoning click");
       return;
     }
+    // Hold the click if Heap check fails and let the delay timer run, so the click survives the wait
+    if (startup.servicesPending() &&
+        (millis() - clickDelayStart) < (RADIO_BROWSER_SEND_CLICK_DELAY*1000 + rbClickServicesWaitMs)) {
+      if (!rbClickHoldLogged) {
+        rbClickHoldLogged = true;
+        FUNCTIONLOG("RB Click", "Holding click while the startup services run");
+      }
+      return; // still held
+    }
+    clickDelayActive = false;
     if (ESP.getFreeHeap() <= MIN_MALLOC) {
       FUNCTIONLOG("Heap", "low heap (%u), refusing rb click task spawn", ESP.getFreeHeap());
       return;
@@ -1524,6 +1549,15 @@ void handleNotFound(AsyncWebServerRequest * request) {
       }
   #endif
 
+  #ifdef USE_SD
+    // The SD File Manager's page is reached as "/" once the mode is open, so its own URL hands over to the root rather than serving a second copy under a different address
+    if (filemanager.active() && request->method() == HTTP_GET &&
+        strcmp(request->url().c_str(), "/sdmanager.html") == 0) {
+      request->redirect("/");
+      return;
+    }
+  #endif
+
   // PSRAM cache check: serve static WebUI files from PSRAM (no LittleFS reads)
   if (request->method() == HTTP_GET) {
     String url = request->url();
@@ -1645,12 +1679,12 @@ void handleNotFound(AsyncWebServerRequest * request) {
     return;
   }
   if (request->url() == "/visuals.json") {
-    /* Which visualisers this build can actually draw, as an id -> label map for the WebUI select.
-       The ids are vuStyle_e, the same numbers that travel in vustyle=<n> and come back in GETSCREEN,
-       so the select is generated from the device rather than hard-coded in the page.  A style that needs
-       PCM is omitted by a backend that has none - a VS1053 never sees samples - so needsPcm is the only
-       capability test here.  The labels are the same on every backend: the spectrum a VS1053 synthesises
-       is deliberately not called out any more. */
+    // Which visualisers this build can actually draw, as an id -> label map for the WebUI select.
+    // The ids are vuStyle_e, the same numbers that travel in vustyle=<n> and come back in GETSCREEN,
+    // so the select is generated from the device rather than hard-coded in the page.  A style that needs
+    // PCM is omitted by a backend that has none - a VS1053 never sees samples - so needsPcm is the only
+    // capability test here.  The labels are the same on every backend: the spectrum a VS1053 synthesises
+    // is deliberately not called out any more.
     static const struct { uint8_t id; const char *label; bool needsPcm; } vuStyleNames[] = {
       { VU_STYLE_BARS,             "Bars",             false },
       { VU_STYLE_DIGITAL_LED,      "Digital LED",      false },
@@ -1750,6 +1784,35 @@ void handleNotFound(AsyncWebServerRequest * request) {
   request->send(404, "text/plain", "Not found");
 }
 
+#ifdef USE_SD
+// Serves the SD manager's page through whichever form it is actually in: the gzipped PSRAM cache entry
+// They are repeated here because "/" now serves the page itself
+static bool serveSdmanPage(AsyncWebServerRequest *request) {
+  const CachedFile* cf = netserver.getFileCache().find("/sdmanager.html");
+  if (cf && (cf->gzData || cf->data)) {
+    if (cf->gzData) {
+      AsyncWebServerResponse *response = request->beginResponse(200, cf->contentType, (const uint8_t*)cf->gzData, cf->gzSize);
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+    } else {
+      request->send(request->beginResponse(200, cf->contentType, (const uint8_t*)cf->data, cf->size));
+    }
+    return true;
+  }
+  if (LittleFS.exists("/www/sdmanager.html.gz")) {
+    AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/www/sdmanager.html.gz", "text/html");
+    response->addHeader("Content-Encoding", "gzip");
+    request->send(response);
+    return true;
+  }
+  if (LittleFS.exists("/www/sdmanager.html")) {
+    request->send(request->beginResponse(LittleFS, "/www/sdmanager.html", "text/html"));
+    return true;
+  }
+  return false;
+}
+#endif
+
 void handleIndex(AsyncWebServerRequest * request) {
   if (!config.wwwFilesExist) {
     if (request->url()=="/" && request->method() == HTTP_GET) {
@@ -1782,6 +1845,13 @@ void handleIndex(AsyncWebServerRequest * request) {
       if (!request->authenticate(HTTP_USER, HTTP_PASS)) {
         return request->requestAuthentication();
       }
+    }
+  #endif
+  #ifdef USE_SD
+    // While the SD File Manager is open it owns the root - the page's own reloads and every new tab the
+    // user opens land here, and all of them have to resolve to the manager rather than the player
+    if (filemanager.active() && strcmp(request->url().c_str(), "/") == 0) {
+      if (serveSdmanPage(request)) return;
     }
   #endif
   if (strcmp(request->url().c_str(), "/") == 0 && request->params() == 0) {

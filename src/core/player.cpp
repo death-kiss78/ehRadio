@@ -12,6 +12,9 @@
 #include "rgbled.h"
 #include "utility.h"
 #include "../locale/dsplocale.h"
+#ifdef USE_SD
+  #include "filemanager.h"
+#endif
 
 #ifdef USE_ES8311
   #include "../libraries/ES8311_Audio/es8311.h"
@@ -201,14 +204,9 @@ void Player::loop() {
   }
   Audio::loop();
 
-  /* Clear the "connecting" placeholder on player state, not on the library's "stream ready"
-     message: only some library routes emit it (an HLS playlist never does), and handleInfo()
-     discards the event entirely while lockOutput is set.  A state check also matches the rest
-     of the firmware, which already treats !isRunning() as still-connecting - and it clears the
-     title, which makes isConnecting() false, so it fires once per station. */
+  // Clear the "connecting" placeholder on player state
   if (isRunning() && isConnecting()) {
     config.setTitle("");
-    FUNCTIONLOG("Player", "Stream running - cleared the connecting placeholder");
   }
 
   if (!isRunning() && _status==PLAYING) {
@@ -267,6 +265,13 @@ void Player::setOutputPins(bool isPlaying) {
 
 void Player::_play(uint16_t stationId) {
   log_i("%s called, stationId=%d", __func__, stationId);
+  #ifdef USE_SD
+    // Nothing new starts while the SD File Manager is open
+    if (filemanager.active()) {
+      FUNCTIONLOG("SDFileManager", "play refused, SD File Manager is open");
+      return;
+    }
+  #endif
   if (_status == PLAYING && stationId > 0 && stationId == _playingStationId) return;
   setError("");
   setDefaults();

@@ -46,9 +46,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 // If I2C_SDA != 255 && I2C_SCL != 255 → I2C, otherwise SPI/parallel.
 // ST7735 sub-models uses DTYPE (required by Adafruit_ST7735 library).
 
-// The character LCDs (1602, 2004, Nokia 5110) and the ST7920 GLCD have been
-// removed: only the TFT and graphical-monochrome-OLED classes remain, so the
-// ids below are contiguous 0-16 with no gaps.
 #define DSP_DUMMY       0 // no display
 #define DSP_GC9A01A     1 // 240x240 round (fixed in displayGC9A01A.h)
 #define DSP_GC9106      2 // 160x80 (fixed in displayGC9106.h)
@@ -258,7 +255,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 // Here are the defaults for OLED and TFT displays:
 // #define SCROLLDELAY 5000 // delay time (ms) for widgets: meta, title1, title2 / playlist mode scroll divides by 5
 // #define SCROLLTIME 15 // time (ms) per pixel-column movement (a column of font pixels, not display pixels)
-// if using an LCD screen, check dspcore.h for safe values
 
 /* Pre-processed Text: Prefer ALL CAPS? Maybe all latin accents removed from your display? */
 // #define PRETEXT_ALLCAPS

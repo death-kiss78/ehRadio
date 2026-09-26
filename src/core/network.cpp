@@ -214,7 +214,7 @@ void retryStreamConnection(void * pvParameters) {
   uint16_t attemptCount = 0;
   bool slowed = false;
   for (;;) {
-    /* attemptCount is the number of attempts DONE, so it is also this attempt's index. */
+    // attemptCount is the number of attempts DONE, so it is also this attempt's index.
     delay(streamRetryWaitMs(attemptCount));
     // Check if we should still be retrying
     if (network.lostPlaying && WiFi.status() == WL_CONNECTED && !player.isRunning()) {

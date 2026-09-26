@@ -314,7 +314,7 @@ def resolve_target(width, height, target_arg, script_dir):
         for c in candidates: print(f"  {c}")
     else:
         print(f"ERROR: No TFT/OLED target found for {width}x{height}.")
-    print("The target output file must be specified (LCD targets require explicit path).")
+    print("The target output file must be specified.")
     return None
 
 

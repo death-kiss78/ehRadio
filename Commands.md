@@ -177,6 +177,36 @@ Only available when built with IR_PIN != 255.
 | `loadplaylist` | Start background curated playlist fetch task. Blocked in HTTP/MQTT/Telnet. |
 | `curated_import` | Prepare curated import file for review and notify frontend. Blocked in HTTP/MQTT/Telnet. |
 
+## SD Manager page (not a command set, but might be useful)
+
+A WebUI page for browsing and editing the SD card, served only while **SD Manager mode** is open, and reachable in
+AP mode as well as on a station connection. There is **no bare `/sdman` route**: the route matcher treats a plain
+URI as an exact path *or* as a prefix followed by `/`, so a handler registered there would also swallow `/sdman/list`
+and every sibling sub-route. On an SD-offline build the web server never starts, so none of this exists.
+
+| Entry | Action |
+| --- | --- |
+| The SD badge in the player header | Available while the player is in **SD mode**, where that badge is shown in place of the playlist glyph. It is handled like the search icon: a plain navigation to `/sdmanager.html`, which opens the mode and lands on `/`. |
+| `http://<radio-ip>/sdmanager.html` | Open the mode and redirect to `/`, where the page lives for as long as the mode is open. This is the address the device shows on its own screen. |
+| `/sdman/enter` | Open the mode, or refresh its idle clock if it is already open. Also accepted with no network. |
+| `/sdman/done` | Close the mode and hand `/` back to the player - or to the AP settings page when the device has no network. With **SmartStart** on, the audio that was playing on entry resumes, from the byte offset it had reached. The idle timeout resumes in the same way; a card pulled out of the slot does not, since there is nothing left to play from. |
+
+| API route | Action |
+| --- | --- |
+| `GET /sdman/info` | Mounted state, used/total bytes, and the seconds left before the mode closes itself. |
+| `GET /sdman/list?path=/dir` | Streamed JSON listing of one folder, in card order. |
+| `GET /sdman/download?path=/dir/file` | Download that file. |
+| `POST /sdman/mkdir?path=/newfolder` | Create a folder. |
+| `POST /sdman/rename?from=/dir/old&to=new` | Rename within the current folder. |
+| `POST /sdman/move?from=/a/b&to=/c` | Move to another folder (`rename` underneath). |
+| `POST /sdman/delete` | Delete the selection; the paths arrive newline-separated in the body. The answer carries `deleted` and `failed` counts. |
+| `POST /sdman/upload?path=/dir&name=track.mp3` | Upload one file, multipart, streamed straight to the card. Add `skip=1` to leave an existing name untouched and answer `{"ok":true,"skipped":true}`. |
+
+Every answer is JSON with `Cache-Control: no-cache, no-store, must-revalidate`. Failures carry an `error` code the
+page turns into a message - `protected`, `exists`, `no_space`, `not_found`, `no_card`, `bad_name`, `no_dir`,
+`not_dir`, `not_active`, or `failed` as the fallback. `/` and everything under `/data` are read-only, and mutations
+are `POST` for that reason.
+
 ## Telnet Local Commands
 
 Handled in src/core/telnet.cpp before commandhandler dispatch.

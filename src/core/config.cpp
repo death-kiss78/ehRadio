@@ -27,9 +27,9 @@
 #endif
 
 
-const char* const Config::wwwFiles[] = {"curated.js", "options.js", "script.js", "script2.js", "search.js",
+const char* const Config::wwwFiles[] = {"options.js", "script.js", "script2.js",
                                         "logo.svg", "icon.png", "style.css", "theme.css", "rb_srvrs.json", "timezones.json",
-                                        "curated.html", "irrecord.html", "options.html", "search.html", "updform.html",
+                                        "curated.html", "irrecord.html", "options.html", "sdmanager.html", "search.html", "updform.html",
                                         "player.html"}; // keep main page at end (deleted when upgraded, last to be downloaded, so user sees emptyfs_html with wait message)
 const size_t Config::wwwFilesCount = sizeof(Config::wwwFiles) / sizeof(Config::wwwFiles[0]);
 
@@ -292,7 +292,7 @@ void Config::initPlaylistMode() {
       #endif
       if (!sdman.ready && !sdman.start()) {
         if (network.status == SDOFFLINE) {
-          FUNCTIONLOG("SD", "SD mount failed. Staying in offline mode.");
+          FUNCTIONLOG("SD", "SD mount failed so staying in offline mode");
           strncpy(config.station.name, "ehRadio", STATION_FIELD_LENGTH);
           return;  // no SD — nothing more to init
         } else {
@@ -302,7 +302,7 @@ void Config::initPlaylistMode() {
           _lastStation = store.lastStation;
         }
       } else {
-        FUNCTIONLOG("SD", "SD card mounted.");
+        FUNCTIONLOG("SD", "SD card mounted");
         initSDPlaylist();
         cs = utility.playlistLength();  // refresh after potential re-index
         FUNCTIONLOG("SD", "SD card ready");

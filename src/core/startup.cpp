@@ -13,8 +13,13 @@
 #include "player.h"
 #include "utility.h"
 #include "../locale/dsplocale.h"
+#ifdef USE_SD
+  #include "filemanager.h" // the SD manager parks the startup services the way SD playback does
+#endif
 
 Startup startup;
+
+static bool cardInUse(); // the card parks the services - defined with them, below
 
 void Startup::checkSafeMode() {
   if (!config.store.bootStableMarker) {
@@ -61,17 +66,28 @@ void Startup::loop() {
     _bootStartMs = millis();  // First loop() call — setup() (including smartstart) is done
     return;
   }
-  /* A boot is proven stable only once the startup services have run they are the riskiest thing in the boot:
-     three TLS downloads (version check, timezones database, radio-browser list) against the internal heap */
+  // A boot is proven stable only once the startup services have run they are the riskiest thing in the boot:
+  // three TLS downloads (version check, timezones database, radio-browser list) against the internal heap
   if (_services == SVC_NONE) {
     if (millis() - _bootStartMs > (BOOT_STABLE_TIME * 1000UL)) {
-      /* The reason is printed verbatim by markBootStable(), so it carries the configured number rather
-         than the macro's name - the literal "BOOT_STABLE_TIME" in the log read like a formatting bug. */
       char reason[64];
       snprintf(reason, sizeof(reason), "%u s from power-on, no startup services this boot", (unsigned)BOOT_STABLE_TIME);
       markBootStable(reason);
       _bootStablePending = false;
     }
+    return;
+  }
+  /* The services can stay suspended for the whole boot - SD mode parks them - and a boot that only parked
+     them is as safe as one that never had them: the downloads are the risk, and they never ran. Without this
+     an SD boot stayed unproven, and the next boot came up in safe mode, which forces web mode, so SD mode
+     could never survive a restart. */
+  if (_services == SVC_WILL_RUN && cardInUse() &&
+      (millis() - _bootStartMs) > ((STARTUP_ASYNC_SERVICES_DELAY + BOOT_STABLE_TIME) * 1000UL)) {
+    // BOOT_STABLE_TIME, as in the other reasons here: the configured wait, not the elapsed time.
+    char reason[64];
+    snprintf(reason, sizeof(reason), "%u s after the startup services were suspended", (unsigned)BOOT_STABLE_TIME);
+    markBootStable(reason);
+    _bootStablePending = false;
     return;
   }
   if (_services == SVC_DONE && (millis() - _servicesDoneMs) > (BOOT_STABLE_TIME * 1000UL)) {
@@ -396,31 +412,35 @@ void Startup::checkNewVersionFile() {
 }
 
 
+// True while the card has to be left alone: either the player is reading it (SD playback) or the manager is rewriting it
+// SD playback needs the park because it uses DRAM for SPI reads plus MP3 decoding, and the updater's SSL downloads would starve both and drain the audio buffer;
+// SD File Manager needs the same park because the user is editing the card, so nothing may open files or start playback underneath it
+static bool cardInUse() {
+  #ifdef USE_SD
+    if (filemanager.active()) return true;
+  #endif
+  return config.getMode() == PM_SDCARD;
+}
+
 void Startup::startupServicesAsync(void* param) {
-  // Wait until device leaves SD card playback mode before starting
-  // background downloads. SD mode uses DRAM for SPI reads + MP3 decoding;
-  // ESPFileUpdater's SSL downloads would starve both and drain the audio buffer.
-  // The goto allows restarting the entire wait sequence if the user switches
-  // back to SD mode during the countdown delay.
+  // Wait until the card is free - SD playback or an open manager both count. The goto restarts the whole
+  // wait if the card becomes busy again during the countdown.
 wait_for_online:
-  if (config.getMode() == PM_SDCARD) FUNCTIONLOG("Services", "Startup Async Services will not begin while in SD Mode", STARTUP_ASYNC_SERVICES_DELAY);
-  while (config.getMode() == PM_SDCARD) {
+  if (cardInUse()) FUNCTIONLOG("Services", "Startup Async Services will not begin while in SD Mode or the SD Manager", STARTUP_ASYNC_SERVICES_DELAY);
+  while (cardInUse()) {
     vTaskDelay(pdMS_TO_TICKS(2000));
   }
 
-  // Delay to let audio stream buffer fill before background HTTP tasks compete for WiFi.
-  // Check mode each second — if user switched back to SD, restart from the top.
+  // Let the audio buffer fill before HTTP tasks compete for WiFi; re-checked each second.
   FUNCTIONLOG("Services", "Startup Async Services will begin in %d seconds", STARTUP_ASYNC_SERVICES_DELAY);
   for (int i = 0; i < STARTUP_ASYNC_SERVICES_DELAY; i++) {
     vTaskDelay(pdMS_TO_TICKS(1000));
-    if (config.getMode() == PM_SDCARD) goto wait_for_online;
+    if (cardInUse()) goto wait_for_online;
   }
 
   FUNCTIONLOG("Services", "Startup Async Services starting", STARTUP_ASYNC_SERVICES_DELAY);
-  /* From here to the end of the task the display chokes its redraw rate, because these three downloads
-     hold a TLS session each on the network core and the audio stream is usually up by the second one.
-     The flag covers the work only: the countdown above and the SD park are not "busy", so a long SD
-     session draws at the normal rate. */
+  // From here to the end of the task the display chokes its redraw rate, because these three downloads
+  // hold a TLS session each on the network core and the audio stream is usually up by the second one.
   startup._servicesBusy = true;
   #ifdef UPDATEURL
     utility.updateFile(param, "/data/new_ver.txt", CHECKUPDATEURL, CHECKUPDATEURL_TIME, "New version check");
@@ -438,10 +458,8 @@ wait_for_online:
   #ifdef CORE_MONITOR
     FUNCTIONLOG("Core.HWM", "[%s] stack HWM: %u bytes", pcTaskGetName(NULL), uxTaskGetStackHighWaterMark(NULL) * 4);
   #endif
-  /* Last act of the services, and it is what lets Startup::loop() prove the boot.  Order matters: the
-     timestamp first, then the state, so the countdown can never read DONE with a stale timestamp.
-     Clearing busy before the state means the display can still be choked for a fraction of a second
-     after the last download, never the other way round. */
+  // Last act of the services, and it is what lets Startup::loop() prove the boot.  Order matters: the
+  // timestamp first, then the state, so the countdown can never read DONE with a stale timestamp.
   startup._servicesDoneMs = millis();
   startup._servicesBusy = false;
   startup._services = Startup::SVC_DONE;
@@ -450,11 +468,11 @@ wait_for_online:
 }
 
 void Startup::startupServices() {
-  /* Every exit from here means something definite about whether the services will run, and Startup::loop()
-     relies on that: SVC_NONE is the default, so "not connected" needs no assignment, but the running case
-     must be recorded before the task can finish, or a fast download could be missed entirely. */
+  // Every exit from here means something definite about whether the services will run, and Startup::loop()
+  // relies on that: SVC_NONE is the default, so "not connected" needs no assignment, but the running case
+  // must be recorded before the task can finish, or a fast download could be missed entirely.
   #ifndef UPDATEURL
-    return;   // no updater in this build: SVC_NONE says nothing risky will happen
+    return;
   #else
     if (WiFi.status() != WL_CONNECTED) return;
     if (!config.wwwFilesExist) {

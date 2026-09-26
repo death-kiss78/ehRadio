@@ -58,6 +58,10 @@ class Display {
     bool deepsleep();
     void wakeup();
     void updateProgress(const char* label, float progress);
+    #ifdef USE_SD
+      // Redraws the SD Manager countdown
+      void sdmanCountdown();
+    #endif
 
     displayMode_e mode() { return _mode; }
     void mode(displayMode_e m) { _mode=m; }
@@ -84,6 +88,11 @@ class Display {
     ClockWidget *_clock = nullptr;
     Page *_boot = nullptr;
     TextWidget *_bootstring = nullptr, *_volip = nullptr, *_voltxt = nullptr, *_battery = nullptr, *_rssi = nullptr, *_bitrate = nullptr;
+    #ifdef USE_SD
+      // The manager's countdown line.  Non-null also means "the page currently in _boot is the manager's" which is how _swichMode knows it is safe to tear that page down again
+      TextWidget *_sdmanCountText = nullptr;
+      void _sdmanScreen();
+    #endif
     Ticker _returnTicker;
     bool _locked = false;
     uint8_t _bootStep = 0;
@@ -146,6 +155,9 @@ class Display {
     uint16_t width() { return 0; }
     uint16_t height() { return 0; }
     void updateProgress(const char* label, float progress) {}
+    #ifdef USE_SD
+      void sdmanCountdown() {}
+    #endif
   private:
     void _createDspTask();
 };

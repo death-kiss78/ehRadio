@@ -285,11 +285,12 @@ All modules in `src/core/` follow the **class + global instance** pattern:
 
 ## `src/core/startup.h` / `startup.cpp`
 - Boot-only orchestration module following the standard core `class + global instance` pattern (`Startup startup;`).
-- **Boot stability is a state, not a timer.** `Startup::_services` is `SVC_NONE` / `SVC_WILL_RUN` / `SVC_DONE`, and `setup()` has already settled which one applies by the time `loop()` can run, because `startupServices()` has exactly one call site — [`main.cpp:106`](src/main.cpp:106), inside `setup()`. `loop()` then: for `SVC_NONE` proves the boot over `BOOT_STABLE_TIME` from power-on (nothing risky will run, but an early crash must still trip Safe Mode on the next boot), waits indefinitely for `SVC_WILL_RUN`, and marks stable `BOOT_STABLE_TIME` after `SVC_DONE`. `SVC_NONE` is the **only** case where the power-on count is used, and that is what makes it safe — the power-on count is wrong only when it is applied while the state is still unknown.
+- **Boot stability is a state, not a timer.** `Startup::_services` is `SVC_NONE` / `SVC_WILL_RUN` / `SVC_DONE`, and `setup()` has already settled which one applies by the time `loop()` can run, because `startupServices()` has exactly one call site — [`main.cpp:106`](src/main.cpp:106), inside `setup()`. `loop()` then has three exits: `SVC_NONE` proves the boot over `BOOT_STABLE_TIME` from power-on (nothing risky will run, but an early crash must still trip Safe Mode on the next boot); `SVC_WILL_RUN` **while the card is still in use** proves it after `STARTUP_ASYNC_SERVICES_DELAY + BOOT_STABLE_TIME`, with the reason `startup services were suspended`; and `SVC_DONE` marks it stable `BOOT_STABLE_TIME` after the downloads finish. Two of those count from power-on, each safe for its own reason: `SVC_NONE` because no risky work is scheduled at all, and the parked case because the services delay is waited out first, so a task that was only slow to start has started by then.
 - **The three boot outcomes, and why the state can always be settled before `loop()`:** *SD offline* (`network.offlineMode || config.store.SDoffline`) never calls `checkSafeMode()`, so `_bootStablePending` stays false and the marker is not touched at all — that is the long-standing workaround and it is deliberate. *No WiFi / soft AP* returns early from `setup()` before the services call, leaving `SVC_NONE`, and the boot then proves itself over `BOOT_STABLE_TIME` from power-on. *Connected* records `SVC_WILL_RUN` before the task is created, and the task sets `SVC_DONE`, so a download that finishes quickly cannot be missed.
-- **SD playback mode is deliberately left waiting.** The services task parks in `while (config.getMode() == PM_SDCARD)` until the user leaves SD, so the boot stays unproven until the downloads actually happen. The known consequence: a device that boots into SD playback and is powered off without ever leaving SD never proves its boot, and the next boot comes up in Safe Mode once (smartstart and autoupdate off for that session). Chosen deliberately over marking it stable, because the services are the risk being guarded.
+- **SD playback suspends the services, and the boot is still proven.** The task parks in `while (cardInUse())` until the card is free, and `loop()` marks the boot stable once `STARTUP_ASYNC_SERVICES_DELAY + BOOT_STABLE_TIME` has passed with the task still parked — `Boot stable after ~20000 ms - 10 s after the startup services were suspended`. The first version waited indefinitely for the park to end, and its consequence was the opposite of what it looked like: a device that booted into SD playback never proved its boot, so the next boot came up in Safe Mode once, and safe mode forces web mode — meaning **SD mode could not survive a restart at all**, and smartstart for SD was effectively ignored every time. Nothing risky runs in a parked boot, which is what justifies the mark; the delay is waited out so that a task merely slow to start is not mistaken for a parked one.
 - **What replaced what:** the first attempt made `_servicesDoneMs == 0` fall back to the power-on count, which marked the boot stable at exactly the moment the services were starting (`[BOOT] Boot stable after 10022 ms (startup services did not run)` while `[Services] Startup Async Services starting` was on the same second). The second attempt kept a `BOOT_STABLE_BACKSTOP_MULT` timer as a safety net, which allowed a boot to be called stable while the risky window was still open. Both are gone.
 - The startup services are a known high-risk path: three concurrent TLS sessions against ~75 KB of internal heap, which has been observed to exhaust it and crash the boot. See `.github/code-issues.md` section 7.
+- Two accessors publish that state: `servicesBusy()` is true only inside the task body (the VU limiter and `mqtt.cpp` want exactly that), while `servicesPending()` is `SVC_WILL_RUN` and so also covers the park and the countdown. The wider one is what to hold another job back with - `netserver.cpp` holds its radio-browser click on it.
 - Owns startup-time helpers that were previously mixed into `config.cpp`:
   - boot-time version marker and required LittleFS/WebUI file verification (`checkLittleFSandVer()`) — the verification itself lives in `Utility::verifyLittleFS()`, see the LittleFS notes below
   - **The partition-size lookup penalty belonged to SPIFFS, and the migration removed it. This supersedes the old "prefer the 8 MB table" conclusion.** The numbers recorded here were measured under **SPIFFS** on the sh1106_vs1053_3buttons build: a missing-name probe cost ~187 ms on the 3.38 MB partition in `builds/partitions/default_16MB.csv` and ~87 ms on the 1.5 MB one in `default_8MB.csv`, `SPIFFS.begin()` mount moved 229 → 103 ms, and the `netserver.begin()` file cache 797 → 382 ms — the same 2.25x factor, three independent measurements. SPIFFS proved a name existed, or did not, by walking the partition's lookup structures, and that is why the conclusion then was that the **8 MB table was the layout to prefer**. LittleFS does not work that way: it resolves a name by walking the directory's entry chain and mounts from a superblock, neither of which scales with partition size — and the measured mount win after the migration (229 → 27 ms) is precisely that change. **Partition table choice is therefore no longer a filesystem-speed decision, and shrinking the partition buys nothing.** What partition size still governs under LittleFS is free-block headroom and wear-rotation depth: 1.5 MB is ~384 blocks of 4 KB and 3.38 MB is ~864, so the larger table gives the allocator more places to rotate writes and more room for the ~300 KB peak demand described in `code-issues.md` section 3.2. A larger filesystem is therefore mildly better for long-term wear, not worse, and the only size-sensitive call left is space accounting — `usedBytes()` and `totalBytes()` come from a filesystem traversal rather than a constant-time counter, so measure rather than assume if that ever matters.
@@ -503,6 +504,13 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   - radio-browser search and curated task management
   - exact-match-first preview/add handling on `/search`; unmatched preview now uses the same direct URL playback path as `playurl` instead of a mutating playlist scan
   - centralized logging for search/curated/playback/radio-browser-click/update/not-found paths via `FUNCTIONLOG`
+  - radio-browser click reporting holds the queued click while the startup services are pending instead of letting the
+    heap check drop it. `processRadioBrowserClick()` leaves `clickDelayActive` set and re-tests every pass, capped at
+    `RADIO_BROWSER_SEND_CLICK_DELAY + rbClickServicesWaitMs` (60 s, the same protection `Mqtt::servicesWaitLimitMs`
+    gives its re-apply). The services run on this very core and hold the DRAM, so a spawn inside that window was
+    refused as `low heap, refusing rb click task spawn` on every boot that played a radio-browser station. The click is
+    still dropped outright while the card is off limits (`PM_SDCARD`, or the SD File Manager) - the older
+    `Abandoning click` rule, extended to the manager.
 - Coupling:
   - uses `cmd.exec(...)` from commandhandler
   - emits JSON consumed by `data/www/script.js`
@@ -708,6 +716,95 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
 - Coupling:
   - consumed by config/player for SD mode.
 
+## `src/core/filemanager.h` / `filemanager.cpp` (SD Card Manager mode)
+- Runtime-only browse/edit mode for the SD card, compiled under `#ifdef USE_SD`. The header owns `SDMAN_AUTO_EXIT_MS`
+  (default 180000) and `SDMAN_CARD_GONE_STRIKES` (3); the timeout is guarded by `#ifndef` there rather than added to
+  `options.h` (Rule #3), so a `myoptions.h` can still override it.
+- `FileManager filemanager;` is the global instance. `enter()` stops the player, mounts the card if needed, sets the
+  active flag and asks the display for `SDMAN`; `leave(bool resumeAudio = true)` clears the flag, asks for `PLAYER` and
+  - under SmartStart - gives the audio back; `loop()` (called from `main.cpp`) runs the card-presence debounce, the
+  once-a-second countdown redraw and the idle timeout.
+- **The mode hands playback back on exit, but only what it took.** `enter()` records `player.isRunning()` in
+  `_wasPlaying`, **on the transition into the mode only**, because SmartStart must not turn the user's own stop into
+  playback - the manager is not a play button. The transition-only part is not tidiness: `data/www/sdmanager.html`
+  calls `/sdman/enter` **twice** per entry - once on load, then again after it replaces itself with `/` - and doing the
+  stop and the capture on both calls broke the resume twice over. The second capture read the player the first call had
+  already stopped, so `_wasPlaying` became false and `leave()` did nothing at all; and the second `PR_STOP` ran
+  `_stop()` again, which overwrote `config.sdResumePos` with the position of a stopped player. Everything else in
+  `enter()` (the on-demand mount and the clock refresh) stays idempotent on purpose.
+  `leave()` then reissues `player.resumeLastWebSource()` for `PM_WEB` or `{PR_PLAY, config.lastStation()}` otherwise,
+  the same two branches as `stopStandby()` and the smartstart block in `setup()`. The card needs no extra state to
+  continue where it left off: `_stop()` saves the byte offset in `config.sdResumePos` and the play path consumes it, and
+  an offset that no longer lands after an edit is left to the player's self-healing (failed connect, index rebuild).
+  Done and the idle timeout both resume; only the card-gone exit calls `leave(false)`, because the media it would play
+  from is what vanished.
+- Page and API are split on purpose: the page is `data/www/sdmanager.html`, served by `serveSdmanPage()` from
+  `handleIndex` for "/" while the mode is open, so the player's own address shows the manager. A direct
+  `/sdmanager.html` visit is redirected to "/" by `handleNotFound` while the mode is open, and `location.replace`
+  keeps it out of the history.
+- **The player header's SD badge is the UI entry point.** `player.html` wraps that badge in its own
+  `div.gb.nb.local[data-command="sdfilemanager"]`, and `script.js` handles the command exactly like `search` - a plain
+  navigation to `/sdmanager.html`, nothing else, because the page opens the mode itself and replaces itself with "/".
+  Two details are load-bearing. (1) The id (`sdmanbtn`) has to sit on the **wrapper**, not on the glyph: the playermode
+  handler shows and hides that id, and a wrapper left in the DOM would be an invisible 54px hot spot over the playlist
+  glyph, swallowing the toggle's own click in web mode. (2) `#toggleplaylist.sd-mode { pointer-events: none; }` turns
+  the toggle's hit-testing off in the one state where the badge is shown, so
+  `#toggleplaylist.sd-mode .gb { pointer-events: auto; }` restores it; the wrapper is a `.gb`, so its hover ring is the
+  ordinary one, the same the search glyph gets. No `sdinit` gate is needed - the badge only exists in SD mode, and a
+  non-SD build never sets `modesd`.
+- **There is no route at bare `/sdman`.** `AsyncURIMatcher::matches()` treats a plain URI as an exact path *or* as a
+  prefix followed by "/", so a handler registered at `/sdman` also answered `/sdman/list` and every sibling route;
+  the page then parsed that route's redirect as JSON. `/sdman/enter` is the only way in.
+- Routes: `/sdman/enter` (GET), `/sdman/done` (POST), `/sdman/info`, `/sdman/list`, `/sdman/mkdir`, `/sdman/rename`,
+  `/sdman/move`, `/sdman/delete` (POST, selection in the body), `/sdman/download`, `/sdman/upload` (POST with its own
+  chunk handler). Every handler except `enter`/`done` calls `requireActive()`, which answers 409 `not_active`.
+- Mutations are POST-only and each one calls `invalidateSdIndex()` (removes `INDEX_SD_PATH`), so playlists and the SD
+  index are rebuilt rather than trusted after an edit.
+- `/` and `/data` (and anything under it) are protected: no create, rename, move, delete or upload there; browsing
+  stays allowed and the page dims the controls. Error codes are stable strings the page maps in `errText()`:
+  `protected`, `exists`, `no_space` (507), `not_found`, `no_card`, `bad_name`, `no_dir`, `not_dir`, `not_active`,
+  and `failed` as the fallback.
+- **Upload** is one file per request, multipart, streamed straight to the card with no RAM buffer. The `path` and
+  `name` args choose the target and `name` wins over the multipart filename. Replace (no `skip` - the default) opens
+  with `FILE_WRITE`, which truncates, so an existing name is overwritten; there is deliberately no `exists()` test on
+  that branch. Skip Existing (`skip=1`) leaves an existing name untouched and answers `{"ok":true,"skipped":true}`
+  without touching the SD index. Free space is measured *after* the truncating open, because the open is what
+  releases the room the replacement needs; a write that would exceed it fails with 507 and the partial file is
+  removed so a failed upload cannot leave a truncated track behind.
+- **The abandoned open handle is the counter-intuitive half of that.** There is no `UPLOAD_FILE_ABORTED`
+  notification to react to, so an upload cut off mid-stream leaves the handle open and the file half-written; the
+  next request closes it at `index == 0`, before opening anything new, which is what the missing callback would
+  otherwise have had to do. `FILE_WRITE` is also what truncates, so the room an overwrite needs is released by the
+  open itself rather than by the close - the reason the free-space figure is taken afterwards. And deleting while
+  walking a directory advances the position under the removal and skips entries, so child names are collected
+  before anything is removed.
+- **Delete** takes the whole selection as a newline-separated body and walks it once. Refusals (protected or in use)
+  and failures (missing, rmdir failed) share one `failed` counter in the response
+  (`{"ok":<bool>,"deleted":N,"failed":M}`) because the page has a single message for "this stayed"; the serial log
+  still tells the two apart. Child names are collected before anything is removed, because deleting during a
+  directory walk advances the position under the removal and skips entries.
+- The `isPlaying()` refusals in rename, delete and upload stay as a backstop even though entering the mode stops the
+  player and `Player::_play()` refuses new playback: nothing may touch a file the player is reading.
+- **Entry works in AP mode.** The `network.status != CONNECTED` guard was removed because it protected nothing:
+  `_swichMode()` refuses every mode change while the status is neither `CONNECTED` nor `SDOFFLINE`, so the AP screen
+  (SSID, password, address) is never taken over, and the card stays reachable as plain storage on a device with no
+  network. SD-offline needs no test of its own - `NetServer::begin()` returns before the web server starts.
+- Coupling: `controls.cpp` returns early in every physical input path while the mode is open - both encoder loops, the
+  IR loop and IR number entry, and the click, double-click, long-press-start/stop and during-long-press callbacks, plus
+  `controlsEvent()` underneath them; `display.cpp` `_swichMode()` refuses any mode
+  other than `PLAYER`/`SDMAN` while the mode is open, `commandhandler.cpp` drops commands, `Player::_play()`
+  refuses playback, and `startup.cpp`'s async services task parks while the mode is open - the same park SD playback
+  already used for its DRAM/decoding reasons, since the manager is rewriting the card and a download starting on the
+  network core is the last thing it wants. All five exist so the manager is the only thing touching the card while it
+  is open. The park is released by itself when the manager closes, Done button or idle timeout alike, within one
+  2-second poll, and while it is held `Startup::loop()` marks the boot stable after
+  `STARTUP_ASYNC_SERVICES_DELAY + BOOT_STABLE_TIME` with the reason `startup services were suspended` — the same
+  rule that now covers SD playback, see the startup section.
+- The encoder guards drain rather than only returning: `encoderChanged()` is a delta-since-last-call, so skipping it for
+  a whole session delivers every detent turned meanwhile as one `int8_t` delta on the first loop after the mode closes,
+  i.e. a volume slam or a phantom station step. The long-press-stop guard also clears `lpId`, because `Controls::loop()`
+  keeps calling `onBtnDuringLongPress()` for as long as that latch is set.
+
 ## `src/core/touchscreen.h` / `touchscreen.cpp`
 - Touch controllers:
   - XPT2046
@@ -724,6 +821,7 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
 ---
 
 ## WebUI Per-File Map (`data/www`)
+- **Keep a script inside its page when only that page uses it.** Every file in `Config::wwwFiles[]` is fetched separately by the OTA updater and each fetch pays its own HTTPS handshake, so fewer files means a faster update for every device in the field - the byte count of the file barely matters beside that. `search.html`, `curated.html` and `sdmanager.html` therefore carry their own `<script>` block inline, while `script.js`, `script2.js`, `variables.js` and `curated_variables.js` stay separate because more than one page loads them. Removing a file from `wwwFiles[]` and from `data/www` must happen together, and firmware plus filesystem must then ship together: older firmware still lists the name and reports a missing file.
 
 ## `data/www/script.js`
 - Main runtime script.
@@ -777,9 +875,11 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
 
 ## `data/www/search.html`
 - Search UI for radio-browser integration.
+- **Carries its own script inline** (formerly `data/www/search.js`, now the `<script>` block at the foot of the page): websocket search progress, results fetch with a 404 retry, pagination, quick searches and the import hooks.
 
 ## `data/www/curated.html`
 - Curated list browsing/import page.
+- **Carries its own script inline** (formerly `data/www/curated.js`): index fetch, playlist list fetch, and the replace/merge import into the playlist.
 
 ## `data/www/script2.js`
 - Consolidated helper script loaded by main shell and standalone search/curated pages.
@@ -790,12 +890,6 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
 - also consolidated with `data/www/locale.js`
   - i18n runtime helper (`t(...)`) and translation application (`applyI18n`).
   - Applies key-based translations to DOM and fallback behavior.
-
-## `data/www/search.js`
-- Search page API calls, pagination, result actions, and import hooks.
-
-## `data/www/curated.js`
-- Curated list fetch/load/import page logic.
 
 ## `data/www/style.css`
 - Primary stylesheet.
@@ -824,7 +918,7 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   - **Boot-line messages** (what the `_bootstring` line says while the boot is blocked): one request type per message in `displayRequestType_e` (`common.h`) plus a case in `Display::draw()` that does `_bootstring->setText(l10n(L10N_MSG_...))`. The three are `WAITFORSD`, `FORMATTING` and `SCANNINGWIFI` — the last for the boot scan, which blocks the radio for ~5.7 s with nothing else to show, and it is sent from `wifiBegin()` just before the scan. **Senders must include a short `delay()` after `display.putRequest(...)`**: it only queues, and the blocking work that follows can otherwise start before the display task has drawn the line (the `FORMATTING` sender does the same). The strings live in the generated `src/locale/dsplocale.h`, so a new message needs its key added to all 36 `src/locale/display/*.json` files and that header regenerated; measured cost of one new key across the 36 locales is **~5 KB of flash**, which is the number to weigh before adding one.
   - `TextWidget::setText()` is **virtual** (all three overloads), with `ScrollWidget` and `NumWidget` marking their matching overloads `override` so the compiler enforces the match. This matters because a subclass can legitimately be held in a `TextWidget*`: the boot line is exactly that case (`Display::_bootstring` is a `TextWidget*` over a `ScrollWidget`). Bound non-virtually, a call through that pointer runs the **base** version, which never sets `_doscroll`/`_x` and measures with the base `_charWidth` — the boot line then could not scroll and, for a string wider than the window, was painted at an underflowed centre offset, which reads as "nothing drawn". `_draw()` was already virtual, so this removes a static/dynamic mismatch rather than adding a mechanism.
   - `TextWidget::_realLeft()` **clamps** rather than underflowing: when `_textwidth` is not smaller than the available width it returns `0` (the widget's own left edge) instead of wrapping the subtraction to ~65500 and painting off-panel. Only reachable for text wider than its space — a `ScrollWidget` scrolls instead and a plain `TextWidget` is conf-sized — so the clamp is insurance against the invisible-rather-than-misplaced failure mode.
-  - The boot text line (`Display::_bootstring`, built in `Display::_bootScreen()`) is a `ScrollWidget` fed from the conf's plain `bootstrConf` `WidgetConfig`, so a string that fits is drawn statically at the conf's align (WA_CENTER still rules) and a longer one parks at the edge and scrolls. Its window and buffer are derived in code (`width = MAX_WIDTH`, `buffsize = BOOTSTR_LEN` 128, uppercase), and its **scroll cadence is borrowed from the panel's own `apSettConf`** — `startscrolldelay`, `scrolldelta` and `scrolltime` only, never that entry's `left/top/width/buffsize/fontsize`, which belong to its own line and differ on the round TFT (`left = TFT_FRAMEWDT+32`, `width = MAX_WIDTH-64`) and the 220x176 (`width = DSP_WIDTH+10`). That inherits each panel's tuned step: 1px on the OLEDs and small TFTs, 2px on the 220x176 and every panel 240px and up, 4px on the 428x142, and 5/6px on the mono LCDs where a step is a whole character because their refresh cannot take per-pixel repaints. `apSettConf.widget.textsize > 0` is the guard, because `displayLCD16x2conf.h` and `displayLCD20x4conf.h` leave the entry as `{ }`, which zero-initialises it and would leave the boot line standing still — the fallback is 0 / 1 / `SCROLLTIME`.
+  - The boot text line (`Display::_bootstring`, built in `Display::_bootScreen()`) is a `ScrollWidget` fed from the conf's plain `bootstrConf` `WidgetConfig`, so a string that fits is drawn statically at the conf's align (WA_CENTER still rules) and a longer one parks at the edge and scrolls. Its window and buffer are derived in code (`width = MAX_WIDTH`, `buffsize = BOOTSTR_LEN` 128, uppercase), and its **scroll cadence is borrowed from the panel's own `apSettConf`** — `startscrolldelay`, `scrolldelta` and `scrolltime` only, never that entry's `left/top/width/buffsize/fontsize`, which belong to its own line and differ on the round TFT (`left = TFT_FRAMEWDT+32`, `width = MAX_WIDTH-64`) and the 220x176 (`width = DSP_WIDTH+10`). That inherits each panel's tuned step: 1px on the OLEDs and small TFTs, 2px on the 220x176 and every panel 240px and up, 4px on the 428x142, `apSettConf.widget.textsize > 0` is the guard if the entry is `{ }`, which zero-initialises it and would leave the boot line standing still — the fallback is `SCROLLTIME`.
   - `ProgressWidget` is the boot screen's animated dots line, with exactly one instantiation (`Display::_bootScreen()`), so its behaviour is the boot screen's. The line is `speaker + runway + boot glyph`, hard against both glyphs, and `ProgressConfig` is `{ frame interval ms, line character width, blob elements }` — every conf carries that header above the field, and `importlayout.py` emits it for generated confs. `width` is the **whole line budget in characters**: `init()` derives the runway as `width - 2`, counting each glyph as **one character regardless of its byte length** (the SD pair renders one column wider than the rest, which is invisible on a single row of pixels). **There are two paint paths, and that split is what keeps a TFT flicker-free**: `_draw()` is the full paint — speaker, the runway with the blob where it belongs, boot glyph — reached only from activation, layout changes and screensaver restarts, so the two static glyphs are drawn once and then never touched; `_progress()` is the animation, and it paints **only the cells that differ from the previous frame**, at most two of them (the cell the blob left, the cell it entered), against a whole-line erase plus fourteen glyph writes in the single-path version. `_fieldX` records the field's x origin at the last full paint, and `_painted` guards the first tick so a delta can never be painted against a picture the widget did not put on the panel; both paths place column `c` at `_realLeft() + (frameChars + c) * _charWidth`, which is why a full paint cannot shift the dots. The reason is the panel rather than the animation: an SH1106 is a framebuffer whose refresh hides an erase, while an ILI9488 shows every write, so the same code flickers on one and not the other. The blob grows in at the speaker, slides right one column per frame and has its head eaten at the far end, which is what makes the dots read as vanishing into the boot glyph; the cycle is `runway + blob` frames (the 128x64 OLED conf's `{ 90, 14, 4 }` is a twelve-column runway and sixteen frames, 1.44 s), and the character count is identical on every frame so the centred position never moves. A blob at or above the runway never reaches the sliding phase — it just grows and snaps back. **The blob element is an icon codepoint, `\026` (VOL_75) from `icons.h`, not a font glyph**: that is what makes it line up, because icon codepoints all share the same seven-row grid as the speaker and the boot glyph, whereas a font bullet carries its own vertical metrics and sits off centre between them. **The text buffer is sized in BYTES rather than characters, for a reason worth keeping**: with the earlier two-byte U+00B7 dot, a character-count buffer truncated the line mid-dot, a dangling `0xC2` made the renderer take the terminator as its second byte and draw past the NUL (a glyph no font knows), and the changed character count moved the centred x every frame. `_buffsize` is `frame bytes + runway + one extra byte per blob element + 1`, which reduces to `frame bytes + runway + 1` while the element stays one byte. Nothing here uses `Widget::_width`, which `Widget::init()` zeroes and `moveTo()` rewrites — sizing from that drew a completely blank line. `_scrolldelay` is set in `init()`; it was previously never initialised.
   - `SliderWidget` buffer/volume bar rendering now repaints the full inner area each update to avoid stale pixels after page/mode transitions.
 - `src/displays/widgets/pages.h`, `pages.cpp`
@@ -1192,8 +1286,28 @@ These are **not** third-party packages installable via PlatformIO's registry. Th
 - `src/locale/hardcode_locale_to_webui.py`: bake locale text into WebUI assets (for `HARDCODED_WEBUI_LOCALE`).
 
 ## Locale maintenance tools
-- `src/locale/www_tool.py` (was `scan_www_check_json.py`): scan HTML/JS for i18n keys, check/add/translate/sort www locale JSONs. Supports `--create`.
-- `src/locale/display_tool.py` (NEW): manage display JSONs against master. Sort uses master key order (never alphabetizes). Clean never touches master. Supports `--create`.
+- `src/locale/www_tool.py` (was `scan_www_check_json.py`): scan HTML/JS for i18n keys, check/add/translate/sort www locale JSONs.
+  - **`--merge <file.json>` (added): upsert a partial locale JSON into one locale.** `www_tool.py de_DE --merge changes.json [--clean] [--sort]`. One locale only - `*`, the prompt modes (`--fast/--every/--diff/--ndiff`) and `--translate` are each refused with their own message. A merge never prompts, which includes the translation-service question: it is skipped rather than asked before the merge starts. The partial may carry any subset of keys; `locale_code` in it is ignored (the filename is the authority) while `locale`/`locale_en` merge normally. The run reports added/updated/unchanged counts, then how many master keys are missing from the file and how many are present but empty - the list a translator still owes.
+  - **A key the master does not know is skipped and named, and never written** (exit 0, the rest of the partial merges as usual). The master key set is the `data/www` scan for www, the master JSON for display. The report is `Ignored: N key(s) in <file> are not in the master key set`, and the message names the three readings: the name is wrong, the key is old, or it is new and belongs in the master first. The first version refused the whole file and wrote nothing, which was wrong about the common case: a translator working from an older copy hands back keys that have since been retired, and the rest of their work should not be lost over that. What stays a hard rule is that such a key is never written, because `make_dsplocale.py` treats an extra key exactly as it treats a missing one, as a build error.
+  - **`--newkeys`/`-k [FILE]` (added): write the keys the locale(s) lack into a template** - key -> master text, for a translator to fill in and hand back for `--merge`. **It is a pre-pass, not an alternative to the normal run**: with a mode given it collects first, while the keys are still missing, and the pass then fills the locales - so `* --translate --fast --clean --sort --newkeys` yields both the filled files and the list to send out. With no mode it collects and stops, because the pass would start prompting. It composes with `*` and with `--clean`/`--sort` (which apply to the template), and refuses only `--merge`, being the opposite direction. `*` unions the missing keys across every locale and writes **once**, because a key absent from one locale is almost always absent from the rest. An existing template is never rebuilt: keys it already has keep their values, which may be someone's work in progress, and only new keys are appended; `--clean` then means "drop template keys the master no longer has".
+    - **The template lives beside the tools, not in the locale folders** (`src/locale/www_newkeys.json`, `src/locale/display_newkeys.json`, overridable with `-k FILE`). Both generators glob their own folder as locale files - `make_dsplocale.py` validates `locale_code` and the key set, `make_wwwlocale.py` requires `locale`/`locale_en` - so a template dropped into `www/` or `display/` would fail validation and be embedded in `wwwlocale.h` as a bogus locale. Verified after the fact: `make_wwwlocale.py --verify` still counts 50 files with both templates present.
+  - **How it collects keys, and the rule that follows from it.** It matches `data-i18n` attributes (patterns 1a-1i: element text, `placeholder`, `value`, `title`, `alt`) and literal `t('key', 'default')` calls (patterns 2 and 3), across `data/www/*.html`, `data/www/*.js` and `netserver.h` (for `emptyfs_html`). **Never wrap `t()` in a helper function, and never keep keys in a table of bare strings.** `tr('key', 'text')` does not match `\bt\(` - the character after the `t` is `r` - and `{ 'code': 'err_key' }` is not a call at all, so both forms are invisible to the scanner, and a `--clean` run then deletes those keys from every locale as unused. There is nothing to guard against either: `locale.js` is compiled in from `locale_js.h` and cannot fail to load, which is the only reason a wrapper was ever wanted. Where a message is selected at runtime each arm must still be a real `t(...)` call - `errText()` in `data/www/sdmanager.html` is a `switch` of literal calls for exactly this reason.
+  - **The unchanged-translation prompt differs between the automatic pass and the interactive one.** `confirm_source_text_use()` asks before writing the source text when the service failed or returned it unchanged. In `--fast` it offers `y` / `a` (always for this key, held in the module-level `_source_text_always` set for the rest of the run - the same key is asked once per locale under `*`) / `n`, and **`n` ends the run** with a message naming both causes and saying that finished locales are saved and the one in progress is not. `prompt_for_key()` calls it with `auto_pass` left false and keeps plain `y/n`: there `n` means "not this key" (keep the JSON, or skip it in the missing mode), and `y` hands the key to the normal edit prompt anyway.
+    - **`a` suppresses the question, never the attempt.** `translate_text()` runs first for every key, and the set is consulted only when the result was empty or identical to the source text, so a key settled with `a` still receives a real translation in any later locale that produces one. The set is per key, not per run: a service failing everywhere still asks once per key, and `n` - not `a` - is the answer to that.
+  - Run it as `py src/locale/www_tool.py * --fast` to add every newly found key to all 50 locales using the master text; `--clean` and `--sort` are the same pass with the tidy-ups. On Windows it fails with a `cp949` encoding error when it reaches the non-Latin locales unless `PYTHONIOENCODING=utf-8` is set - `display_tool.py` does this for itself and this one does not.
+  - **The two ways this collector invents keys from prose or from concatenation.** (1) Never write the call form out in
+    a comment, even when the comment is explaining the scanner itself: pattern 2 cannot tell prose from code, and the
+    header comment of `data/www/sdmanager.html` plus the comment above its `errText()` switch each produced a bogus
+    `key` entry that then spread to all 50 locales. (2) Do not put `data-i18n` on a tag whose markup is assembled by
+    string concatenation: pattern 1a reads from the attribute to the next `>`, then the element text to the next `<`,
+    and in `'... data-i18n="k" title="' + esc(t('k','text')) + '">' + SVG + '</span>'` the next `>` is the one closing
+    the attribute - so the tool recorded the following concatenation fragment (`' + SVG_UP + '`) as that key's source
+    text in every locale. Build such tooltips with `t()` as the row is rendered and leave `data-i18n` off. Check any
+    page after editing it with
+    `python -c "import sys;sys.path.insert(0,'src/locale');import www_tool as w;print(w.extract_keys_from_html_js('data/www/<page>.html'))"`.
+- `src/locale/display_tool.py` (NEW): manage display JSONs against master. Sort uses master key order (never alphabetizes). Clean never touches master. Supports `--merge <file.json>` and `--newkeys`/`-k [FILE]` with the same upsert, unknown-key-skip and template rules as `www_tool.py`, except that the master key set comes from the master JSON and the sort uses master key order.
+- **`--create` was removed from both tools.** It laid down a locale file holding every key with an empty value, which turned out to be useless: a translator starts from a real file - the master, or a language they can read - and copies it. The option, the `auto_create` plumbing and `create_locale_from_master()`/`create_locale_file_from_master()` are gone, so both tools now only ever edit a locale that already exists, and a merge into a missing file says so and names the fix.
+- **`--key NAME` was added to both tools: redo exactly one key across every locale.** The name is looked up in that tool's own master - the `data/www` scan for `www_tool.py`, the master JSON for `display_tool.py` - once, before any locale file is opened, so a typo exits 1 with a single message instead of one per locale in a `*` run. Both `missing` and `fast` normally skip a key the locale already has, which is exactly the case the option exists for, so it writes the key where it exists as well as where it does not; it is orthogonal to the modes and to `--translate`/`--clean`/`--sort`, so `* --translate --fast --clean --sort --key X` re-translates one key everywhere. In the interactive modes the key is still prompted when a value exists, but through the `all` prompt layout, so the current text appears as `[JSON]` and ESC keeps it rather than letting the source text replace it unseen. Refused, with its own message: `--merge` (it writes a whole partial file, so there is nothing to select) and `--newkeys` (the opposite direction - it collects the keys the locales lack). One key per run; a sweep for many is still `--ndiff`. Verified on a scratch copy of `fr_FR.json` (deleted afterwards): the pass wrote 1 key and `fc` against the original showed exactly one differing line.
 - `src/locale/trans_deepl.py` (was `scan_trans_deepl.py`): DeepL translation module. Uses `trans_*.key` discovery pattern (was `scan_trans_*.key`).
 - `src/locale/trans_deepl.md` (was `scan_trans_deepl.md`): DeepL setup + usage docs.
 

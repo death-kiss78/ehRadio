@@ -2,7 +2,7 @@
 #define _OLEDCOLORFIX_H_
 #pragma once
 
-/* Shared 1-bit palette for monochrome OLED/LCD panels, applied by each driver's
+/* Shared 1-bit palette for monochrome OLED panels, applied by each driver's
    initDisplay(). Assignments follow the theme_t declaration order in
    core/config.h so this list can be diffed directly against the grayscale
    palettes in displaySSD1322.cpp / displaySSD1327.cpp. */

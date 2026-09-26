@@ -5,7 +5,9 @@
 #include <vector>
 #include <algorithm>
 #include "vfs_api.h"
-#if !defined(SD_USE_MMC)
+#if defined(SD_USE_MMC)
+  #include "sdmmc_cmd.h"   // sdmmc_read_sectors() for the card-present probe below
+#else
   #include <SD.h>
   #include "sd_diskio.h"
 #endif
@@ -90,9 +92,14 @@ void SDManager::stop() {
 bool SDManager::cardPresent() {
   if (!ready) return false;
 #if defined(SD_USE_MMC)
-  // SDMMCFS has no readRAW()/sectorSize(). cardSize() returns 0 once the card handle is gone,
-  // so a mounted card with non-zero capacity is the presence test here.
-  return cardSize() > 0;
+  // Must be a real probe, matching what readRAW() does on the SPI side. cardSize() reads the cached CSD
+  // out of the card descriptor, and _card stays set until end() - so it still reported a card after the
+  // card was physically removed, and PR_CHECKSD therefore never fired on SDMMC builds. Reading a
+  // physical sector through the host is the only way to see it go away. The read is non-destructive and
+  // does not disturb FATFS's own cached window, since it bypasses the filesystem layer entirely.
+  if (_card == nullptr) return false;
+  uint8_t probe[512];
+  return sdmmc_read_sectors(_card, probe, 0, 1) == ESP_OK;
 #else
   if (sectorSize()<1) {
     return false;

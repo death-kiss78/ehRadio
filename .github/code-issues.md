@@ -109,7 +109,7 @@ That leaves approximately **270 KB free** for dynamic operations on a plausibly-
 
 | Operation | Files written | Max size |
 |---|---|---|
-| Radio Browser search | `/www/searchresults.json` + `/www/search.txt` | up to ~100 KB (enforced by `search.js` `limit_per_page`) |
+| Radio Browser search | `/www/searchresults.json` + `/www/search.txt` | up to ~100 KB (enforced by `search.html javascript` `limit_per_page`) |
 | Curated index download | `/www/curated.json` | unknown — depends on host |
 | Curated playlist import | `/www/pl_import.json` → `TMP_PATH` → PLAYLIST | depends on playlist size |
 | Online www update | writes each file directly to `/www/` | ~150–200 KB total for all files |
@@ -156,7 +156,7 @@ This means **the SPIFFS space problem is effectively an `board_esp32` (4 MB flas
 Trip5's idea:
 
 Here's a hint:
-#define FS_REQUIRED_FREE_SPACE 150 // in KB - must be minimum x1.5 of the limit_per_page in search.js (100)
+#define FS_REQUIRED_FREE_SPACE 150 // in KB - must be minimum x1.5 of the limit_per_page in search.html javascript (100)
 We should be able to make limit_per_page dynamic through a variables.js setting...
 get an estimate of free space and if it's 150+ KB send 100 .. if it's less then... do some math.  100KB gets 65 results... etc.
 The problem with this, make it toooo dynamic and it interferes with pages... so... maybe do it once after boot is complete and rb_Servers, timezones.json is updated...then that number is put into a global variable
@@ -170,7 +170,7 @@ If we do that, we should initiate cleanup on every boot (well, initiate cleanup 
 
 - **File**: All `src/displays/conf/display*conf.h`
 - **Problem**: `src/core/display.cpp` references `batteryConf`, `batteryRangeLowFmt`, `batteryRangeMidFmt`, and `batteryRangeHighFmt` inside `#if defined(BATTERY_PIN) && (BATTERY_PIN!=255)` guards. The `_battery` pointer is null-checked at every call site — unsupported panels simply leave `batteryConf` zeroed rather than using a compile-time `HIDE_BATTERY` guard.
-- **Action**: Keep the non-LCD display confs aligned with this contract, and use the checklist below as the real-hardware verification matrix for each target.
+- **Action**: Keep the display confs aligned with this contract, and use the checklist below as the real-hardware verification matrix for each target.
 
 | Battery widget checked on real hardware? | Display conf file |
 |---|---|
@@ -179,7 +179,6 @@ If we do that, we should initiate cleanup on every boot (well, initiate cleanup 
 | [ ] | `displayTFT240x240roundconf.h` |
 | [ ] | `displayTFT220x176conf.h` |
 | [X] | `displayTFT480x320conf.h` (ILI9488/ST7796 shared) |
-| [ ] | `displayLCD84x48conf.h` |
 | [-] | `displayOLED128x64conf.h` (SH1106/SSD1305/SSD1306 shared) - tested but not functional, needs further testing |
 | [ ] | `displayOLED128x32conf.h` |
 | [ ] | `displayOLED256x64conf.h` |
@@ -188,6 +187,3 @@ If we do that, we should initiate cleanup on every boot (well, initiate cleanup 
 | [ ] | `displayTFT160x128conf.h` |
 | [ ] | `displayTFT284x76conf.h` |
 | [ ] | `displayTFT240x240conf.h` |
-| [ ] | `displayLCD128x64conf.h` |
-| N/A (LCD) | `displayLCD16x2conf.h` |
-| N/A (LCD) | `displayLCD20x4conf.h` |

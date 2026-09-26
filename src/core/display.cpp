@@ -11,6 +11,9 @@
 #include "player.h"
 #include <SD.h>
 #include "sdmanager.h"
+#ifdef USE_SD
+  #include "filemanager.h"   // the SD Manager screen and its countdown
+#endif
 #include "startup.h"
 #include "utility.h"
 #include "backlightcontrols.h"
@@ -286,12 +289,11 @@ void Display::_bootScreen() {
   bootScroll.width = MAX_WIDTH;
   /* The cadence is borrowed from the panel's own message line rather than hardcoded, because apSettConf is the same
      species of line - message text, no start delay - and its step is tuned to the panel: 1px on the OLEDs and the
-     small TFTs, 2px on the 220x176 and every panel 240px and up, 4px on the 428x142, and 5/6px on the mono LCDs
+     small TFTs, 2px on the 220x176 and every panel 240px and up, 4px on the 428x142,
      where dspconf.h notes that a step is a whole character because the refresh cannot take per-pixel repaints.  Its
      scrolltime is SCROLLTIME everywhere except the 428x142, which deliberately overrides it to a raw 30ms.  Only
      these three fields are taken: apSettConf's left/top/width/buffsize/fontsize belong to its own line, and the
-     round TFT and the 220x176 give it different ones.  LCD16x2 and LCD20x4 leave apSettConf as { }, which
-     zero-initialises it and would leave the boot line standing still - textsize 0 is this codebase's "not present"
+     round TFT and the 220x176 give it different ones.  textsize 0 is this codebase's "not present"
      marker (see _buildPager) - so fall back to a 1px step on the display's default tick. */
   const bool apSettUsable = _bootConfig.apSettConf.widget.textsize > 0;
   bootScroll.startscrolldelay = apSettUsable ? _bootConfig.apSettConf.startscrolldelay : 0;
@@ -448,6 +450,49 @@ void Display::_apScreen() {
     _pager->setPage(_boot);
 }
 
+#ifdef USE_SD
+// The SD File Manager's screen: the address to open on one line, and how long the device will keep the mode open
+void Display::_sdmanScreen() {
+  if (_boot) {
+    _pager->removePage(_boot);
+    _boot = nullptr;
+    _bootstring = nullptr;
+  }
+  _sdmanCountText = nullptr;
+  _boot = new Page();
+  _boot->addWidget(new FillWidget(*metaBGConf_ptr, config.theme.metafill));
+  uint16_t mfg = config.store.inverttitle ? config.theme.metabg : config.theme.meta;
+  uint16_t mbg;
+  #ifdef DSP_TFT
+    mbg = config.store.inverttitle ? config.theme.background : config.theme.metabg;
+  #else
+    mbg = config.store.inverttitle ? config.theme.metafill : config.theme.metabg;
+  #endif
+  ScrollWidget *sdTitle = (ScrollWidget*) &_boot->addWidget(new ScrollWidget("*", _bootConfig.apTitleConf, mfg, mbg));
+  sdTitle->setText(l10n(L10N_LBL_SDMAN));
+  ScrollWidget *sdUrl = (ScrollWidget*) &_boot->addWidget(new ScrollWidget("*", _bootConfig.apSettConf, config.theme.title2, config.theme.background));
+  sdUrl->setText(utility.ipToStr(WiFi.localIP()), l10n(L10N_MSG_OPEN));
+  /* apName2Conf, not apNameConf.  The title is a fontsize-2 line, which is two glyph rows tall, so on the
+     128x64 panels it already occupies y=2..18 - and apNameConf's top is 18, so the countdown was drawn over
+     the title's last row.  apName2Conf is the value row beneath a label row, which sits clear of the title
+     block and above the URL line. */
+  _sdmanCountText = (TextWidget*) &_boot->addWidget(new TextWidget(_bootConfig.apName2Conf, 30, false, config.theme.clock, config.theme.background));
+  sdmanCountdown();   // paint the first value, so the line is never blank
+  _pager->addPage(_boot);
+  _pager->setPage(_boot);
+}
+
+/* Draws only while the manager's page is actually up, so a tick arriving after the mode ended costs one
+   comparison.  Minutes:seconds, because the number is a deadline rather than a duration to add up. */
+void Display::sdmanCountdown() {
+  if (_mode != SDMAN || !_sdmanCountText) return;
+  const uint32_t left = filemanager.idleRemainingMs();
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%lu:%02lu", (unsigned long)(left / 60000UL), (unsigned long)((left / 1000UL) % 60UL));
+  _sdmanCountText->setText(buf);
+}
+#endif
+
 void Display::_start() {
   if (_boot) {
     _pager->removePage(_boot);
@@ -532,9 +577,23 @@ void Display::_swichMode(displayMode_e newmode) {
   if (newmode == CLEAR) { dsp.fillScreen(config.theme.background); _mode = CLEAR; return; }
   if (newmode == VOL && !config.store.volumepage) return;  // no overlay — skip VOL mode to avoid a needless page switch
   if (newmode == _mode || (network.status != CONNECTED && network.status != SDOFFLINE)) return;
+  #ifdef USE_SD
+    // While the SD card manager owns the screen nothing else may take it:  leave() is what asks for it
+    if (filemanager.active() && newmode != PLAYER && newmode != SDMAN) return;
+  #endif
   _mode = newmode;
   dsp.setScrollId(NULL);
   if (newmode == PLAYER) {
+    #ifdef USE_SD
+      // Tear down the manager's page - and only that page.  The boot and AP screens build the same _boot
+      //  container, and _start() removes theirs; _sdmanCountText is what identifies ours.
+      if (_boot && _sdmanCountText) {
+        _pager->removePage(_boot);
+        _boot = nullptr;
+        _bootstring = nullptr;
+        _sdmanCountText = nullptr;
+      }
+    #endif
     if (player.isRunning()){
       if (config.store.vumeter && _vuwidget && vuInLayout()) {
         applyMoveOrRestore(_clock, *clockMove_ptr);
@@ -637,6 +696,10 @@ void Display::_swichMode(displayMode_e newmode) {
     #endif
     _drawPlaylist();
   }
+  #ifdef USE_SD
+    // The SD card manager holds the screen while its mode is open
+    if (newmode == SDMAN) _sdmanScreen();
+  #endif
   
 }
 

@@ -12,6 +12,9 @@
 #include "network.h"
 #include "player.h"
 #include "utility.h"
+#ifdef USE_SD
+  #include "filemanager.h"
+#endif
 
 CommandHandler cmd;
 
@@ -43,6 +46,14 @@ bool CommandHandler::exec(const char *command, const char *value, uint8_t cid, C
   if (isBlockedForSource(command, source)) {
     return false;
   }
+
+  #ifdef USE_SD
+    // block all commands if SD File Manager is active
+    if (filemanager.active()) {
+      FUNCTIONLOG("SDFileManager", "command '%s' from %s refused, SD File Manager is open", command, sourceName(source));
+      return false;
+    }
+  #endif
 
   /* Websockets for Player */
   if (cmdIs(command, "toggle"))      { network.cancelStreamRetry(); player.toggle(); return true; }

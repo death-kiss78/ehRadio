@@ -15,11 +15,13 @@
 #include "core/player.h"
 #include "core/rgbled.h"
 #include "core/sdmanager.h"
+#ifdef USE_SD
+  #include "core/filemanager.h"   // SD card file manager: /sdman and its mode
+#endif
 #include "core/startup.h"
 #include "core/telnet.h"
 #include "displays/tools/psframebuffer.h"
 #include "displays/tools/dspstats.h"
-#include "core/filemanager_S.h"
 
 SET_LOOP_TASK_STACK_SIZE(LOOP_TASK_STACK_SIZE * 1024);
 
@@ -138,11 +140,6 @@ void setup() {
   netserver.setBootReady(true);
   config.saveValue(&config.store.SDoffline, false);
   BOOTTIMELOG("setBootReady");
-
-// === FileManager SD pe portul 8080 ===
-fmServer.begin();
-fms_registerRoutes();
-
 }
 
 void loop() {
@@ -268,8 +265,9 @@ void loop() {
     }
   #endif
 
-// ... codul ehRadio din loop()
-fmServer.handleClient();   // FileManager SD
+  #ifdef USE_SD
+    filemanager.loop();
+  #endif
 }
 
 
