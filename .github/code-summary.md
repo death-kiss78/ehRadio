@@ -203,7 +203,7 @@ This codebase is strongly compile-time modular. Runtime behavior can differ sign
   - AP mode: Improv + captive DNS
   - normal: telnet loop
   - RGB loop
-  - `battery.loop()` + `battery.applyPowerPolicy()`
+  - `battery.loop()`
   - player loop (connected/SD ready)
   - controls loop
 
@@ -511,6 +511,11 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
     refused as `low heap, refusing rb click task spawn` on every boot that played a radio-browser station. The click is
     still dropped outright while the card is off limits (`PM_SDCARD`, or the SD File Manager) - the older
     `Abandoning click` rule, extended to the manager.
+  - the RSSI payload carries the raw dBm (`rssi`, kept for the bars' tooltip) and the bar count (`rssibars`, from
+    `rssiLevel()`), so the WebUI holds no scale of its own
+  - `GETBATTERY` sends `volt: NmV, percentage: N%`. When `BATTERY_FORCE_DISPLAY` is defined it synthesises that same
+    string instead of reading `Battery` - percentage clamped, voltage interpolated across the presence window - so the
+    WebUI battery row can be laid out with no battery fitted
 - Coupling:
   - uses `cmd.exec(...)` from commandhandler
   - emits JSON consumed by `data/www/script.js`
@@ -656,22 +661,26 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
     - `deleteMainwwwFile()`
     - `updateFile(...)`
 - `parseWsCommand(...)` deliberately stays separate from `parseCommandLine(...)` and stays strict: the WebSocket settings path only ever receives `key=value` and must reject anything else rather than execute a bare command, so the two are not merged.
+- `rssiLevel(int)` is the one reader of `RSSI_STEPS` (`options.h`): it returns 0-4, and `display.cpp` maps that level to
+  its glyph pair while `netserver.cpp` sends it to the WebUI as `rssibars`. Changing the scale in `options.h` therefore
+  moves the on-screen widget and the WebUI bars together.
 - Holds small reusable scratch/state buffers (`ipBuf`, `stationBuf`) plus the sleep duration state and sleep `Ticker`; it still does not own playback/artwork runtime state.
 - Current consumers include `audiohandlers.cpp`, `battery.cpp`, `commandhandler.cpp`, `config.cpp`, `display.cpp`, `mqtt.cpp`, `netserver.cpp`, `network.cpp`, `player.cpp`, `telnet.cpp`, and startup/update flows.
 
 ## `src/core/battery.h` / `battery.cpp`
 - `battery.h` declares `class Battery` (real class under hardware guard; no-op stub in `#else`); `extern Battery battery;` provides the global instance.
-- Public interface: `init()`, `bootStatus()`, `isInitialized()`, `getStatus()`, `formatStatusLine()`, `loop()`, `applyPowerPolicy()`, `recalcNow()`, `calibrate()`.
-- All ADC/inference state and helpers are private members/methods.
-- Battery monitoring/calibration/inference implementation.
+- Public interface: `init()`, `bootStatus()`, `isInitialized()`, `getStatus()`, `recalcNow()`, `loop()`, `calibrate()`.
+- All ADC state and helpers are private members/methods.
 - Responsibilities:
-  - ADC sampling and filtering
-  - battery presence detection
-  - charge/discharge inference with candidate windows
-  - threshold state (`low`, `critical`) tracking
-  - battery-driven brightness reduction / recovery and critical deep-sleep policy
-  - status formatting for telnet/WebUI
-  - triggers display and websocket updates
+  - ADC sampling (median of several reads), EMA voltage smoothing, percentage from the discharge curve
+  - battery presence detection inside `BATTERY_PRESENT_MIN_MV`..`BATTERY_PRESENT_MAX_MV`, clamped the same way in `init()`
+  - pushes `DSPBATTERY` to the display and `GETBATTERY` to the WebUI when the percentage changes
+  - `calibrate()` turns a multimeter reading into a corrected `battery_adc_ref_mv`
+- **There is no charge/discharge inference and no charge-status reporting.** The device cannot tell charging from
+  discharging - there is no charge pin and no trend analysis - so `BatteryStatus` is percentage/voltage/present only, and
+  the battery payload is `volt: NmV, percentage: N%` with nothing else. `Battery::formatStatusLine()` and the WebUI's
+  three status spans (`battery_charging` / `battery_discharging` / `battery_idle`) are gone; the older description of
+  "charge/discharge inference with candidate windows" and `applyPowerPolicy()` never existed in this code.
 - Logging note:
   - battery status/debug/inference messages now use centralized logging macros (including `BATTERY_DEBUG` paths), replacing direct serial/telnet prints.
 
@@ -860,6 +869,17 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
 
 ## `data/www/player.html`
 - Player page structure (playlist, controls, sliders, status elements).
+- The `#info` row is one line by construction: `nowrap`, no per-item minimum widths, and only `#bitinfo` flexes (it
+  ellipsises) while volume, battery, shuffle and the RSSI bars keep their natural width. `#batteryinfo` is part of that
+  row - it is not a row of its own - and carries the label from `ttl_battery` plus the percentage.
+- RSSI is a graphic, not a number: `#rssibars` holds a four-path SVG (weakest first) sized in `em` so it tracks the info
+  text at every breakpoint, with a `<title id="rssititle">` giving `RSSI: -29dBm` as the tooltip. Bars past the
+  reported level take the `.off` class and are painted `--main-bg-color` rather than hidden, so the shape never resizes;
+  a level of 0 leaves every bar unlit, mirroring the empty glyph pair the display widget draws below the last step.
+- `#shuffle` is a `.gb` button inside `#playernav`, wedged between next and the mode switch, so it is the same circle as
+  its neighbours at every breakpoint and inherits the `.active` states from that family instead of carrying rules of its
+  own. The `playermode` branch in `script.js` is still what shows it in the SD player only, so the info row is left with
+  volume, codec, battery and the bars.
 
 ## `data/www/settings.html`
 - Settings page structure with grouped sections and `data-command` bindings.
@@ -893,6 +913,14 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
 
 ## `data/www/style.css`
 - Primary stylesheet.
+- `#info` is a one-line flex row by construction: `nowrap`, no per-item minimum widths, and `#bitinfo` the only item that
+  flexes (centred, ellipsising). The old `min-width: 110px` per item plus `flex-wrap: wrap` is what used to push an item
+  onto a second row; `#batteryinfo` no longer has `width: 100%` or an `order`, so the battery shares the row.
+- Sizes that must track the text use `em`: the RSSI bars are a `1em` square, which rides the 12/14/18/21px info font at
+  the four breakpoints without a rule per breakpoint.
+- The playlist editor input carries the **same ladder as `#playlist li span.text`** (20px base, 16px at ≤375, 25px at
+  600-899, 30px at 900-1200), so a name reads the same in the list and in the editor. It is not tied to the SD manager's
+  `.sdname` any more; the editor's own spans and the playlist's count column already agreed at 14/12/18/21.
 
 ## `data/www/theme.css`
 - Theme override variables/colors.

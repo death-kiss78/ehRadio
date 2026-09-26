@@ -889,4 +889,13 @@ const char* utf8_trim15(const char* src) {
   return buf;
 }
 
+uint8_t rssiLevel(int rssi) {
+  const int steps[] = { RSSI_STEPS };
+  if (rssi >= steps[0]) return 4;
+  if (rssi >= steps[1]) return 3;
+  if (rssi >= steps[2]) return 2;
+  if (rssi >= steps[3]) return 1;
+  return 0;
+}
+
 Utility utility;

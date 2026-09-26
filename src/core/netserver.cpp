@@ -658,7 +658,7 @@ void NetServer::processQueue() {
       case ITEM:          snprintf(wsbuf, sizeof(wsbuf), "{\"current\": %d}", config.lastStation()); break;
       case TITLE:         snprintf(wsbuf, sizeof(wsbuf), "{\"payload\":[{\"id\":\"meta\", \"value\": \"%s\"}]}", config.station.title); break;
       case VOLUME:        snprintf(wsbuf, sizeof(wsbuf), "{\"payload\":[{\"id\":\"volume\", \"value\": %d, \"max\": %d}]}", config.store.volume, VOLUME_SCALE); break;
-      case NRSSI:         snprintf(wsbuf, sizeof(wsbuf), "{\"payload\":[{\"id\":\"rssi\", \"value\": %d}]}", rssi); /*rssi = 255;*/ break;
+      case NRSSI:         snprintf(wsbuf, sizeof(wsbuf), "{\"payload\":[{\"id\":\"rssi\", \"value\": %d}, {\"id\":\"rssibars\", \"value\": %d}]}", rssi, rssiLevel(rssi)); break;
       case SDPOS:         snprintf(wsbuf, sizeof(wsbuf), "{\"sdpos\": %d,\"sdend\": %d,\"sdtpos\": %d,\"sdtend\": %d}",
                                   player.getFilePos(),
                                   player.getFileSize(),
@@ -669,16 +669,30 @@ void NetServer::processQueue() {
       case SDSHUFFLE:     snprintf(wsbuf, sizeof(wsbuf), "{\"shuffle\": %d}", config.store.sdshuffle); break;
       case BITRATE:       snprintf(wsbuf, sizeof(wsbuf), "{\"payload\":[{\"id\":\"bitrate\", \"value\": %d}, {\"id\":\"fmt\", \"value\": \"%s\"}]}", config.station.bitrate, getFormat(config.configFmt)); break;
       case GETBATTERY: {
-        BatteryStatus bat = battery.getStatus();
-        if (!bat.present && !battery.isInitialized()) {
-          uint32_t battref = config.store.battery_adc_ref_mv ? config.store.battery_adc_ref_mv : (uint32_t)BATTERY_ADC_REF_MV;
-          snprintf(wsbuf, sizeof(wsbuf), "{\"payload\":[{\"id\":\"battery\", \"value\": \"\"}, {\"id\":\"battref\", \"value\": %u}]}", battref);
-        } else {
+        uint32_t battref = config.store.battery_adc_ref_mv ? config.store.battery_adc_ref_mv : (uint32_t)BATTERY_ADC_REF_MV;
+        #ifdef BATTERY_FORCE_DISPLAY
+          // The same fake the on-screen widget uses, so the WebUI battery row can be laid out with no battery fitted
+          int pct = BATTERY_FORCE_DISPLAY;
+          if (pct < 0) pct = 0;
+          if (pct > 100) pct = 100;
+          uint32_t mvmin = (uint32_t)BATTERY_PRESENT_MIN_MV;
+          uint32_t mvmax = (uint32_t)BATTERY_PRESENT_MAX_MV;
+          if (mvmin < 2500) mvmin = 2500;
+          if (mvmax > 5000) mvmax = 5000;
+          if (mvmin >= mvmax) { mvmin = 3000; mvmax = 4200; }
           char valbuf[64];
-          snprintf(valbuf, sizeof(valbuf), "volt: %dmV, percentage: %d%%", bat.voltage_mv, bat.percentage);
-          uint32_t battref = config.store.battery_adc_ref_mv ? config.store.battery_adc_ref_mv : (uint32_t)BATTERY_ADC_REF_MV;
+          snprintf(valbuf, sizeof(valbuf), "volt: %umV, percentage: %d%%", (unsigned)(mvmin + (uint32_t)pct * (mvmax - mvmin) / 100), pct);
           snprintf(wsbuf, sizeof(wsbuf), "{\"payload\":[{\"id\":\"battery\", \"value\": \"%s\"}, {\"id\":\"battref\", \"value\": %u}]}", valbuf, battref);
-        }
+        #else
+          BatteryStatus bat = battery.getStatus();
+          if (!bat.present && !battery.isInitialized()) {
+            snprintf(wsbuf, sizeof(wsbuf), "{\"payload\":[{\"id\":\"battery\", \"value\": \"\"}, {\"id\":\"battref\", \"value\": %u}]}", battref);
+          } else {
+            char valbuf[64];
+            snprintf(valbuf, sizeof(valbuf), "volt: %umV, percentage: %d%%", (unsigned)bat.voltage_mv, bat.percentage);
+            snprintf(wsbuf, sizeof(wsbuf), "{\"payload\":[{\"id\":\"battery\", \"value\": \"%s\"}, {\"id\":\"battref\", \"value\": %u}]}", valbuf, battref);
+          }
+        #endif
         break;
       }
       case MODE:          snprintf(wsbuf, sizeof(wsbuf), "{\"payload\":[{\"id\":\"playerwrap\", \"value\": \"%s\"}]}", player.status() == PLAYING ? "playing" : "stopped"); break;

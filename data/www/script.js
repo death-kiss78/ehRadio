@@ -26,6 +26,18 @@ function updateBitinfo(){
   var bi = getId('bitinfo'); if(bi) bi.textContent = txt;
 }
 
+// RSSI bars.  The device thresholds the raw dBm with RSSI_STEPS and sends the bar count, so no scale lives in the WebUI
+// Bars past the level are recoloured rather than hidden, so the graphic never changes size - behavior is the same as display widget
+function setRssiBars(level){
+  var svg = getId('rssibars');
+  if(!svg) return;
+  var bars = svg.querySelectorAll('path');
+  var lit = parseInt(level, 10);
+  if(isNaN(lit) || lit < 0) lit = 0;
+  if(lit > bars.length) lit = bars.length;
+  for(var i = 0; i < bars.length; i++) bars[i].classList.toggle('off', i >= lit);
+}
+
 
 function loadCSS(href){ const link = document.createElement("link"); link.rel = "stylesheet"; link.href = href; document.head.appendChild(link); }
 function loadJS(src, callback){ const script = document.createElement("script"); script.src = src; script.type = "text/javascript"; script.async = true; script.onload = callback; document.head.appendChild(script); }
@@ -225,28 +237,21 @@ function onMessage(event) {
     
     if(typeof data.payload !== 'undefined'){
       data.payload.forEach(item=> {
-        // battery string: parse and fill separate elements (labels in HTML with data-i18n)
+        // battery string: volt and percentage only, there is no charge state to report
         if(item.id === 'battery' && typeof item.value === 'string'){
-          var m = /volt: (\d+)mV, percentage: (\d+)%?, status: (.+)/.exec(item.value);
+          var m = /volt: (\d+)mV, percentage: (\d+)%/.exec(item.value);
           if(m){
-            var volt = m[1], perc = m[2], stat = m[3].trim();
-            
+            var volt = m[1], perc = m[2];
             setupElement('battery_volt', volt);
             setupElement('battery_perc', perc);
-            
-            // Hide all battery status spans, then show the active one
-            ['battery_charging', 'battery_discharging', 'battery_idle'].forEach(function(id) {
-              var el = getId(id);
-              if(el) el.classList.add('hidden');
-            });
-            
-            var statusId = 'battery_' + stat.toLowerCase();
-            var statusEl = getId(statusId);
-            if(statusEl) statusEl.classList.remove('hidden');
-            
-            // Show battery info wrapper
+            // The player row shows the percentage; the settings page shows voltage and percentage
+            const compact = getId('battery');
+            if (compact) compact.innerText = perc + '%';
             const wrap = getId('batteryinfo');
             if (wrap) wrap.classList.remove('hidden');
+          }else{
+            const nowrap = getId('batteryinfo');
+            if (nowrap) nowrap.classList.add('hidden');   // no battery reported
           }
           return; // Skip normal setupElement for 'battery' id
         }
@@ -341,6 +346,16 @@ function setupElement(id,value){
   if(id === 'bitrate'){
     currentBitrate = parseInt(value) || 0;
     updateBitinfo();
+    return;
+  }
+  if(id === 'rssi'){              // the dBm reading, kept only for the bars' tooltip
+    var rtt = getId('rssititle');
+    if(rtt && value !== '' && value !== null && typeof value !== 'undefined')
+      rtt.textContent = t('lbl_rssi', 'RSSI') + ': ' + value + t('unit_dbm', 'dBm');
+    return;
+  }
+  if(id === 'rssibars'){          // the bar count the device derived from RSSI_STEPS
+    setRssiBars(value);
     return;
   }
   const element = getId(id);

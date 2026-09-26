@@ -148,4 +148,6 @@ uint32_t fileCRC32(File& f, size_t len);
 // UTF-8 safe trim: returns src truncated to at most 15 code points (static buffer)
 const char* utf8_trim15(const char* src);
 
+uint8_t rssiLevel(int rssi);
+
 #endif // utility_h

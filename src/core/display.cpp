@@ -977,14 +977,9 @@ void Display::_setRSSI(int rssi) {
     _rssi->setText(rssi, rssiFmt);
     return;
   }
-  char rssiG[3];
-  int rssi_steps[] = {RSSI_STEPS};
-  if (rssi >= rssi_steps[0]) strlcpy(rssiG, "\004\006", 3);
-  if (rssi >= rssi_steps[1] && rssi < rssi_steps[0]) strlcpy(rssiG, "\004\005", 3);
-  if (rssi >= rssi_steps[2] && rssi < rssi_steps[1]) strlcpy(rssiG, "\004\002", 3);
-  if (rssi >= rssi_steps[3] && rssi < rssi_steps[2]) strlcpy(rssiG, "\003\002", 3);
-  if (rssi <  rssi_steps[3] || rssi >=  0) strlcpy(rssiG, "\001\002", 3);
-  _rssi->setText(rssiG);
+  // Level 0-4 comes from RSSI_STEPS in one place (utility.cpp); these are the same four steps the WebUI bars show.
+  static const char* const rssiGlyphs[5] = { "\001\002", "\003\002", "\004\002", "\004\005", "\004\006" };
+  _rssi->setText(rssiGlyphs[rssiLevel(rssi)]);
 }
 
 void Display::_updateBattery() {
