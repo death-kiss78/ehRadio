@@ -38,12 +38,15 @@ const LayoutData _layouts[] PROGMEM = {
         .title2Conf          = {{ TFT_FRAMEWDT, 36, 1, WA_LEFT }, 140, true, MAX_WIDTH-24, SCROLLDELAY, 1, SCROLLTIME },
         .playlistConf        = {{ TFT_FRAMEWDT, 56, 1, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY/5, 1, SCROLLTIME },
         .weatherConf         = {{ TFT_FRAMEWDT, 42, 1, WA_LEFT }, 140, true, MAX_WIDTH, 0, 1, SCROLLTIME },
-        /* BACKGROUNDS         {{ left, top, fontsize, align }, width, height, outlined } */
+        /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
+        .volbarConf          = {{ TFT_FRAMEWDT, 118, 0, WA_LEFT }, MAX_WIDTH, 5, true },
+        .bufferbarConf       = {{ 0, 127, 0, WA_LEFT }, DSP_WIDTH, 1, false },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
         .metaBGConf          = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 22, false },
         .metaBGConfInv       = {{ 0, 22, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        .volbarConf          = {{ TFT_FRAMEWDT, 118, 0, WA_LEFT }, MAX_WIDTH, 5, true },
+        .underLineConf       = { },
+        .overLineConf        = { },
         .playlBGConf         = {{ 0, 52, 0, WA_LEFT }, DSP_WIDTH, 22, false },
-        .bufferbarConf       = {{ 0, 127, 0, WA_LEFT }, DSP_WIDTH, 1, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { TFT_FRAMEWDT, 26, 1, WA_RIGHT },
         // .bitrateConf       = { TFT_FRAMEWDT, 99, 1, WA_LEFT },
@@ -56,15 +59,20 @@ const LayoutData _layouts[] PROGMEM = {
         .vuConf              = { TFT_FRAMEWDT, 54, 1, WA_LEFT },
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = {{DSP_WIDTH-TFT_FRAMEWDT-19, 23, 1, WA_LEFT}, 22 },
-        /* BANDS               { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
+        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
         .bandsConf           = { 12, 50, 2, 1, 10 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 14, 98, 0},
         .weatherMove         = {TFT_FRAMEWDT, 48, MAX_WIDTH},
         .weatherMoveVU       = { 34, 48, MAX_WIDTH-34+TFT_FRAMEWDT },
+        /* TRANSFORMS          boolean */
+        .boomboxVU           = false, // VU drawn as a "boombox" horizontal meter (was boomboxStyle)
+        .rotateVU            = false, // VU rotated 90 degrees
+        .shareWeatherIP      = false, // IP and weather share one row (was the IP_WEATHER_SHARED macro)
         /* batteryConf, iptxtConf and rssiConf are all on top 108, so RSSI and battery share a
            row and are drawn alternately rather than over each other. */
         .shareBattRSSI       = true,
+        .rssiDigit           = false, // signal drawn as a number, not bars (was the RSSI_DIGIT macro)
     },
 };
 

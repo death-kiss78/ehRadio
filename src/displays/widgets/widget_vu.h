@@ -14,11 +14,11 @@
 class VuWidget: public Widget {
   public:
     VuWidget() {}
-    VuWidget(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t vupeakcolor, uint16_t bgcolor)
-            { init(wconf, bands, vumaxcolor, vumincolor, vupeakcolor, bgcolor); }
+        VuWidget(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t vupeakcolor, uint16_t bgcolor, uint16_t vuaxiscolor)
+            { init(wconf, bands, vumaxcolor, vumincolor, vupeakcolor, bgcolor, vuaxiscolor); }
     ~VuWidget();
     using Widget::init;
-    void init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t vupeakcolor, uint16_t bgcolor);
+        void init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t vupeakcolor, uint16_t bgcolor, uint16_t vuaxiscolor);
     void loop();
   protected:
     #if defined(DSP_TFT)
@@ -26,6 +26,7 @@ class VuWidget: public Widget {
     #endif
     VUBandsConfig _bands;
     uint16_t _vumaxcolor, _vumincolor, _vupeakcolor;
+    uint16_t _vuaxiscolor;
     // High-water marks, measured as cleared pixels from the loud end. 0xFFFF means
     // "not set yet" and is adopted on the first _levels() call, once len is known.
     uint16_t _peakL = 0xFFFF, _peakR = 0xFFFF;

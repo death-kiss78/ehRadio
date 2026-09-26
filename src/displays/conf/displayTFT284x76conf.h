@@ -42,18 +42,21 @@ const LayoutData _layouts[] PROGMEM = {
         .title2Conf          = {{ TFT_FRAMEWDT, 30, 1, WA_LEFT }, 140, true, DSP_WIDTH/2+18, SCROLLDELAY, 1, SCROLLTIME },
         .playlistConf        = {{ TFT_FRAMEWDT, 30, 1, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY/5, 1, SCROLLTIME },
         .weatherConf         = {{ TFT_FRAMEWDT, 64-12, 1, WA_LEFT }, 140, true, DSP_WIDTH/2+18, 0, 1, SCROLLTIME },
-        /* BACKGROUNDS         {{ left, top, fontsize, align }, width, height, outlined } */
-        .metaBGConf          = {{ 0, 0,  0, WA_LEFT }, DSP_WIDTH, 19, false },
-        .metaBGConfInv       = {{ 0, 19, 0, WA_LEFT }, DSP_WIDTH, 1,  false },
+        /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
         .volbarConf          = {{ TFT_FRAMEWDT, DSP_HEIGHT-4, 0, WA_LEFT }, DSP_WIDTH-TFT_FRAMEWDT*2, 3, true },
-        .playlBGConf         = {{ 0, 26, 0, WA_LEFT }, DSP_WIDTH, 12, false },
         .bufferbarConf       = { }, // unused
         // .bufferbarConf       = {{ 0, 63, 0, WA_LEFT }, DSP_WIDTH, 1, false },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
+        .metaBGConf          = {{ 0, 0,  0, WA_LEFT }, DSP_WIDTH, 19, false },
+        .metaBGConfInv       = {{ 0, 19, 0, WA_LEFT }, DSP_WIDTH, 1,  false },
+        .underLineConf       = { },
+        .overLineConf        = { },
+        .playlBGConf         = {{ 0, 26, 0, WA_LEFT }, DSP_WIDTH, 12, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { TFT_FRAMEWDT+20, 64-11-10, 1, WA_LEFT },
         .voltxtConf          = { }, // unused
         // .voltxtConf          = { 32, 108, 1, WA_RIGHT },
-        .batteryConf         = { },                                                   // <-- NEEDS EDITING!
+        .batteryConf         = { }, // <--------- NEEDS EDITING!
         .iptxtConf           = { TFT_FRAMEWDT, 64-12, 1, WA_LEFT },
         .rssiConf            = { TFT_FRAMEWDT, 64-11-10, 1, WA_LEFT },
         .numConf             = { TFT_FRAMEWDT, 57, 0, WA_CENTER },
@@ -61,12 +64,18 @@ const LayoutData _layouts[] PROGMEM = {
         .vuConf              = { 2, DSP_HEIGHT-14, 1, WA_CENTER },
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = { }, // unused
-        /* BANDS               { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
+        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
         .bandsConf           = { DSP_WIDTH/2-TFT_FRAMEWDT*2-2, 7, TFT_FRAMEWDT*2+4, 1, 17 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 0, 0, -1 },
         .weatherMove         = { 0, 0, -1 },
         .weatherMoveVU       = { 0, 0, -1 },
+        /* TRANSFORMS          boolean */
+        .boomboxVU           = false, // VU drawn as a "boombox" horizontal meter (was boomboxStyle)
+        .rotateVU            = false, // VU rotated 90 degrees
+        .shareWeatherIP      = false, // IP and weather share one row (was the IP_WEATHER_SHARED macro)
+        .shareBattRSSI       = false, // RSSI and battery share one row (was the RSSI_BATT_SHARED macro)
+        .rssiDigit           = false, // signal drawn as a number, not bars (was the RSSI_DIGIT macro)
     },
     {   // krzxsiek
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
@@ -75,16 +84,20 @@ const LayoutData _layouts[] PROGMEM = {
         .title2Conf          = {{ TFT_FRAMEWDT+1, 32, 1, WA_LEFT }, 135, true, DSP_WIDTH/2+18, 5000, 2, 25 },
         .playlistConf        = {{ TFT_FRAMEWDT, 30, 1, WA_LEFT }, 140, true, MAX_WIDTH, 500, 2, 25 },
         .weatherConf         = {{ TFT_FRAMEWDT+1, DSP_HEIGHT-12, 1, WA_CENTER }, 140, true, MAX_WIDTH-2, 0, 2, 30 },
-        /* BACKGROUNDS         {{ left, top, fontsize, align }, width, height, outlined } */
+        /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
+        .volbarConf          = {{ TFT_FRAMEWDT, DSP_HEIGHT-7, 0, WA_CENTER }, MAX_WIDTH, 5, true },
+        .bufferbarConf       = {{ TFT_FRAMEWDT, DSP_HEIGHT-1, 0, WA_LEFT }, DSP_WIDTH, 2, false },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
         .metaBGConf          = {{ 0, 0,  0, WA_LEFT }, DSP_WIDTH, 18, false },
         .metaBGConfInv       = {{ 0, 19, 0, WA_LEFT }, DSP_WIDTH, 1,  false },
-        .volbarConf          = {{ TFT_FRAMEWDT, DSP_HEIGHT-7, 0, WA_CENTER }, MAX_WIDTH, 5, true },
+        .underLineConf       = { },
+        .overLineConf        = { },
         .playlBGConf         = {{ 0, 26, 0, WA_LEFT }, DSP_WIDTH, 12, false },
-        .bufferbarConf       = {{ TFT_FRAMEWDT, DSP_HEIGHT-1, 0, WA_LEFT }, DSP_WIDTH, 2, false },
+        /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { TFT_FRAMEWDT+21, 63-10-10, 1, WA_LEFT },
         // ??? chtxtConf     = { TFT_FRAMEWDT+70, 63-10-10, 1, WA_LEFT };
         .voltxtConf          = { TFT_FRAMEWDT+110, 63-10-10, 1, WA_LEFT },
-        .batteryConf         = { },                                                   // <-- NEEDS EDITING!
+        .batteryConf         = { }, // <--------- NEEDS EDITING!
         .iptxtConf           = { TFT_FRAMEWDT, 64-11, 1, WA_LEFT },
         .rssiConf            = { TFT_FRAMEWDT+1, 63-10-10, 1, WA_LEFT },
         .numConf             = { TFT_FRAMEWDT, 59, 0, WA_CENTER },
@@ -100,8 +113,13 @@ const LayoutData _layouts[] PROGMEM = {
         .clockMove           = { 0, 176, -1 },
         .weatherMove         = { 0, 0, -1 },
         .weatherMoveVU       = { 0, 0, -1 },
+        /* TRANSFORMS          boolean */
         /* BOOMBOX VU: middle-out */
         .boomboxVU           = true,
+        .rotateVU            = false, // VU rotated 90 degrees
+        .shareWeatherIP      = false, // IP and weather share one row (was the IP_WEATHER_SHARED macro)
+        .shareBattRSSI       = false, // RSSI and battery share one row (was the RSSI_BATT_SHARED macro)
+        .rssiDigit           = false, // signal drawn as a number, not bars (was the RSSI_DIGIT macro)
     },
 };
 

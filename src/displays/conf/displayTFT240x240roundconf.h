@@ -39,16 +39,19 @@ const LayoutData _layouts[] PROGMEM = {
         // .title2Conf        = {{ TFT_FRAMEWDT, 90, 2, WA_CENTER }, 140, true, MAX_WIDTH, SCROLLDELAY, 2, SCROLLTIME },
         .playlistConf        = {{ TFT_FRAMEWDT, 112, 2, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY/5, 2, SCROLLTIME },
         .weatherConf         = {{ TFT_FRAMEWDT+30, 37, 1, WA_LEFT }, 140, true, MAX_WIDTH-60, 0, 1, SCROLLTIME },
-        /* BACKGROUNDS         {{ left, top, fontsize, align }, width, height, outlined } */
+        /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
+        .volbarConf          = {{ TFT_FRAMEWDT+56, 240-TFT_FRAMEWDT-6, 0, WA_LEFT }, MAX_WIDTH-112, 6+TFT_FRAMEWDT+1, true },
+        .bufferbarConf       = {{ 0, 83, 0, WA_LEFT }, DSP_WIDTH, 1, false },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
         .metaBGConf          = {{ 0, 32+20, 0, WA_LEFT }, DSP_WIDTH, 30, false },
         .metaBGConfInv       = {{ 0, 32+20+30, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        .volbarConf          = {{ TFT_FRAMEWDT+56, 240-TFT_FRAMEWDT-6, 0, WA_LEFT }, MAX_WIDTH-112, 6+TFT_FRAMEWDT+1, true },
+        .underLineConf       = { },
+        .overLineConf        = { },
         .playlBGConf         = {{ 0, 107, 0, WA_LEFT }, DSP_WIDTH, 24, false },
-        .bufferbarConf       = {{ 0, 83, 0, WA_LEFT }, DSP_WIDTH, 1, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { 134, 23, 1, WA_RIGHT },
         .voltxtConf          = { 80, 12, 1, WA_CENTER },
-        .batteryConf         = { },                                                   // <-- NEEDS EDITING!
+        .batteryConf         = { }, // <--------- NEEDS EDITING!
         .iptxtConf           = { TFT_FRAMEWDT, 214, 1, WA_CENTER },
         .rssiConf            = { 134, 23, 1, WA_LEFT },
         .numConf             = { 0, 120+30+20, 0, WA_CENTER },
@@ -56,13 +59,17 @@ const LayoutData _layouts[] PROGMEM = {
         .vuConf              = { TFT_FRAMEWDT+20, 188, 1, WA_CENTER },
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = { }, // unused
-        /* BANDS               { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
+        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
         .bandsConf           = { 90, 20, 6, 2, 10 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 0, 164, 0 },
         .weatherMove         = { TFT_FRAMEWDT, 202, -1 },
         .weatherMoveVU       = { TFT_FRAMEWDT, 202, -1/*MAX_WIDTH*/ },
+        /* TRANSFORMS          boolean */
         .boomboxVU           = true,
+        .rotateVU            = false, // VU rotated 90 degrees
+        .shareWeatherIP      = false, // IP and weather share one row (was the IP_WEATHER_SHARED macro)
+        .shareBattRSSI       = false, // RSSI and battery share one row (was the RSSI_BATT_SHARED macro)
         .rssiDigit           = true, // signal drawn as a number instead of bars
     },
 };

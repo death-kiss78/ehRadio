@@ -7,7 +7,7 @@ This guide lists the fields, explains the numbers in plain language, and points 
 that are not obvious from the conf file itself.
 
 If you are converting a layout from another firmware instead of writing one, see
-[`importlayout.md`](importlayout.md).
+[`conf_tool.md`](conf_tool.md).
 
 ---
 
@@ -46,24 +46,36 @@ const LayoutData _layouts[] PROGMEM = {
         /* WIDGETS   { left, top, fontsize, align } */
         .bitrateConf   = { 0, 19, 1, WA_RIGHT },
         .clockConf     = { TFT_FRAMEWDT, 38+FONTSHIFT, 0, WA_CENTER },
-        /* BACKGROUNDS {{ left, top, fontsize, align }, width, height, outlined } */
+        /* SLIDER BARS {{ left, top, fontsize, align }, width, height, outlined } */
         .volbarConf    = {{ 0, 64-1, 0, WA_LEFT }, DSP_WIDTH, 1, false },
         .rotateVU      = true,
     },
 };
 ```
 
-Two rules that break the build if you ignore them:
+Four rules that break the build, or the reading, if you ignore them:
 
 - **`_layoutNames[]` and `_layouts[]` must stay the same length**, in the same order. The
   layout's index is its position in both arrays.
 - **Write the fields in the order listed in §3.** These are designated initialisers, so a field
   that comes earlier in the struct must be written earlier in the entry. Commenting a line out
   is fine; swapping two lines is not.
+- **Write every field.** A field left out is not an error - it is zero, exactly like `{ }` - but
+  the shipped confs write them all, so that one file can be read as a whole instead of being
+  compared against another. `conf_tool.py --clean` fills in whatever is missing.
+- **Keep the section headers.** `/* SCROLLS ... */`, `/* SLIDER BARS ... */`,
+  `/* LINES + RECTANGLES ... */`, `/* WIDGETS ... */`, `/* CODEC BADGE ... */`, `/* VU BANDS ... */`,
+  `/* MOVES ... */` and `/* TRANSFORMS ... */` are
+  part of the master too, and `conf_tool.py --clean` restores and normalises them.
 
 ---
 
 ## 3. The fields, in the order they appear
+
+This list is `struct LayoutData` in [`widgetsconfig.h`](../widgets/widgetsconfig.h), which is the
+master for the field order, the types and the section headers - the same order the compiler
+demands of a designated initialiser. Add a field there and re-run `conf_tool.py --clean` to bring
+the conf files back into line.
 
 `WidgetConfig` — a simple positioned widget. All four numbers: `{ left, top, fontsize, align }`.
 
@@ -71,6 +83,10 @@ Two rules that break the build if you ignore them:
 uppercase, width, scrolldelay, scrolldelta, scrolltime }`.
 
 `FillConfig` — a solid rectangle. `{ { left, top, fontsize, align }, width, height, outlined }`.
+Only `left`, `top`, `width` and `height` matter to a plain fill. **`outlined` is read by the two
+sliders only** — `volbarConf` and `bufferbarConf`, where it is a one-pixel frame plus an inset for
+the bar inside it. `metaBGConf`, `metaBGConfInv`, `playlBGConf`, `underLineConf` and `overLineConf`
+are plain fills and ignore it, so a `true` there does nothing.
 
 `VUBandsConfig` — the VU bar's geometry, five numbers (see §6).
 
@@ -85,11 +101,18 @@ uppercase, width, scrolldelay, scrolldelta, scrolltime }`.
 | `title2Conf` | Scroll | Title line 2 |
 | `playlistConf` | Scroll | The playlist text. **Required** |
 | `weatherConf` | Scroll | Weather line |
-| `metaBGConf` | Fill | The band behind the title |
-| `metaBGConfInv` | Fill | Title band used when *invert title* is on; if empty, `metaBGConf` is used |
-| `volbarConf` | Fill | Volume slider |
+| `volbarConf` | Fill | Volume slider — one of the two sliders, where `outlined` draws a frame |
+| `bufferbarConf` | Fill | Stream buffer bar — the other slider |
+| `metaBGConf` | Fill | The band behind the title, or the rule under it, whichever the layout wants |
+| `metaBGConfInv` | Fill | Used **instead of** `metaBGConf` when *invert title* is on (the pointer is re-pointed at it), and its colour becomes the divider's; if empty, `metaBGConf` is used |
+| `underLineConf` | Rect | A rectangle drawn **under** the page — added early, so the text and the VU paint over it |
+| `overLineConf` | Rect | A rectangle drawn **over** the page — added last, so it lands on top of them |
 | `playlBGConf` | Fill | Highlight behind the current playlist row |
-| `bufferbarConf` | Fill | Stream buffer bar |
+
+The last five are **plain filled rectangles**. `width` and `height` can be anything — a `1` makes a
+line, a large pair makes a panel or a band — and the fourth value is unused: `outlined` belongs to the
+two sliders above, where it draws a frame and insets the bar inside it. Writing `false` there is the
+honest reading of `{{ ..., width, height, false }`.
 | `bitrateConf` | Widget | Bitrate text (replaced by a codec badge if `fullbitrateConf` is set) |
 | `voltxtConf` | Widget | Volume number |
 | `batteryConf` | Widget | Battery |
@@ -109,8 +132,20 @@ uppercase, width, scrolldelay, scrolldelta, scrolltime }`.
 | `shareBattRSSI` | bool | The RSSI and battery share one row |
 | `rssiDigit` | bool | Show the signal as a number instead of bars |
 
-The three shared-row/format switches are off when you leave them out, and they are **per
-layout**, so one conf can have a cramped layout that shares a row and a roomy one that does not.
+The five boolean switches are **per layout**, so one conf can have a cramped layout that shares a
+row and a roomy one that does not. `false` is the default - writing them out changes nothing, and
+they are written out only so that every entry reads the same.
+
+### The two lines
+
+`underLineConf` and `overLineConf` are the same widget drawn at two depths. A page paints its
+widgets in the order they were added — `Page::loop()` walks the page's list and each widget's own
+`loop()` repaints it — so the under line is added early and the over line is added last on the
+player page. Both take their colour from the theme (`theme.line`, the divider's ink), both are a
+single filled rectangle, and both exist on the player page only. Two things to know when placing
+one: the footer (the volume and buffer bars, and the bottom text row) is a *sub-page* and paints
+itself separately, so it can cross the over line; and changing layout at runtime re-creates some
+widgets, so an over line that must never be covered is best kept away from areas those widgets use.
 
 ---
 

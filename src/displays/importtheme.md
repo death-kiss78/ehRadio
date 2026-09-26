@@ -82,6 +82,11 @@ py importtheme.py mytheme.h --name "My Theme"
 | `COLOR_PL_CURRENT_FILL` | `.plcurrentfill` |
 | `COLOR_PLAYLIST_0..4` | `.playlist[0..4]` |
 
+Two fields in `ThemeData` have **no** old-format counterpart, so no `COLOR_*` maps to them: `.line`
+(sits between `.div` and `.weather`) and `.vuaxis` (between `.weather` and `.vupeak`). Both are derived
+by rule from `.div` - see below. They still occupy their place in `FIELD_ORDER`, because the emitted
+entries are designated initialisers and have to follow the struct's own order.
+
 ## Smart fallbacks
 
 If a color is missing from the old file, the script fills it in automatically:
@@ -133,6 +138,33 @@ Example of hand-adjusted screensaver colors in a theme entry:
 .dowss         = RGB(255, 255, 255),   // white for visibility
 .datess        = RGB(255, 255, 255),
 ```
+
+## Line and VU axis — DERIVED, NO REVIEW NEEDED
+
+Two palette entries were added to ehRadio after the old theme format was defined, so no old theme file
+can carry them. Both derive from `.div`, which every theme file sets - which makes them rules rather
+than guesses:
+
+| Field | Derived from | Multiplier | Consumed by |
+|---|---|---|---|
+| `.line` | `.div` | 100% (the divider verbatim) | the under and over line widgets (`underLineConf` / `overLineConf` in the layout) |
+| `.vuaxis` | `.div` | 25% | every reference line the VU draws: the centre cross, the bar baseline, the histogram line and the Spectrum divider |
+
+`.vuaxis` is deliberately a quarter of the divider and **not** a copy of `.clockbg`. The axis is a
+reference line that has to read against the theme's own background, and `.clockbg` is a background
+shade: copying it left the axis nearly invisible on Graphite (10,10,10), UltraPerfect (0,0,0), White and
+Black (229,229,229 on 255 white), Ocean (0,0,62 on 0,0,91) and vip-cxema (29,29,0). A quarter of the
+divider keeps real contrast on black and on white alike - white dividers give 63, Graphite's 91 gives
+22 - and it reads as a relationship, the axis being a dimmed divider.
+
+Because the two are derived by a stated rule, the script emits them **without** the
+`// needs fixing?` marker (they are listed in `DERIVED_RULES`); every other computed fallback keeps its
+marker, because those are still eyeballed.
+
+On reduced palettes the rule is overridden by hand, in the palette rather than the theme:
+`displaySSD1322.cpp` sets `.line = GRAY_9` (equal to its `.div`) and `.vuaxis = GRAY_3`, since a
+four-shade grey palette has no quarter of `GRAY_9`, and `oledcolorfix.h` sets both to `TFT_FG`, because a
+one-bit panel has a single ink.
 
 ## `#ifdef` / `#ifndef` branching
 

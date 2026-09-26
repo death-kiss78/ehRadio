@@ -66,7 +66,7 @@ COLOR_TO_FIELD = {
 
 FIELD_ORDER = [
     'background', 'meta', 'metabg', 'metafill',
-    'title1', 'title2', 'digit', 'div', 'weather',
+    'title1', 'title2', 'digit', 'div', 'line', 'weather', 'vuaxis',
     'vupeak', 'vumax', 'vumin',
     'clock', 'clockbg', 'seconds', 'dow', 'date',
     'clockss', 'clockbgss', 'secondsss', 'dowss', 'datess',
@@ -85,6 +85,13 @@ SMART_FALLBACK = [
 # Computed fallbacks: (field, source_field, multiplier) — applied after SMART_FALLBACK.
 # Resolved in dependency order so later entries can depend on earlier ones.
 COMPUTED_FALLBACK = [
+    # The two palette entries ehRadio added after the old theme format was defined.  Both come from
+    # the divider, which every theme file sets, so both are rules rather than guesses - see
+    # DERIVED_RULES.  line is the divider's own ink, used by the vertical and horizontal line
+    # widgets; vuaxis is a quarter of it, which keeps the VU's reference lines (centre cross, bar
+    # baseline, divider) visible in every theme, on black and on white alike.
+    ('line',      'div',     1.00),   # the divider verbatim
+    ('vuaxis',    'div',     0.25),   # 25% of the divider
     ('clockbg',   'clock',   0.15),   # 15% of clock
     ('clockss',   'clock',   0.50),   # 50% of clock
     ('secondsss', 'seconds', 0.50),   # 50% of seconds
@@ -92,6 +99,11 @@ COMPUTED_FALLBACK = [
     ('datess',    'date',    0.50),   # 50% of date
     ('clockbgss', 'clockss', 0.15),   # 15% of clockss (resolved above)
 ]
+
+# Computed values that are derived by a stated rule rather than guessed, so they are emitted
+# without the '// needs fixing?' marker - it would appear on every line of every import otherwise.
+# Every other computed fallback stays flagged, because those are eyeballed.
+DERIVED_RULES = {'line', 'vuaxis'}
 
 MAX_NAME_LEN = 50  # _themeNames[][64] -- truncate at 50 for safety
 
@@ -230,7 +242,8 @@ def emit_theme_entry(name, data, index):
         if field not in final and source in final:
             sr, sg, sb = final[source]
             final[field] = (int(sr * pct), int(sg * pct), int(sb * pct))
-            needs_fixing.add(field)
+            if field not in DERIVED_RULES:
+                needs_fixing.add(field)
 
     # ---- meta fallback for everything still missing ----
     meta = final.get('meta', (0, 0, 0))

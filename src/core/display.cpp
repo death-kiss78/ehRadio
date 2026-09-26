@@ -65,6 +65,8 @@ const bool*           rotateVU_ptr        = &activeLayout.rotateVU;
 const bool*           shareWeatherIP_ptr  = &activeLayout.shareWeatherIP;
 const bool*           shareBattRSSI_ptr   = &activeLayout.shareBattRSSI;
 const bool*           rssiDigit_ptr       = &activeLayout.rssiDigit;
+const FillConfig*     underLineConf_ptr   = &_layouts[0].underLineConf;
+const FillConfig*     overLineConf_ptr    = &_layouts[0].overLineConf;
 uint8_t layoutCount = (sizeof(_layoutNames) / sizeof(_layoutNames[0]));
 
 /* ---- Layout owns widget existence -----------------------------------------------------------------
@@ -313,8 +315,13 @@ void Display::_buildPager() {
   }
   _plbackground = new FillWidget(*playlBGConf_ptr, config.theme.plcurrentfill);
   _metabackground = new FillWidget(*metaBGConf_ptr, config.theme.metafill);
+  /* The two reference lines exist only on layouts that carry their FillConfig, and a conf left at zeros
+     gives the widget a zero rect - FillWidget::_draw() is one fillRect, so nothing is drawn and the
+     absent case needs no guard of its own.  In config.theme.line, which is the divider's own ink. */
+  _underline = new FillWidget(*underLineConf_ptr, config.theme.line);
+  _overline = new FillWidget(*overLineConf_ptr, config.theme.line);
   if (vuConf_ptr->textsize > 0) {
-    _vuwidget = new VuWidget(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background);
+    _vuwidget = new VuWidget(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background, config.theme.vuaxis);
   }
   if (volbarConf_ptr->height > 0) {
     _volbar = new SliderWidget(*volbarConf_ptr, config.theme.volbarin, config.theme.background, VOLUME_SCALE, config.theme.volbarout);
@@ -347,6 +354,9 @@ void Display::_buildPager() {
   if (_bufferbar)  _footer->addWidget(_bufferbar);
   
   if (_metabackground) pages[PG_PLAYER]->addWidget(_metabackground);
+  /* The under line is added here, early, so it paints underneath the text and the VU that follow.
+     The over line is added at the very end of this page instead - see the note there. */
+  if (_underline) pages[PG_PLAYER]->addWidget(_underline);
   pages[PG_PLAYER]->addWidget(_meta);
   pages[PG_PLAYER]->addWidget(_title1);
   if (_title2) pages[PG_PLAYER]->addWidget(_title2);
@@ -360,6 +370,14 @@ void Display::_buildPager() {
   }
   if (_vuwidget) pages[PG_PLAYER]->addWidget(_vuwidget);
   pages[PG_PLAYER]->addWidget(_clock);
+  /* Last on this page on purpose: a page paints its widgets in insertion order, because
+     Page::loop() walks _widgets and each widget's loop() is what redraws it.  So the over line is
+     the topmost thing on the player page.  Two limits worth knowing: the footer below is a
+     sub-page, and Page::loop() does not recurse into sub-pages, so the footer's widgets paint
+     themselves and can cross the over line; and a layout switch can add widgets after this one
+     (_reinitWidgets() creates-and-adds the VU, title2, weather, the volume and buffer bars), which
+     would then sit above it until the next reboot. */
+  if (_overline) pages[PG_PLAYER]->addWidget(_overline);
   pages[PG_SCREENSAVER]->addWidget(_clock);
   pages[PG_PLAYER]->addPage(_footer);
 
@@ -501,7 +519,7 @@ void Display::_start() {
   }
   if (network.status != CONNECTED && network.status != SDOFFLINE) {
     _apScreen();
-      _bootStep = 2;
+    _bootStep = 2;
     return;
   }
   _buildPager();
@@ -1160,10 +1178,10 @@ void Display::_reinitWidgets() {
   } else hideByLayout(_title2);
   if (vuInLayout()) {
     if (!_vuwidget) {
-      _vuwidget = new VuWidget(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background);
+      _vuwidget = new VuWidget(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background, config.theme.vuaxis);
       pages[PG_PLAYER]->addWidget(_vuwidget);
     } else {
-      _vuwidget->init(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background);
+      _vuwidget->init(*vuConf_ptr, *bandsConf_ptr, config.theme.vumax, config.theme.vumin, config.theme.vupeak, config.theme.background, config.theme.vuaxis);
       showByLayout(_vuwidget);
     }
   } else hideByLayout(_vuwidget);
@@ -1259,6 +1277,8 @@ void Display::_reinitWidgets() {
   // Background fills
   if (_plbackground) _plbackground->init(*playlBGConf_ptr, config.theme.plcurrentfill);
   if (_metabackground) _metabackground->init(*metaBGConf_ptr, config.theme.metafill);
+  if (_underline) _underline->init(*underLineConf_ptr, config.theme.line);
+  if (_overline)  _overline->init(*overLineConf_ptr, config.theme.line);
   /* _plbackground->init() above resets _height and _config.top back to playlBGConf.
      Its geometry is meant to follow the live playlist rows, so re-apply the same
      values _buildPager() uses — otherwise the highlight band keeps the conf
@@ -1295,6 +1315,8 @@ void Display::_setLayoutPointers() {
   clockMove_ptr      = &activeLayout.clockMove;
   weatherMove_ptr    = &activeLayout.weatherMove;
   weatherMoveVU_ptr  = &activeLayout.weatherMoveVU;
+  underLineConf_ptr  = &activeLayout.underLineConf;
+  overLineConf_ptr   = &activeLayout.overLineConf;
 }
 
 void Display::_applyState() {

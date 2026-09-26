@@ -65,7 +65,9 @@ struct theme_t {
   uint16_t title2;
   uint16_t digit;
   uint16_t div;
+  uint16_t line;
   uint16_t weather;
+  uint16_t vuaxis;
   uint16_t vupeak;
   uint16_t vumax;
   uint16_t vumin;

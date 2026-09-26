@@ -39,13 +39,16 @@ const LayoutData _layouts[] PROGMEM = {
         // .title2Conf        = {{ 0, 26, 1, WA_LEFT }, 140, true, DSP_WIDTH, SCROLLDELAY, 1, SCROLLTIME },
         .playlistConf        = {{ TFT_FRAMEWDT, 14, 1, WA_LEFT }, 140, true, MAX_WIDTH, SCROLLDELAY/5, 1, SCROLLTIME },
         .weatherConf         = {{ 0, 20, 1, WA_LEFT }, 140, true, DSP_WIDTH-6*4, 0, 1, SCROLLTIME },
-        /* BACKGROUNDS         {{ left, top, fontsize, align }, width, height, outlined } */
-        .metaBGConf          = { }, // unused
-        .metaBGConfInv       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH/*-6*5-3*/, 9, false },
+        /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
         .volbarConf          = {{ 0, 32-1-1-1, 0, WA_LEFT }, DSP_WIDTH, 3, true },
-        .playlBGConf         = {{ 0, 13, 0, WA_LEFT }, DSP_WIDTH, 9, false },
         .bufferbarConf       = { }, // unused
         // .bufferbarConf     = {{ 0, 63, 0, WA_LEFT }, DSP_WIDTH, 1, false },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
+        .metaBGConf          = { }, // unused
+        .metaBGConfInv       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH/*-6*5-3*/, 9, false },
+        .underLineConf       = { },
+        .overLineConf        = { },
+        .playlBGConf         = {{ 0, 13, 0, WA_LEFT }, DSP_WIDTH, 9, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { 0, 11, 1, WA_RIGHT },
         .voltxtConf          = { 0, 20, 1, WA_RIGHT },
@@ -59,12 +62,18 @@ const LayoutData _layouts[] PROGMEM = {
         // .vuConf            = { 1, 28, 1, WA_LEFT },
         /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
         .fullbitrateConf     = { }, // unused
-        /* BANDS               { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
+        /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
         .bandsConf           = { 12, 48, 2, 1, 8 },
         /* MOVES               { left, top, width (-1 keeps Conf position) */
         .clockMove           = { 0, 0, -1 },
         .weatherMove         = { 0, 0, -1 },
         .weatherMoveVU       = { 0, 0, -1 },
+        /* TRANSFORMS          boolean */
+        .boomboxVU           = false, // VU drawn as a "boombox" horizontal meter (was boomboxStyle)
+        .rotateVU            = false, // VU rotated 90 degrees
+        .shareWeatherIP      = false, // IP and weather share one row (was the IP_WEATHER_SHARED macro)
+        .shareBattRSSI       = false, // RSSI and battery share one row (was the RSSI_BATT_SHARED macro)
+        .rssiDigit           = false, // signal drawn as a number, not bars (was the RSSI_DIGIT macro)
     },
 };
 

@@ -55,6 +55,7 @@ class Display {
     String getLayoutListJson();
     void applyInvertTitle();
     void invert();
+    void setContrast();
     bool deepsleep();
     void wakeup();
     void updateProgress(const char* label, float progress);
@@ -78,7 +79,7 @@ class Display {
       int _updBarWidth = 10;
     #endif
     BitrateWidget *_fullbitrate = nullptr;
-    FillWidget *_metabackground = nullptr, *_plbackground = nullptr;
+    FillWidget *_metabackground = nullptr, *_plbackground = nullptr, *_underline = nullptr, *_overline = nullptr;
     SliderWidget *_volbar = nullptr, *_bufferbar = nullptr;
     uint32_t _bufferbarMax = 0;
     Pager *_pager = nullptr;

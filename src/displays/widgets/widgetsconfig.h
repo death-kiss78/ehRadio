@@ -57,7 +57,7 @@ struct MoveConfig {
    renumbered: a new style is only ever appended, before VU_STYLE_COUNT.  The label a style shows the
    user lives beside the code that draws it, in the /visuals.json table in netserver.cpp. */
 enum vuStyle_e : uint8_t {
-  VU_STYLE_BARS = 0,          // the segmented bar VU that ships today - "Bars"
+  VU_STYLE_BARS = 0,          // the segmented original bar VU inherited from yoRadio - "Bars"
   VU_STYLE_DIGITAL_LED,       // the same painter, lit boundary snapped to whole segments - "Digital LED"
   VU_STYLE_HISTORY,           // level over time, both channels
   VU_STYLE_SPECTRUM_REFLECT,  // bands across the width, L above the baseline and R below it
@@ -73,28 +73,37 @@ struct BitrateConfig {
 };
 
 struct BootData {
+    /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
     ScrollConfig   apTitleConf;
     ScrollConfig   apSettConf;
+    /* WIDGETS             { left, top, fontsize, align } */
     WidgetConfig   bootstrConf;
     WidgetConfig   apNameConf;
     WidgetConfig   apName2Conf;
     WidgetConfig   apPassConf;
     WidgetConfig   apPass2Conf;
     WidgetConfig   bootWdtConf;
+    /* BOOT PROGRESS       { frame interval, line character width, progress characters } */
     ProgressConfig bootPrgConf;
 };
 
 struct LayoutData {
+    /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
     ScrollConfig metaConf;
     ScrollConfig title1Conf;
     ScrollConfig title2Conf;
     ScrollConfig playlistConf;
     ScrollConfig weatherConf;
+    /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
+    FillConfig   volbarConf;
+    FillConfig   bufferbarConf;
+    /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
     FillConfig   metaBGConf;
     FillConfig   metaBGConfInv;
-    FillConfig   volbarConf;
+    FillConfig   underLineConf;
+    FillConfig   overLineConf;
     FillConfig   playlBGConf;
-    FillConfig   bufferbarConf;
+    /* WIDGETS             { left, top, fontsize, align } */
     WidgetConfig bitrateConf;
     WidgetConfig voltxtConf;
     WidgetConfig batteryConf;
@@ -103,16 +112,20 @@ struct LayoutData {
     WidgetConfig numConf;
     WidgetConfig clockConf;
     WidgetConfig vuConf;
+    /* CODEC BADGE         {{ left, top, fontsize, align }, dimension} - if empty, bitrateConf will be used instead */
     BitrateConfig fullbitrateConf;
+    /* VU BANDS            { onebandwidth, onebandheight, bandsHspace, bandsVspace, numofbands } */
     VUBandsConfig bandsConf;
+    /* MOVES               { left, top, width (-1 keeps Conf position) */
     MoveConfig   clockMove;
     MoveConfig   weatherMove;
     MoveConfig   weatherMoveVU;
-    bool         boomboxVU;      // VU drawn as a "boombox" horizontal meter (was boomboxStyle)
-    bool         rotateVU;       // VU rotated 90 degrees
-    bool         shareWeatherIP; // IP and weather share one row (was the IP_WEATHER_SHARED macro)
-    bool         shareBattRSSI;  // RSSI and battery share one row (was the RSSI_BATT_SHARED macro)
-    bool         rssiDigit;      // signal drawn as a number, not bars (was the RSSI_DIGIT macro)
+    /* TRANSFORMS          boolean */
+    bool         boomboxVU; // VU drawn as a "boombox" horizontal meter (was boomboxStyle)
+    bool         rotateVU; // VU rotated 90 degrees
+    bool         shareWeatherIP; // IP and weather share one row 
+    bool         shareBattRSSI; // RSSI and battery share one row
+    bool         rssiDigit; // signal drawn as a number, not bars (was the RSSI_DIGIT macro)
 };
 
 // Layout switching — extern pointer declarations, defined in display.cpp
@@ -144,6 +157,8 @@ extern const bool*          rotateVU_ptr;
 extern const bool*          shareWeatherIP_ptr;
 extern const bool*          shareBattRSSI_ptr;
 extern const bool*          rssiDigit_ptr;
+extern const FillConfig*    underLineConf_ptr;
+extern const FillConfig*    overLineConf_ptr;
 
 extern LayoutData activeLayout;
 extern uint8_t layoutCount;

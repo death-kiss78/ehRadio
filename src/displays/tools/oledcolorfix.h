@@ -15,7 +15,9 @@
   config.theme.title2     = TFT_FG;
   config.theme.digit      = TFT_FG;
   config.theme.div        = TFT_FG;
+  config.theme.line       = TFT_FG;
   config.theme.weather    = TFT_FG;
+  config.theme.vuaxis     = TFT_FG;
   config.theme.vupeak     = TFT_FG;
   config.theme.vumax      = TFT_FG;
   config.theme.vumin      = TFT_FG;

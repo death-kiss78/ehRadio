@@ -23,11 +23,12 @@ VuWidget::~VuWidget() {
   #endif
 }
   
-void VuWidget::init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t vupeakcolor, uint16_t bgcolor) {
+void VuWidget::init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t vupeakcolor, uint16_t bgcolor, uint16_t vuaxiscolor) {
   Widget::init(wconf, bgcolor, bgcolor);
   _vumaxcolor = vumaxcolor;
   _vumincolor = vumincolor;
   _vupeakcolor = vupeakcolor;
+  _vuaxiscolor = vuaxiscolor;
   _peakL = _peakR = 0xFFFF;   // sentinel: adopt the live reading on the next _levels()
   _lastMs = 0;                // 0 also means "not primed yet", so the next frame adopts the level
   _redrawMs = 0;              // the duty limiter starts from scratch too
@@ -289,8 +290,8 @@ void VuWidget::_centreCross() {
      deliberately NOT gated with it: those two are what their bars and traces grow out of, so hiding
      them would leave the data with nothing to read it against. */
   if (!config.store.vupeak) return;
-  _fillLocal(0, _ch / 2, _cw, 1, _vupeakcolor);
-  _fillLocal(_cw / 2, 0, 1, _ch, _vupeakcolor);
+  _fillLocal(0, _ch / 2, _cw, 1, _vuaxiscolor);
+  _fillLocal(_cw / 2, 0, 1, _ch, _vuaxiscolor);
 }
 
 /* vumin for the body, vumax once an element reaches into the outer HOTSEG segments of its own axis -
@@ -402,8 +403,10 @@ void VuWidget::_drawHistory(){
 
   /* The middle line, and the fill, are the two halves of the vupeak switch in this style - and they are
      opposites: with it on you get the line and the bare traces, with it off you get the filled form and
-     no line.  Painting the line first keeps it under the data either way. */
-  if (config.store.vupeak) _fillLocal(0, lineY, full, th, _vupeakcolor);
+     no line.  Painting the line first keeps it under the data either way.
+     The line is REFERENCE GEOMETRY, so it is drawn in vuaxis; the data it sits under is drawn in the
+     vumin/vumax trace colours below. */
+  if (config.store.vupeak) _fillLocal(0, lineY, full, th, _vuaxiscolor);
 
   uint16_t prevYL = 0, prevYR = 0;
   bool havePrev = false;
@@ -476,8 +479,10 @@ void VuWidget::_drawSpectrumReflect(){
 
   /* The baseline is half of what the vupeak switch does here; the other half is the bar colouring
      below.  With it on you get the line and bars split into a vumin body with a vumax tip; with it off
-     you get no line and whole bars that are one colour. */
-  if (config.store.vupeak) _fillLocal(0, lineY, full, th, _vupeakcolor);
+     you get no line and whole bars that are one colour.
+     The line itself is REFERENCE GEOMETRY, so it is drawn in vuaxis; the bars it separates are DATA
+     and keep the vumin/vumax trace colours. */
+  if (config.store.vupeak) _fillLocal(0, lineY, full, th, _vuaxiscolor);
 
   const uint16_t seg = (_bands.perheight && band) ? (uint16_t)(band / _bands.perheight) : 1;
   const uint16_t hot = (uint16_t)(seg * 3);   // the outer HOTSEG segments, as everywhere else
@@ -559,10 +564,12 @@ void VuWidget::_drawSpectrumMirror(){
   const uint16_t used = (uint16_t)((uint32_t)n * barW + (uint32_t)((n > 1) ? (n - 1) : 0) * gap);
 
   /* The two reference lines this style reads against: the bottom edge the bars grow from, and the
-     divider the two halves meet on.  Painted first, so a bar overdraws them where it touches. */
+     divider the two halves meet on.  Painted first, so a bar overdraws them where it touches.
+     Both are REFERENCE GEOMETRY, so they are drawn in vuaxis; the bars are DATA and keep the
+     vumin/vumax trace colours. */
   if (config.store.vupeak) {
-    if (_ch > th) _fillLocal(0, (uint16_t)(_ch - th), _cw, th, _vupeakcolor);
-    _fillLocal(xd, 0, th, _ch, _vupeakcolor);
+    if (_ch > th) _fillLocal(0, (uint16_t)(_ch - th), _cw, th, _vuaxiscolor);
+    _fillLocal(xd, 0, th, _ch, _vuaxiscolor);
   }
 
   const uint16_t seg = (_bands.perheight && axis) ? (uint16_t)(axis / _bands.perheight) : 1;

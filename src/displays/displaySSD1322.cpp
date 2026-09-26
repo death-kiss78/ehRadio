@@ -17,15 +17,17 @@ void DspCore::initDisplay() {
     config.theme.background = TFT_BG;
     config.theme.meta       = GRAY_9;
     config.theme.metabg     = TFT_BG;
-    config.theme.metafill   = TFT_BG;
+    config.theme.metafill   = GRAY_9;
     config.theme.title1     = GRAY_B;
     config.theme.title2     = GRAY_3;
     config.theme.digit      = TFT_FG;
     config.theme.div        = GRAY_9;
+    config.theme.line       = GRAY_9;
     config.theme.weather    = GRAY_2;
-    config.theme.vupeak     = TFT_FG;
-    config.theme.vumax      = TFT_FG;
-    config.theme.vumin      = GRAY_1;
+    config.theme.vuaxis     = GRAY_3;
+    config.theme.vupeak     = GRAY_2;
+    config.theme.vumax      = GRAY_2;
+    config.theme.vumin      = GRAY_B;
     config.theme.clock      = TFT_FG;
     config.theme.clockbg    = GRAY_1;
     config.theme.seconds    = GRAY_9;
@@ -44,10 +46,15 @@ void DspCore::initDisplay() {
     config.theme.bitrate    = TFT_FG;
     config.theme.volbarout  = GRAY_9;
     config.theme.volbarin   = GRAY_9;
+    config.theme.playlist[0] = GRAY_7;
+    config.theme.playlist[1] = GRAY_3;
+    config.theme.playlist[2] = GRAY_1;
+    config.theme.playlist[3] = GRAY_1;
+    config.theme.playlist[4] = GRAY_1;
     config.theme.plcurrent     = TFT_BG;   // reversed selector so the current row stands out
-    config.theme.plcurrentbg   = GRAY_7;
-    config.theme.plcurrentfill = GRAY_7;
-    for(byte i=0;i<5;i++) config.theme.playlist[i] = GRAY_1;
+    config.theme.plcurrentbg   = GRAY_9;
+    config.theme.plcurrentfill = GRAY_9;
+    // for(byte i=0;i<5;i++) config.theme.playlist[i] = GRAY_3;
 #endif
 
   begin();
