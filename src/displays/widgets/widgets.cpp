@@ -25,12 +25,19 @@ void FillWidget::init(FillConfig conf, uint16_t bgcolor){
   Widget::init(conf.widget, bgcolor, bgcolor);
   _width = conf.width;
   _height = conf.height;
+  _outlined = conf.outlined;
   
 }
 
+// A filled rectangle, or its frame.  The colour is the same either way - it is the one the widget was constructed
+// with, which is theme.line for the two reference lines, metafill for the meta band, plcurrentfill for the playlist
+// highlight - so a conf that says outlined draws the same pixels as one that does not until both dimensions are 2 or
+// more, a one-pixel-thick rectangle being its own outline.  The frame is drawn inside the given bounds and the
+// interior is left alone: clearing it to the background would erase the widgets the frame exists to enclose.
 void FillWidget::_draw(){
   if(!_active) return;
-  dsp.fillRect(_config.left, _config.top, _width, _height, _bgcolor);
+  if (_outlined) dsp.drawRect(_config.left, _config.top, _width, _height, _bgcolor);
+  else           dsp.fillRect(_config.left, _config.top, _width, _height, _bgcolor);
 }
 
 void FillWidget::setHeight(uint16_t newHeight){

@@ -44,8 +44,44 @@ void MyNetwork::cancelStreamRetry() {
   streamResetsUsed = 0;   // the user ended the outage, so the reset budget starts over
 }
 
+// The only place the ladder task is created.  The player's arm gate, WiFiReconnected and the self-heal in
+// ticks() all used to create it themselves, so two of them could win the race and leave a stray task running
+// with the handle already cleared.  A create that FAILED was silent and that was the worse bug: lostPlaying
+// stayed set with no task behind it, which closes the arm gate because nothing else clears the flag except a
+// fresh WiFi reconnect event.  The critical section covers only the check and the claim, not the create.
+bool spawnStreamRetry() {
+  static portMUX_TYPE spawnMux = portMUX_INITIALIZER_UNLOCKED;
+  static volatile bool spawnPending = false;
+  portENTER_CRITICAL(&spawnMux);
+  const bool taken = (streamRetryTaskHandle != NULL) || spawnPending;
+  if (!taken) spawnPending = true;
+  portEXIT_CRITICAL(&spawnMux);
+  if (taken) return false;   // already running, or a create is in flight
+
+  const BaseType_t ok = xTaskCreatePinnedToCore(retryStreamConnection, "streamRetry", NETWORK_TASK_STACK_BYTES, NULL, NET_TASK_PRIORITY, &streamRetryTaskHandle, NETWORK_CORE);
+
+  portENTER_CRITICAL(&spawnMux);
+  spawnPending = false;
+  if (ok != pdPASS) streamRetryTaskHandle = NULL;   // leave it NULL so the next attempt can try again
+  portEXIT_CRITICAL(&spawnMux);
+  if (ok != pdPASS) ERRORLOG("Network", "streamRetry task could not be created (%u bytes, free heap %u)", (unsigned)NETWORK_TASK_STACK_BYTES, (unsigned)ESP.getFreeHeap());
+  return ok == pdPASS;
+}
+
 void ticks() {
   if (!display.ready()) return; //waiting for SD is ready
+  // Self-heal the ladder.  lostPlaying is the IOU ("the user is owed a resume"): it is set BEFORE the task is
+  // created, and a create can fail on a fragmented heap, while a task can also end early and leave the flag
+  // set (a WiFi loss mid-outage does exactly that).  Either way the arm gate in player.loop() stays closed and
+  // only a reboot used to help.  If the debt is owed, nothing is servicing it, and the link is up: start one.
+  if (network.lostPlaying && streamRetryTaskHandle == NULL && !network.beginReconnect && WiFi.status() == WL_CONNECTED) {
+    static uint32_t lastRespawnMs = 0;
+    if (lastRespawnMs == 0 || (millis() - lastRespawnMs) >= STREAM_RETRY_RESPAWN_MS) {
+      lastRespawnMs = millis() ? millis() : 1;
+      FUNCTIONLOG("Network", "stream retry task is gone with a resume still owed - starting a new one");
+      spawnStreamRetry();
+    }
+  }
   static uint32_t timeSyncTicks = 0;
   static uint16_t weatherSyncTicks = 0;
   static bool divrssi;
@@ -296,7 +332,7 @@ void MyNetwork::WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
       } else {
         // The task owns the resume and only it can verify it: resuming here too queued a second play
         // command mid-connect, costing a second TLS handshake and ~2 s of silence (measured).
-        xTaskCreatePinnedToCore(retryStreamConnection, "streamRetry", NETWORK_TASK_STACK_BYTES, NULL, NET_TASK_PRIORITY, &streamRetryTaskHandle, NETWORK_CORE);
+        spawnStreamRetry();
       }
     }
   }
@@ -325,7 +361,11 @@ void MyNetwork::WiFiLostConnection(WiFiEvent_t event, WiFiEventInfo_t info) {
     startup.deferBootStable("wifi lost");
     // Spawn background task to run the full scan-best + sequential fallback strategy
     // instead of just retrying the same AP via WiFi.reconnect()
-    xTaskCreatePinnedToCore(wifiReconnectionTask, "wifiReconn", NETWORK_TASK_STACK_BYTES, NULL, NET_TASK_PRIORITY, NULL, NETWORK_CORE);
+    if (xTaskCreatePinnedToCore(wifiReconnectionTask, "wifiReconn", NETWORK_TASK_STACK_BYTES, NULL, NET_TASK_PRIORITY, NULL, NETWORK_CORE) != pdPASS) {
+      // No stream-ladder style retry exists for this one: the AP is only re-found on the next disconnect event,
+      // so a failed create has to be visible rather than silent.
+      ERRORLOG("Network", "wifiReconn task could not be created (%u bytes, free heap %u)", (unsigned)NETWORK_TASK_STACK_BYTES, (unsigned)ESP.getFreeHeap());
+    }
   }
 }
 

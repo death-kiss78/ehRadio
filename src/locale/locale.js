@@ -5,7 +5,7 @@ var i18n = {};
 var urlLocale = (window.location.search.match(/l=([^&]+)/) || [])[1] || '';
 var localeUrl = 'locale.json' + (urlLocale ? '?l=' + urlLocale : '');
 
-// Fetch locale.json — if 404, fall back to hardcoded text
+// Fetch locale.json — on any failure, fall back to the English text hardcoded in the HTML
 var localePromise = fetch(localeUrl)
       .then(function(r){ return r.ok ? r.json() : Promise.reject('not-ok'); })
       .then(function(data){

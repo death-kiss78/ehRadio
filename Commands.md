@@ -186,9 +186,9 @@ and every sibling sub-route. On an SD-offline build the web server never starts,
 
 | Entry | Action |
 | --- | --- |
-| The SD badge in the player header | Available while the player is in **SD mode**, where that badge is shown in place of the playlist glyph. It is handled like the search icon: a plain navigation to `/sdmanager.html`, which opens the mode and lands on `/`. |
-| `http://<radio-ip>/sdmanager.html` | Open the mode and redirect to `/`, where the page lives for as long as the mode is open. This is the address the device shows on its own screen. |
-| `/sdman/enter` | Open the mode, or refresh its idle clock if it is already open. Also accepted with no network. |
+| The SD badge in the player header | Available while the player is in **SD mode**, where that badge is shown in place of the playlist glyph. It is handled like the search icon: a plain navigation to `/sdmanager.html`, which opens the mode. |
+| `http://<radio-ip>/sdmanager.html` | The manager page itself, and the address the device shows on its own screen. **The page keeps this address for the whole session**: while the mode is open a request for `/` is redirected here, so a bookmark, a second tab, a captive-portal redirect or a Home Assistant link still lands on the manager rather than on a player whose buttons are all refused. |
+| `/sdman/enter` | Open the mode, or refresh its idle clock if it is already open. Also accepted with no network. Idempotent, so a second load of the page costs nothing. |
 | `/sdman/done` | Close the mode and hand `/` back to the player - or to the AP settings page when the device has no network. With **SmartStart** on, the audio that was playing on entry resumes, from the byte offset it had reached. The idle timeout resumes in the same way; a card pulled out of the slot does not, since there is nothing left to play from. |
 
 | API route | Action |
@@ -200,7 +200,7 @@ and every sibling sub-route. On an SD-offline build the web server never starts,
 | `POST /sdman/rename?from=/dir/old&to=new` | Rename within the current folder. |
 | `POST /sdman/move?from=/a/b&to=/c` | Move to another folder (`rename` underneath). |
 | `POST /sdman/delete` | Delete the selection; the paths arrive newline-separated in the body. The answer carries `deleted` and `failed` counts. |
-| `POST /sdman/upload?path=/dir&name=track.mp3` | Upload one file, multipart, streamed straight to the card. Add `skip=1` to leave an existing name untouched and answer `{"ok":true,"skipped":true}`. |
+| `POST /sdman/upload?path=/dir&name=track.mp3` | Upload one file, multipart, streamed straight to the card. Add `skip=1` to leave an existing name untouched: the device refuses it on the first chunk and answers `{"ok":true,"skipped":true}`. **Skip Existing is normally decided by the page before anything is sent** - it tests the folder it already listed - so the device's check only covers a name created since that listing. Without the pre-check the whole file went up the wire and was then discarded. |
 
 Every answer is JSON with `Cache-Control: no-cache, no-store, must-revalidate`. Failures carry an `error` code the
 page turns into a message - `protected`, `exists`, `no_space`, `not_found`, `no_card`, `bad_name`, `no_dir`,

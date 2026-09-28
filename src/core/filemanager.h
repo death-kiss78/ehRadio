@@ -38,8 +38,18 @@ class FileManager {
 
     uint32_t idleRemainingMs() const;   // drives the on-screen countdown
 
+    // True while a file is open for writing.  The Done handler asks before closing the mode: leave() removes a
+    // half-written file by design, so a close arriving mid-upload would destroy one the user is still watching.
+    bool uploadOpen() const;
+
     // Refreshes the idle clock. Public because the handlers are free functions and must stamp activity.
     void touch();
+
+    // Records that a mutation (upload, mkdir, rename, delete) invalidated the card's derived files: the SD
+    // index is deleted on the spot, and this bit remembers that a re-index is owed.  Public because the
+    // handlers are free functions.  No handler ever walks the card, and neither does the mode while it is
+    // open: loop() pays for one re-index once the mode has closed, with the SDCHANGE counting screen up.
+    void markCardChanged();
 
     // The root and everything under /data: playlists, SD index, credentials. No mutation may touch it.
     static bool isProtected(const String &path);
@@ -51,6 +61,12 @@ class FileManager {
   private:
     bool _active = false;
     bool _wasPlaying = false;        // the player was running when the mode was entered - see leave()
+    /* A mutation (upload, mkdir, rename, delete) invalidated the card's derived files.  Set by the handler,
+       honoured by loop() after the mode closes - never rebuilt from the handler or while the manager is open,
+       so a session of a hundred operations pays for one walk instead of a hundred, and the card is not walked
+       while FATFS is mid-write from the AsyncTCP task.  leave() also reads it to suppress the resume, because
+       a station NUMBER points at a different file once the list has changed. */
+    bool _cardChanged = false;
     uint32_t _lastActivity = 0;
     uint32_t _lastCountdownMs = 0;   // the on-screen countdown is redrawn at most once a second
     uint8_t  _cardGone = 0;          // consecutive failed presence probes, see SDMAN_CARD_GONE_STRIKES

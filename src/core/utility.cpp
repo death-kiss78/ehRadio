@@ -529,7 +529,8 @@ bool Utility::loadStation(uint16_t stationId) {
   int stationOvol = 0;
   File playlist = config.SDPLFS()->open(REAL_PLAYL, "r");
   File index = config.SDPLFS()->open(REAL_INDEX, "r");
-  if (readStationEntry(playlist, index, stationId, stationName, stationUrl, stationOvol)) {
+  const bool ok = readStationEntry(playlist, index, stationId, stationName, stationUrl, stationOvol);
+  if (ok) {
     memset(config.station.url, 0, STATION_FIELD_LENGTH);
     memset(config.station.name, 0, STATION_FIELD_LENGTH);
     strncpy(config.station.name, stationName, STATION_FIELD_LENGTH);
@@ -539,7 +540,7 @@ bool Utility::loadStation(uint16_t stationId) {
   }
   playlist.close();
   index.close();
-  return true;
+  return ok;
 }
 
 uint16_t Utility::findStationByUrl(const char* url) {
@@ -737,6 +738,8 @@ void Utility::pruneLittleFS() {
 
   // As with verifyLittleFS, the root listing only yields directory entries under LittleFS, so
   // the two directories are walked explicitly. Directory entries themselves are never removed.
+  // Keep this list closed to these two: /logs (the log ring, see logging.h) is root-level on purpose, and a sweep
+  // widened to the root would delete the very log someone is trying to read.
   static const char* const dirs[] = {"/www", "/data"};
   for (const char* dir : dirs) {
     File root = LittleFS.open(dir);

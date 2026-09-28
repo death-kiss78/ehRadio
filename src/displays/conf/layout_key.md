@@ -82,11 +82,20 @@ the conf files back into line.
 `ScrollConfig` — a line of text that can scroll. `{ { left, top, fontsize, align }, buffsize,
 uppercase, width, scrolldelay, scrolldelta, scrolltime }`.
 
-`FillConfig` — a solid rectangle. `{ { left, top, fontsize, align }, width, height, outlined }`.
-Only `left`, `top`, `width` and `height` matter to a plain fill. **`outlined` is read by the two
-sliders only** — `volbarConf` and `bufferbarConf`, where it is a one-pixel frame plus an inset for
-the bar inside it. `metaBGConf`, `metaBGConfInv`, `playlBGConf`, `underLineConf` and `overLineConf`
-are plain fills and ignore it, so a `true` there does nothing.
+`FillConfig` — a rectangle, solid or as a frame. `{ { left, top, fontsize, align }, width, height,
+outlined }`. With `outlined` false it is a solid fill, which is what every conf in the tree writes
+today. With `outlined` true it draws only the rectangle's **outline** and leaves the interior alone —
+deliberately, because a frame that cleared its inside would erase the widgets it exists to enclose.
+
+The colour is the same either way, and it is the one the widget was built with: `theme.line` for
+`underLineConf` and `overLineConf`, `theme.metafill` for `metaBGConf`, `metaBGConfInv` and the boot
+band `apTitleBGConf`, `theme.plcurrentfill` for `playlBGConf`. **So an outlined conf looks different
+from a filled one only once `width` and `height` are both 2 or more**: a rectangle one pixel thick is
+its own outline, which is why `outlined` does nothing to a hairline.
+
+The two sliders are the exception that explains the field's history: `volbarConf` and `bufferbarConf`
+read `outlined` as a one-pixel frame plus a two-pixel inset for the bar inside it, so for them it means
+"is there a frame around the bar" rather than "fill or frame".
 
 `VUBandsConfig` — the VU bar's geometry, five numbers (see §6).
 
@@ -103,16 +112,28 @@ are plain fills and ignore it, so a `true` there does nothing.
 | `weatherConf` | Scroll | Weather line |
 | `volbarConf` | Fill | Volume slider — one of the two sliders, where `outlined` draws a frame |
 | `bufferbarConf` | Fill | Stream buffer bar — the other slider |
-| `metaBGConf` | Fill | The band behind the title, or the rule under it, whichever the layout wants |
-| `metaBGConfInv` | Fill | Used **instead of** `metaBGConf` when *invert title* is on (the pointer is re-pointed at it), and its colour becomes the divider's; if empty, `metaBGConf` is used |
-| `underLineConf` | Rect | A rectangle drawn **under** the page — added early, so the text and the VU paint over it |
-| `overLineConf` | Rect | A rectangle drawn **over** the page — added last, so it lands on top of them |
+| `metaBGConf` | Fill | The band behind the title, or the rule under it, whichever the layout wants. Drawn when *invert title* is off |
+| `metaBGConfInv` | Fill | Used **instead of** `metaBGConf` when *invert title* is on, and on TFT its colour becomes the divider's. No fallback: an empty one means invert mode draws no bar, which is a layout's way of declining one |
+| `underLineConf` | Rect | A rectangle drawn **under** the page — added early, so the text and the VU paint over it. **Optional**: at zeros no widget is made at all, and a later layout can still bring one in |
+| `overLineConf` | Rect | A rectangle drawn **over** the page — added last, so it lands on top of them. Optional in the same way |
 | `playlBGConf` | Fill | Highlight behind the current playlist row |
 
-The last five are **plain filled rectangles**. `width` and `height` can be anything — a `1` makes a
-line, a large pair makes a panel or a band — and the fourth value is unused: `outlined` belongs to the
-two sliders above, where it draws a frame and insets the bar inside it. Writing `false` there is the
-honest reading of `{{ ..., width, height, false }`.
+**Those two are alternatives, never a pair.** *Invert title* selects one of them, and **OLEDs default to
+invert title on** (`INVERT_TITLE` in `options.h` is true for every OLED model), so on an OLED the bar
+normally lives in `metaBGConfInv` while `metaBGConf` carries a hairline or `{ }`. That is the reverse of
+a yoRadio conf, which puts the band in `metaBGConf` and a rule in `metaBGConfInv` whichever family it was
+written for — deliberately so, and `conf_tool.py` sorts an imported pair by height when the target is an
+OLED (hairline to `metaBGConf`, rectangle to `metaBGConfInv`), commenting the line it moved.
+
+**The boot screens use neither.** `_apScreen()` and `_sdmanScreen()` draw `_bootConfig.apTitleBGConf`
+(`BootData`, same conf file, normally the same rect as the band or hairline above) and ignore *invert
+title*, so a setup screen looks the same whatever layout is selected. It is the one optional field in
+`BootData` — at zeros no widget is made, so `{ }` is how a panel says it wants no boot band, and
+`displayOLED128x32conf.h` does exactly that.
+
+The last five are **rectangles**: `width` and `height` can be anything — a `1` makes a line, a large
+pair makes a panel or a band — and `outlined` decides between a solid fill and just its frame (above).
+`false` is what every conf writes today, so an existing layout keeps the pixels it always had.
 | `bitrateConf` | Widget | Bitrate text (replaced by a codec badge if `fullbitrateConf` is set) |
 | `voltxtConf` | Widget | Volume number |
 | `batteryConf` | Widget | Battery |
@@ -138,14 +159,54 @@ they are written out only so that every entry reads the same.
 
 ### The two lines
 
-`underLineConf` and `overLineConf` are the same widget drawn at two depths. A page paints its
-widgets in the order they were added — `Page::loop()` walks the page's list and each widget's own
-`loop()` repaints it — so the under line is added early and the over line is added last on the
-player page. Both take their colour from the theme (`theme.line`, the divider's ink), both are a
-single filled rectangle, and both exist on the player page only. Two things to know when placing
-one: the footer (the volume and buffer bars, and the bottom text row) is a *sub-page* and paints
-itself separately, so it can cross the over line; and changing layout at runtime re-creates some
-widgets, so an over line that must never be covered is best kept away from areas those widgets use.
+`underLineConf` and `overLineConf` are the same widget at two depths: both are `FillWidget`s, both
+take their colour from `theme.line`, both exist on the player page only, and either can be a frame
+rather than a fill (`outlined`, above). The depth comes from the order the page draws in, and a page
+draws in two stages — `Page::setActive()` walks its own widgets first, then its sub-pages in insertion
+order — so:
+
+- the **under line** is added before every other widget (`addWidgetFirst`), which puts it *behind* the
+  meta band and the text. Use it for a rule that has something drawn over it;
+- the **over line** gets a page of its own, attached to the player page *after* the footer sub-page, so
+  it is the last thing that page draws, the bottom row included. Use it for anything that must sit on
+  top: a frame, a rule across the footer, a highlight.
+
+### What gets drawn over what
+
+The player page's own pass, in the order it draws — each entry covers the ones before it:
+
+| # | Widget | Conf |
+|---|---|---|
+| 1 | under line (first widget, behind everything) | `underLineConf` |
+| 2 | meta band | `metaBGConf` / `metaBGConfInv` |
+| 3 | station name | `metaConf` |
+| 4 | title 1, then title 2 | `title1Conf`, `title2Conf` |
+| 5 | weather | `weatherConf` |
+| 6 | codec badge, or bitrate text when there is no badge | `fullbitrateConf`, else `bitrateConf` |
+| 7 | VU | `vuConf` |
+| 8 | clock | `clockConf` |
+| 9 | footer row: volume bar and number, IP, battery, signal, buffer bar | `volbarConf`, `voltxtConf`, `iptxtConf`, `batteryConf`, `rssiConf`, `bufferbarConf` |
+| 10 | over line (last sub-page, so last of all) | `overLineConf` |
+
+Everything from 2 to 8 is a widget of the page; 9 and 10 are sub-pages, which is why they come last
+and why the over line needed one of its own to get above the footer.
+
+Then there are the widgets that repaint **themselves** once the pass is over. They fill their own
+rectangle, background included, so whatever the pass drew under or over them disappears the moment
+they update:
+
+- **every second** — the clock (`CLOCK` ticks from the network task, with a full redraw at the minute);
+- **every frame, rate-limited** — the VU (`VuWidget::loop()`);
+- **on each scroll step** — a `ScrollWidget` whose text is longer than its field, and only the one
+  holding the display's scroll id, so effectively one at a time (weather, a scrolling title);
+- **on each signal tick** — the signal glyph, and the buffer bar in the same request;
+- **on change** — the battery, the bitrate or codec badge, the volume bar and number, the station name
+  and the titles on new metadata, the weather text on a refresh, the playlist rows, and the update
+  progress bar while an OTA runs.
+
+The table decides the *first* picture; this list decides what survives. A hairline crossing the clock
+is gone within a second, and a frame is dependable only around an area that none of the above
+repaints — so a rule that must last belongs where the layout has nothing updating.
 
 ---
 

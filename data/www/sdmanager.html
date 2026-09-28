@@ -43,14 +43,25 @@
   </div>
 </div>
 
-<div id="progress" class="hidden"><span id="loader"></span><div id="progresslabel"></div></div>
+<div id="progress" class="hidden">
+  <span id="loader"></span>
+  <!-- Three lines, stacked by the stylesheet: headline, file, percentage.  Short operations only fill the first. -->
+  <div id="progresstext">
+    <div id="progresslabel"></div>
+    <div id="progressfile"></div>
+    <div id="progresspct"></div>
+  </div>
+</div>
 
 <script src="locale.js"></script>
 <script>
 /* SD card file manager.  Every /sdman/* route is on the device; the sorting happens here, because the device
-   streams a directory once and does not sort it.  This page only exists while the mode is open - the device
-   serves it at "/" for as long as the mode is up, and hands the root back to the player after that.  With no
-   network it is reachable in AP mode too, where the card is simply portable storage.
+   streams a directory once and does not sort it.  The page keeps its own address for the whole session: the
+   device redirects "/" here while the mode is open, so a bookmark, a second tab or a captive-portal redirect
+   still lands on the manager rather than on a player whose buttons are all refused.  Deliberately its own
+   address and not "/": handing itself over to the root made every reload a navigation whose result depended
+   on the device's mode at that instant, and left the page unbookmarkable.  With no network it is reachable in
+   AP mode too, where the card is simply portable storage.
 
    Translation calls go straight to t(), never through a wrapper of our own: src/locale/www_tool.py collects
    keys by scanning for the two-argument call written with literal strings, so a wrapper would make every
@@ -60,7 +71,8 @@
 (function () {
   'use strict';
 
-  var state = { path: '/', entries: [], sortKey: 'n', sortDir: 1, armed: false, arming: false, card: '', locked: false };
+  var state = { path: '/', entries: [], sortKey: 'n', sortDir: 1, armed: false, arming: false, card: '', locked: false, uploading: false,
+                notice: { text: '', error: false, sticky: false } };
 
   /* The download glyph is the one the curated list uses (see the source reference there, svgviewer.dev).
      The rename glyph is a filled drawing, so it follows the project's .fill convention rather than .stroke:
@@ -90,16 +102,43 @@
     return (i ? b.toFixed(1) : String(b)) + ' ' + u[i];
   }
 
+  /* The overlay has two shapes because its work does.  busy() is the one-line form a rename, delete or mkdir uses
+     ("Working...", "Deleting..."); busyUpload() is the three-line form an upload gets - the operation and its
+     position in the batch as the headline, the file being sent as a detail under it, and the part of it that is up
+     on the last line.  Only the percentage changes while a transfer runs, so the progress callback writes one line
+     and the other two are set once, before the request goes out. */
   function busy(on, text) {
     $('progress').classList.toggle('hidden', !on);
+    $('progresstext').classList.remove('upload');
     $('progresslabel').textContent = on ? (text || '') : '';
+    $('progressfile').textContent = '';
+    $('progresspct').textContent = '';
   }
 
-  function notice(msg, isError) {
+  function busyUpload(step, name, pct) {
+    $('progress').classList.remove('hidden');
+    $('progresstext').classList.add('upload');
+    $('progresslabel').textContent = t('msg_file_uploading', 'Uploading') + (step ? ' ' + step : '');
+    $('progressfile').textContent = name || '';
+    $('progresspct').textContent = pct || '';
+  }
+
+  /* The message slot lives in state, not in the element.  Two places used to empty it deliberately - the render
+     that follows every listing, and the listing's own success path - so a report was erased milliseconds after
+     being written: the skipped list, every mutation's answer, and a delete's failures all went that way.  A message
+     now holds its place until another message replaces it, or until the user leaves the folder.  No timer: a
+     message that vanishes while it is being read is the bug this exists to fix. */
+  function notice(msg, isError, sticky) {
+    state.notice = { text: msg || '', error: !!isError, sticky: !!sticky };
+    paintNotice();
+  }
+
+  /* Repaints the slot from state.  Called by everything that redraws the page, so a repaint can never lose a message. */
+  function paintNotice() {
     var n = $('sdmaninfo');
-    n.classList.toggle('hidden', !msg);
-    n.textContent = msg || '';
-    n.style.borderColor = (msg && isError) ? '#d33' : '';
+    n.classList.toggle('hidden', !state.notice.text);
+    n.textContent = state.notice.text;
+    n.style.borderColor = (state.notice.text && state.notice.error) ? '#d33' : '';
   }
 
   /* Server error codes to something the user can act on.  A switch rather than a key/value table, so every
@@ -125,6 +164,7 @@
       case 'no_card':       return t('msg_no_sd', 'No SD card is mounted.');
       case 'bad_name':      return t('msg_name_not_allowed', 'That name is not allowed.');
       case 'not_dir':       return t('msg_not_folder', 'That is not a folder.');
+      case 'uploading':     return t('msg_file_upload_in_progress', 'An upload is in progress - wait for it to finish.');
       case 'not_active':    return t('msg_sd_file_manager_closed', 'SD File Manager was closed.');
       default:              return t('msg_operation_failed', 'The operation failed.');
     }
@@ -147,9 +187,29 @@
   var idleTimer = null;
   function scheduleIdleReload(ms) {
     if (idleTimer) window.clearTimeout(idleTimer);
-    if (!ms) return;
+    idleTimer = null;
+    /* Never end the tab over an upload: the request feeds the device continuously and this redirect would
+       abort it mid-file, which is what left zero-byte files behind.  The next response re-arms it anyway. */
+    if (!ms || state.uploading) return;
     idleTimer = window.setTimeout(function () { window.location.replace('/'); }, ms + 2000);
   }
+
+  /* Choosing a file can take minutes in a dialog the device cannot see, so the user's own activity is reported
+     as it happens: /sdman/info touches the device's clock and hands the remaining time back to
+     scheduleIdleReload() above, so both ends count from the same value.  A click always pings, because it is a
+     deliberate act and the only signal a picker leaves behind - one second apart at worst, which is ahead of a
+     display that only counts whole seconds.  Keys are throttled instead, because they arrive in runs.  Both are
+     deliberate rather than a timer, so an unattended tab is still timed out, which is what the countdown is for. */
+  var _lastPing = 0;
+  function keepAlive(minGap) {
+    if (state.uploading) return;    // an upload's own chunks are the touch, at a far higher rate
+    var now = Date.now();
+    if (now - _lastPing < minGap) return;
+    _lastPing = now;
+    loadInfo();
+  }
+  document.addEventListener('click', function () { keepAlive(1000); });
+  document.addEventListener('keydown', function () { keepAlive(15000); });
 
   function sortEntries() {
     state.entries.sort(function (a, b) {
@@ -238,7 +298,12 @@
     $('selectAllCheckbox').checked = false;
     $('selectAllCheckbox').disabled = locked;
     armDelete(false);
-    notice(locked ? t('msg_folder_protected', 'This folder is protected.') : '');
+    /* The protected banner is derived from the folder rather than an event: it shows while it applies and goes when
+       the folder changes, and it is flagged as an error so it wears the same red border as a failure - the folder
+       refuses every change, which is the same message to the reader.  An event message in the slot is left alone. */
+    if (locked) notice(t('msg_folder_protected', 'This folder is protected.'), true, true);
+    else if (state.notice.sticky) notice('');
+    else paintNotice();
   }
 
   function load(path, keepScroll, retried) {
@@ -264,7 +329,6 @@
         }
         return;
       }
-      notice('');
       state.path = j.path || path;
       state.entries = j.entries || [];
       scheduleIdleReload(j.idle);
@@ -324,14 +388,16 @@
 
   /* ---- events ------------------------------------------------------------------------------------- */
 
+  /* Browsing is the deliberate action that clears a message: leaving the folder changes the context, while ticking
+     a box or re-sorting does not, so those leave a message in place to be read. */
   $('pleditorcontent').addEventListener('click', function (ev) {
     var li = ev.target.closest('li.pleitem');
     if (!li) return;
-    if (li.dataset.up) { load(li.dataset.up); return; }
+    if (li.dataset.up) { notice(''); load(li.dataset.up); return; }
     if (ev.target.closest('[data-act="rename"]')) { doRename(li.dataset.p); return; }
     if (ev.target.closest('a')) return;                     // the download link does its own thing
     if (ev.target.closest('input')) return;                 // the checkbox does its own thing
-    if (li.classList.contains('dir')) load(li.dataset.p);   // tapping a folder opens it
+    if (li.classList.contains('dir')) { notice(''); load(li.dataset.p); }   // tapping a folder opens it
   });
 
   $('pleditorcontent').addEventListener('change', function (ev) {
@@ -344,6 +410,13 @@
     for (var i = 0; i < boxes.length; i++) boxes[i].checked = this.checked;
     armDelete(false);
   };
+
+  /* Every button under the list is a deliberate action, so pressing any of them clears the message first: the answer
+     to the action about to be taken is never sitting beside the answer to the last one, and a batch that went through
+     cleanly leaves nothing behind.  The protected folder dims these buttons, so there is nothing stale to clear in
+     /data.  Capture phase on purpose - the clear must run before the button's own handler, or a handler reporting
+     synchronously would have its message wiped by this. */
+  $('pleditorwrap').querySelector('.formbuttons').addEventListener('click', function () { notice(''); }, true);
 
   $('sdmanDelete').onclick = function () {
     if (state.locked || !selection().length) return;
@@ -375,50 +448,102 @@
      there yet is written either way. */
   function startUpload(input) {
     if (state.locked) return;
-    var files = input.files;
-    if (!files || !files.length) return;
+    var chosen = input.files;
+    if (!chosen || !chosen.length) return;
+    /* Snapshot the selection BEFORE clearing the input.  input.files is not a copy in every browser: Chromium
+       hands back the same live FileList and input.value = '' empties it in place, so a loop that went on
+       reading that FileList found it empty and sent no request at all - no upload, no device log line, no
+       error on screen.  Firefox returned a fresh list, which is why only Chromium was affected. */
+    var files = [];
+    for (var k = 0; k < chosen.length; k++) files.push(chosen[k]);
     input.value = '';
     var skip = input.dataset.skip === '1';
-    var skipped = [];
+    var skipped = 0;
+    var failed = 0;
+    var lastErr = '';
     var i = 0;
-    (function next() {
-      if (i >= files.length) {
-        busy(false);
-        /* Skipped names are reported once, after the batch.  A notice per file would be overwritten by the
-           next file's busy line, so only the last one would ever be seen. */
-        if (skipped.length) {
-          notice(t('msg_upload_skipped', '{0} already existed and was skipped.', skipped.join(', ')));
-        }
-        load(state.path, true);
-        return;
+
+    /* One summary for the whole batch, and the same two keys whatever the count is - no singular form to keep in
+       step with a plural one.  The count is in the text, and the last failure's reason rides along so a number is
+       never left unexplained.  Nothing is reported per file: the slot holds one message, so it would only be
+       replaced by the next file's. */
+    function uploadSummary() {
+      var parts = [];
+      if (failed) {
+        parts.push(t('msg_files_upload_failed', '{0} files failed to upload.', failed)
+                   + (lastErr ? ' ' + errText(lastErr) : ''));
       }
-      var f = files[i++];
+      if (skipped) parts.push(t('msg_files_upload_skipped', '{0} files skipped (already exist).', skipped));
+      if (parts.length) notice(parts.join(' '), failed > 0);
+    }
+
+    function done() {
+      state.uploading = false;
+      busy(false);
+      uploadSummary();
+      load(state.path, true);
+    }
+
+    function next() {
+      var f, label;
+      for (;;) {
+        if (i >= files.length) { done(); return; }
+        f = files[i++];
+        /* Skip Existing is decided HERE, against the folder already on screen, so a name that is already
+           there costs no transfer at all.  Uploading it and letting the device refuse the first chunk was the
+           old behaviour: the browser commits the whole multipart body before the answer comes back, so the
+           file went up the wire only to be thrown away.  The device still checks as well, which is what covers
+           a name created since this listing was fetched - the race this pre-check cannot see. */
+        if (skip && existsInFolder(f.name)) { skipped++; continue; }
+        /* The position in the batch, so a long upload set says where it is: the headline reads "Uploading 2/32". */
+        label = i + '/' + files.length;
+        break;
+      }
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/sdman/upload?path=' + enc(state.path) + '&name=' + enc(f.name)
                 + (skip ? '&skip=1' : ''));
       xhr.upload.onprogress = function (e) {
-        if (e.lengthComputable) {
-          busy(true, t('msg_uploading', 'Uploading') + ' ' + f.name + ' '
-                    + Math.round(e.loaded * 100 / e.total) + '%');
-        }
+        if (e.lengthComputable) busyUpload(label, f.name, Math.round(e.loaded * 100 / e.total) + '%');
       };
       xhr.onload = function () {
         var j = { ok: false, error: 'bad_response' };
         try { j = JSON.parse(xhr.responseText); } catch (e) {}
-        if (j.ok && j.skipped) skipped.push(f.name);
-        else if (!j.ok) notice(errText(j.error), true);
+        if (j.ok && j.skipped) skipped++;   // the race case: the device refused it after all
+        else if (!j.ok) { failed++; lastErr = j.error; }
         next();
       };
       xhr.onerror = function () {
+        // The batch stops here rather than hammering a network that has just failed.  The summary is shown without
+        // the reload done() does: a listing request would fail too, and its error would replace the summary.
+        state.uploading = false;
         busy(false);
-        notice(t('msg_upload_failed', 'The upload failed.'), true);
+        failed++;
+        lastErr = 'bad_response';
+        uploadSummary();
       };
-      busy(true, t('msg_uploading', 'Uploading') + ' ' + f.name);
+      busyUpload(label, f.name, '0%');
       var fd = new FormData();
       fd.append('file', f, f.name);
+      state.uploading = true;   // set before send, so the countdown cannot fire over the transfer
       xhr.send(fd);
-    })();
+    }
+
+    next();
   }
+
+  /* Case-insensitive test against the folder the page is showing.  FATFS compares names case-insensitively,
+     so "SONG.MP3" and "song.mp3" are one file to the card and must be one file here too.  A directory of the
+     same name counts as well, because the device's own check (sdman.exists) does not care which it is. */
+  function existsInFolder(name) {
+    var want = String(name).toLowerCase();
+    for (var k = 0; k < state.entries.length; k++) {
+      var e = state.entries[k];
+      if (e && String(e.n).toLowerCase() === want) return true;
+    }
+    return false;
+  }
+  /* The click that opens a picker is the start of a wait the device cannot see; the document-level keepAlive()
+     above reports it, so these two only have to start the transfer. */
   $('sdmanupload').onchange = function () { startUpload(this); };
   $('sdmanuploadskip').onchange = function () { startUpload(this); };
 
@@ -433,11 +558,16 @@
   $('sdmanSortSize').onclick = function () { toggleSort('s'); };
 
   /* Done closes the mode on the device and hands "/" back to whatever serves it - the player in station mode,
-     the AP settings page when the device has no network.  There is no message for it: the redirect replaces
-     the page in the same tick, so the button needs no state of its own. */
+     the AP settings page when the device has no network.  The answer has to be read rather than assumed now:
+     the device refuses while a file is mid-write, because closing removes the half-written file.  A success ends
+     in the redirect the device sends, which fetch has already followed by the time this runs - so a 200 means
+     closed, and anything else means refused with the reason in the body. */
   $('sdmanDone').onclick = function () {
-    fetch('/sdman/done', { method: 'POST' }).then(function () { window.location.replace('/'); })
-                                             .catch(function () { window.location.replace('/'); });
+    fetch('/sdman/done', { method: 'POST' }).then(function (r) {
+      if (r.ok) { window.location.replace('/'); return; }
+      return r.json().then(function (j) { notice(errText(j.error), true); },
+                           function () { notice(errText('bad_response'), true); });
+    }).catch(function () { window.location.replace('/'); });
   };
 
   /* locale.js fetches locale.json and then calls applyI18n().  The tooltips are built with t() as the rows
@@ -450,14 +580,13 @@
     if (state.entries.length && !selection().length) render();
   };
 
-  /* Open the mode, then move to "/" - the mode takes the root over, so the root is where the manager lives,
-     and seeing the player's address with the manager on screen is the point.  location.replace keeps the
-     /sdmanager.html visit out of the history, so going Back does not land on it again. */
+  /* Open the mode and stay on this address - the device redirects "/" here for as long as the mode is open,
+     so there is no hand-over to the root and no navigation to depend on.  The listing itself always starts
+     at the card's root. */
   fetch('/sdman/enter').then(function (r) { return r.json(); }).catch(function () {
     return { ok: false, error: 'bad_response' };
   }).then(function (j) {
     if (!j.ok) { notice(errText(j.error), true); return; }
-    if (window.location.pathname !== '/') { window.location.replace('/'); return; }
     return load('/').then(loadInfo);
   });
 })();

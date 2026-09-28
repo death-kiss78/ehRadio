@@ -49,8 +49,6 @@ volatile TaskHandle_t g_searchTaskHandle = NULL;
 volatile TaskHandle_t g_curatedTaskHandle = NULL;
 TaskHandle_t nsTaskHandle = NULL;
 portMUX_TYPE taskSpawnMux = portMUX_INITIALIZER_UNLOCKED;
-#define FS_REQUIRED_FREE_SPACE 150 // in KB - must be minimum x1.5 of the limit_per_page in search.html javascript (100)
-#define SEARCHRESULTS_BUFFER_BYTES (SEARCHRESULTS_BUFFER * 1024)
 
 // PSRAM-backed static file cache implementation
 // Determine MIME type from filename extension
@@ -187,11 +185,10 @@ char* updateError() {
 void handleDynamicLocale(AsyncWebServerRequest *request) {
   // Serve locale.json (gzip-compressed) from PROGMEM
   // Uses ?l=XX query param if present, otherwise config.store.locale_webui
+  // English is served like every other locale.  The HTML carries English text as its own fallback, so en_US used to
+  // be refused with a 404 to save the request - which only made the page log a failed load in devtools, while the
+  // file stayed the master the other locales are diffed against.  One path, nothing to get out of step.
   const char* localeCode = request->hasArg("l") ? request->arg("l").c_str() : config.store.locale_webui;
-  if (strcmp(localeCode, HARDCODED_WEBUI_LOCALE) == 0) {
-    request->send(404); // No locale needed ??hardcoded text matches target language
-    return;
-  }
   for (uint8_t i = 0; i < WWW_LOCALE_COUNT; i++) {
     if (strcmp_P(localeCode, ((const char*)pgm_read_ptr(&www_locales[i].code))) == 0) {
       uint16_t size = pgm_read_word(&www_locales[i].size);
@@ -263,6 +260,37 @@ void handleReady(AsyncWebServerRequest *request) {
   response->addHeader("Expires", "0");
   request->send(response);
 }
+
+#ifdef SAVE_LOGS_TO_FS
+// /log.txt: the whole log ring as one text file, oldest file first.  The chunked loader hands the callback a running byte offset,
+// which is exactly what logRingReadAt() wants, so the layout is snapshotted once at the start of the request and the offsets stay stable
+// - anything logged while the client is downloading is beyond the snapshot and is simply not part of this response.
+static size_t logChunk(uint8_t* buffer, size_t maxLen, size_t index) {
+  return logRingReadAt(index, buffer, maxLen);
+}
+
+void handleLog(AsyncWebServerRequest *request) {
+  const size_t total = logRingSnapshot();
+  if (total == 0) {
+    request->send(200, "text/plain", "no log stored\n");
+    return;
+  }
+  AsyncWebServerResponse *response = request->beginChunkedResponse("text/plain", logChunk);
+  response->addHeader("Cache-Control", "no-store");
+  request->send(response);
+}
+
+// /logclear empties the ring (state file too)
+void handleLogClear(AsyncWebServerRequest *request) {
+  const size_t had = logRingSnapshot();   // length before the wipe, for the confirmation text
+  logRingClear();
+  char body[48];
+  snprintf(body, sizeof(body), "log cleared (%u bytes)\n", (unsigned)had);
+  AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", body);
+  response->addHeader("Cache-Control", "no-store");   // a cached 200 would make a second clear look like a no-op
+  request->send(response);
+}
+#endif
 
 void handleSearchPost(AsyncWebServerRequest *request) {
   // handle preview or add to playlist
@@ -362,6 +390,15 @@ bool NetServer::begin(bool quiet) {
 
   webserver.on("/", HTTP_ANY, handleIndex);
   webserver.on("/ready", HTTP_GET, handleReady);
+  #ifdef SAVE_LOGS_TO_FS
+    /* The saved log ring, oldest file first (logging.h).  Both spellings: /log is the friendly one, /log.txt
+       is what a curl or an old bookmark carries.  Neither shadows the other - this router matches an exact
+       path, or that path followed by "/", which is why a bare /sdman route is impossible for the manager.
+       /logclear does not collide with /log either: it is a different path, not that path plus "/". */
+    webserver.on("/log", HTTP_GET, handleLog);
+    webserver.on("/log.txt", HTTP_GET, handleLog);
+    webserver.on("/logclear", HTTP_GET, handleLogClear);
+  #endif
   webserver.on("/locale.json", HTTP_GET, handleDynamicLocale);
   webserver.on("/wwwlocale.json", HTTP_GET, handleWWWLocaleIndex);
   webserver.on("/dsplocale.json", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -720,7 +757,7 @@ void NetServer::processQueue() {
 void NetServer::loop() {
   if (network.status==SDOFFLINE) return;
   if (shouldReboot) {
-    FUNCTIONLOG("Netserver.reboot", "Rebooting...");
+    FUNCTIONLOG("Netserver", "Rebooting...");
     delay(100);
     ESP.restart();
   }
@@ -830,7 +867,7 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
       // firmware-only emergency form relies on.
       const AsyncWebParameter* targetParam = request->getParam("updatetarget", true);
       int target = (targetParam && targetParam->value() == "littlefs") ? U_SPIFFS : U_FLASH;
-      FUNCTIONLOG("Netserver.update", "Update Start: %s", filename.c_str());
+      FUNCTIONLOG("Netserver", "Update Start: %s", filename.c_str());
       player.sendCommand({PR_STOP, 0});
       display.putRequest(NEWMODE, UPDATING);
       if (!Update.begin(UPDATE_SIZE_UNKNOWN, target)) {
@@ -846,7 +883,7 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
     }
     if (final) {
       if (Update.end(true)) {
-        FUNCTIONLOG("Netserver.update", "Update Success: %uB", index + len);
+        FUNCTIONLOG("Netserver", "Update Success: %uB", index + len);
       } else {
         Update.printError(Serial);
         request->send(200, "text/html", updateError());
@@ -995,7 +1032,7 @@ void vTaskSearchRadioBrowser(void *pvParameters) {
   }
   ESPFileUpdater searchResultsFetch(LittleFS);
   searchResultsFetch.setUserAgent(ESPFILEUPDATER_USERAGENT);
-  searchResultsFetch.setBuffer(SEARCHRESULTS_BUFFER_BYTES);
+  searchResultsFetch.setBuffer(SEARCHRESULTS_BUFFER * 1024);
   searchResultsFetch.setYieldInterval(SEARCHRESULTS_YIELDINTERVAL);
   const char* localPath = "/www/searchresults.json";
   bool success = false;
@@ -1106,7 +1143,7 @@ void vTaskFetchCuratedIndex(void *pvParameters) {
   
   ESPFileUpdater curatedFetch(LittleFS);
   curatedFetch.setUserAgent(ESPFILEUPDATER_USERAGENT);
-  curatedFetch.setBuffer(SEARCHRESULTS_BUFFER_BYTES);
+  curatedFetch.setBuffer(SEARCHRESULTS_BUFFER * 1024);
   curatedFetch.setYieldInterval(SEARCHRESULTS_YIELDINTERVAL);
   const char* localPath = "/www/curated.json";
   
@@ -1153,7 +1190,7 @@ void vTaskFetchCuratedPlaylist(void *pvParameters) {
   
   ESPFileUpdater playlistFetch(LittleFS);
   playlistFetch.setUserAgent(ESPFILEUPDATER_USERAGENT);
-  playlistFetch.setBuffer(SEARCHRESULTS_BUFFER_BYTES);
+  playlistFetch.setBuffer(SEARCHRESULTS_BUFFER * 1024);
   playlistFetch.setYieldInterval(SEARCHRESULTS_YIELDINTERVAL);
   const char* localPath = "/www/pl_import.json";
   
@@ -1191,7 +1228,7 @@ void launchPlaybackTask(const String& url, const String& name) {
   }
   player.sendCommand({PR_STOP, 0}); // Stop any current playback first
   display.putRequest(NEWSTATION, 0);
-  FUNCTIONLOG("Netserver.playback", "Creating a dedicated task for playback.");
+  FUNCTIONLOG("Netserver", "Creating a dedicated task for playback.");
   if (ESP.getFreeHeap() <= MIN_MALLOC) {
     FUNCTIONLOG("Heap", "low heap (%u), refusing playback task spawn", ESP.getFreeHeap());
     return;
@@ -1221,10 +1258,10 @@ void launchPlaybackTask(const String& url, const String& name) {
         NETWORK_CORE
     ) != pdPASS) {
       delete url_copy;
-      FUNCTIONLOG("Netserver.playback", "[Error] xTaskCreate failed for playbackTask.");
+      FUNCTIONLOG("Netserver", "[Error] xTaskCreate failed for playbackTask.");
     }
   } else {
-    FUNCTIONLOG("Netserver.playback", "[Error] Failed to allocate memory for playback task URL.");
+    FUNCTIONLOG("Netserver", "[Error] Failed to allocate memory for playback task URL.");
   }
 }
 
@@ -1562,16 +1599,6 @@ void handleNotFound(AsyncWebServerRequest * request) {
         return request->requestAuthentication();
       }
   #endif
-
-  #ifdef USE_SD
-    // The SD File Manager's page is reached as "/" once the mode is open, so its own URL hands over to the root rather than serving a second copy under a different address
-    if (filemanager.active() && request->method() == HTTP_GET &&
-        strcmp(request->url().c_str(), "/sdmanager.html") == 0) {
-      request->redirect("/");
-      return;
-    }
-  #endif
-
   // PSRAM cache check: serve static WebUI files from PSRAM (no LittleFS reads)
   if (request->method() == HTTP_GET) {
     String url = request->url();
@@ -1791,41 +1818,9 @@ void handleNotFound(AsyncWebServerRequest * request) {
       return;
     }
   }
-  #ifdef NETSERVER_DEBUG
-    FUNCTIONLOG("Netserver.debug", "[handleNotFound] 404: %s", request->url().c_str());
-  #endif
-  FUNCTIONLOG("Netserver.notfound", "Not Found: %s", request->url().c_str());
+  FUNCTIONLOG("Netserver", "Not Found (404 error): %s", request->url().c_str());
   request->send(404, "text/plain", "Not found");
 }
-
-#ifdef USE_SD
-// Serves the SD manager's page through whichever form it is actually in: the gzipped PSRAM cache entry
-// They are repeated here because "/" now serves the page itself
-static bool serveSdmanPage(AsyncWebServerRequest *request) {
-  const CachedFile* cf = netserver.getFileCache().find("/sdmanager.html");
-  if (cf && (cf->gzData || cf->data)) {
-    if (cf->gzData) {
-      AsyncWebServerResponse *response = request->beginResponse(200, cf->contentType, (const uint8_t*)cf->gzData, cf->gzSize);
-      response->addHeader("Content-Encoding", "gzip");
-      request->send(response);
-    } else {
-      request->send(request->beginResponse(200, cf->contentType, (const uint8_t*)cf->data, cf->size));
-    }
-    return true;
-  }
-  if (LittleFS.exists("/www/sdmanager.html.gz")) {
-    AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/www/sdmanager.html.gz", "text/html");
-    response->addHeader("Content-Encoding", "gzip");
-    request->send(response);
-    return true;
-  }
-  if (LittleFS.exists("/www/sdmanager.html")) {
-    request->send(request->beginResponse(LittleFS, "/www/sdmanager.html", "text/html"));
-    return true;
-  }
-  return false;
-}
-#endif
 
 void handleIndex(AsyncWebServerRequest * request) {
   if (!config.wwwFilesExist) {
@@ -1850,7 +1845,7 @@ void handleIndex(AsyncWebServerRequest * request) {
       ESP.restart();
       return;
     }
-    FUNCTIONLOG("Netserver.notfound", "Not Found: %s", request->url().c_str());
+    FUNCTIONLOG("Netserver", "Not Found (404 error): %s", request->url().c_str());
     request->send(404, "text/plain", "Not found");
     return;
   } // end if (!config.wwwFilesExist)
@@ -1862,14 +1857,26 @@ void handleIndex(AsyncWebServerRequest * request) {
     }
   #endif
   #ifdef USE_SD
-    // While the SD File Manager is open it owns the root - the page's own reloads and every new tab the
-    // user opens land here, and all of them have to resolve to the manager rather than the player
+    // While the SD File Manager is open the root belongs to it: a second tab, a bookmark, a captive-portal
+    // redirect or a Home Assistant link must not land on a player UI whose buttons are all refused.  A
+    // redirect, not the page body: the manager then keeps ONE address for the whole session, so its own
+    // reloads never depend on the device's state at that instant, and this response is a constant.
     if (filemanager.active() && strcmp(request->url().c_str(), "/") == 0) {
-      if (serveSdmanPage(request)) return;
+      request->redirect("/sdmanager.html");
+      return;
     }
   #endif
   if (strcmp(request->url().c_str(), "/") == 0 && request->params() == 0) {
-    if (network.status == CONNECTED) request->send(200, "text/html", index_html); else request->redirect("/settings.html");
+    if (network.status == CONNECTED) {
+      // The root is the one response whose body depends on the mode (player, or the redirect above), and the
+      // String overload of send() adds no cache headers at all - unlike the file responses, which the library
+      // marks no-cache itself.  Marked explicitly, like every other dynamic response here.
+      AsyncWebServerResponse *response = request->beginResponse(200, "text/html", index_html);
+      response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      request->send(response);
+    } else {
+      request->redirect("/settings.html");
+    }
     return;
   }
   if (network.status == CONNECTED) {

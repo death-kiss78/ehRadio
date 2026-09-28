@@ -144,8 +144,17 @@ const FillConfig volbarConf PROGMEM = {{ 10, 302, 0, WA_LEFT }, 460, 6, false};
   values that use it.
 - **`bandsConf`** loses an obsolete sixth value (`fadespeed`; the fade rate now comes from the band
   length and `VU_FADE_MS`). Only a plain integer is dropped, so a real expression is never lost.
-- **OLED targets** get `metaBGConf` / `metaBGConfInv` swapped when the source has them the other way
-  round, since an OLED draws the bar on `metaBGConfInv`.
+- **OLED targets** get `metaBGConf` / `metaBGConfInv` sorted by height, because ehRadio selects
+  `metaBGConfInv` when *invert title* is on and OLEDs default to inverted: the hairline (height 3 or
+  less) goes to `metaBGConf`, the rectangle to `metaBGConfInv`. Two hairlines or two rectangles are left
+  as they are rather than guessed at, a lone one moves to the slot its own height calls for, and a height
+  that is not a plain integer stops the sort with a note. A yoRadio conf cannot say whether it is for an
+  OLED or a TFT — an OLED conf and a TFT conf are both a band plus a rule — so when a **new** conf is
+  being created and no file here matches the source size, the tool asks.
+- **`.apTitleBGConf`** is derived from `metaBGConf` after that sort — the band on a TFT, the hairline on
+  an OLED — and the emitted line says where it came from (`// from metaBGConf`, or
+  `// was metaBGConfInv (ehRadio flips yoRadio's metaBGConf to metaBGConfInv)` when it was moved). It is
+  the band the AP and SD-manager screens draw, and they ignore *invert title*.
 - **What the source did not provide** is written as `{ }` and flagged, so it is easy to find:
 
   ```c

@@ -2939,7 +2939,10 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
         if(audio_showstreamtitle) audio_showstreamtitle("");
         if(audio_icydescription) audio_icydescription("");
         if(audio_icyurl) audio_icyurl("");
-        m_lastHost[0] = '\0';
+        /* m_lastHost is deliberately KEPT here.  streamDetection() retries it every 5 s while no data arrives,
+           so erasing it turned every later library-level retry into connecttohost("") - a guaranteed failure
+           for the rest of the session, which left ehRadio's ladder as the only way back.  The I2S backend keeps
+           the host in the same situation (see the "Request %s failed!" branch in I2S_Audio/Audio.cpp). */
     }
     if(hostwoext) {free(hostwoext); hostwoext = NULL;}
     if(extension) {free(extension); extension = NULL;}
@@ -4176,6 +4179,10 @@ boolean Audio::streamDetection(uint32_t bytesAvail){
     static uint32_t tmr_lost = millis();
     static uint8_t  cnt_slow = 0;
     static uint8_t  cnt_lost = 0;
+
+    /* Nothing left to reconnect to: without this the reconnect below would call connecttohost("") every 5 s
+       forever, spinning a doomed connect plus a log line per attempt. */
+    if(!m_lastHost || m_lastHost[0] == '\0') return false;
 
     // if within one second the content of the audio buffer falls below the size of an audio frame 100 times,
     // issue a message

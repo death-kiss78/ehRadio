@@ -193,9 +193,11 @@ void loop() {
           (unsigned long)(staged[2] / 1000UL), (unsigned long)(staged[3] / 1000UL),
           (unsigned long)(staged[4] / 1000UL));
     }
-  }
+}
 
-  #ifdef CORE_MONITOR
+logRingFlush(); // drain log ring
+
+#ifdef CORE_MONITOR
     cmMainCount++;
     uint32_t cmDur = micros() - cmLoopStart;
     if (cmDur > cmMaxMainLoop) cmMaxMainLoop = cmDur;

@@ -13,6 +13,8 @@ const BootData _bootConfig PROGMEM = {
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
         .apTitleConf         = {{ TFT_FRAMEWDT, TFT_FRAMEWDT, 3, WA_CENTER }, 140, false, MAX_WIDTH, 0, 3, SCROLLTIME },
         .apSettConf          = {{ TFT_FRAMEWDT, 240-TFT_FRAMEWDT-16, 2, WA_LEFT }, 140, false, MAX_WIDTH, 0, 2, SCROLLTIME },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
+        .apTitleBGConf       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 38, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bootstrConf         = { 0, 182, 1, WA_CENTER },
         .apNameConf          = { TFT_FRAMEWDT, 66, 2, WA_CENTER },
@@ -42,11 +44,11 @@ const LayoutData _layouts[] PROGMEM = {
         /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
         .volbarConf          = {{ TFT_FRAMEWDT, 240-TFT_FRAMEWDT-6, 0, WA_LEFT }, MAX_WIDTH, 6, true },
         .bufferbarConf       = {{ 0, 239, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
         .metaBGConf          = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 38, false },
         .metaBGConfInv       = {{ 0, 38, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        .underLineConf       = { },
-        .overLineConf        = { },
+        .underLineConf       = { }, // unused
+        .overLineConf        = { }, // unused
         .playlBGConf         = {{ 0, 107, 0, WA_LEFT }, DSP_WIDTH, 24, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { 70, 191, 1, WA_LEFT },
@@ -82,7 +84,7 @@ const LayoutData _layouts[] PROGMEM = {
         /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
         .volbarConf          = {{ TFT_FRAMEWDT, 240-TFT_FRAMEWDT-6, 0, WA_LEFT }, MAX_WIDTH, 4, true },
         .bufferbarConf       = {{ 0, 239, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
         .metaBGConf          = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 38, false },
         .metaBGConfInv       = {{ 0, 38, 0, WA_LEFT }, DSP_WIDTH, 1, false },
         .underLineConf       = { },

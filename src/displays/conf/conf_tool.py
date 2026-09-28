@@ -888,10 +888,45 @@ def emit_import_entry(name, configs, master, hidden_fields, boombox_style=False)
     return '\n'.join(out), converted, not_found
 
 
-def oled_swap(data, out_name):
-    """An OLED target draws the bar on metaBGConfInv and leaves metaBGConf empty; if the source
-    has them the other way round, swap them (importlayout.py's rule, kept)."""
-    if 'OLED' not in out_name.upper():
+META_HAIRLINE_MAX = 3   # a fill this thin is a rule under the title; anything thicker is a band
+
+
+def _fill_height(value):
+    """The height of a FillConfig initialiser: 0 for an empty one, the number for a plain integer
+    height, or None when the height is an expression we cannot read.
+
+    The initialiser is `{ { left, top, fontsize, align }, width, height, outlined }`, so the widget
+    group is skipped and the remaining fields are split: width first, then the height.  The regex the
+    old oled_swap() used for this (`}, <digits>, <bool>}`) cannot match that shape at all - the width
+    sits between the brace and the height - which is why its height test never fired and only an
+    empty metaBGConfInv ever triggered a swap.
+    """
+    v = value.split('//')[0].strip()
+    if re.fullmatch(r'\{\s*\}', v):
+        return 0                                  # an empty fill: present, but draws nothing
+    inner = re.search(r'\{\s*\{[^}]*\}\s*,([^}]*)\}', v)
+    if not inner:
+        return None
+    parts = [p.strip() for p in inner.group(1).split(',')]
+    if len(parts) < 2:
+        return None
+    return int(parts[1]) if re.fullmatch(r'\d+', parts[1]) else None
+
+
+def normalise_meta_pair(data, oled):
+    """OLED targets only: sort the meta fill pair the way ehRadio draws it.
+
+    ehRadio selects metaBGConfInv when invert title is on, and OLEDs default to inverted, so on an OLED
+    the bar lives in metaBGConfInv and the hairline in metaBGConf.  A yoRadio conf is the other way
+    round - and identically so for an OLED and for a TFT, which is why the family cannot be read out of
+    a source file and has to be passed in.  So the pair is sorted by height: the hairline (height
+    <= META_HAIRLINE_MAX) belongs in metaBGConf, the rectangle in metaBGConfInv.
+
+    Nothing is guessed at: two hairlines or two rectangles are left as they are, so is a pair whose
+    heights are not plain integers, and when only one of the two is present it is moved to the slot its
+    own height calls for (the emitter writes the other as `{ }`).
+    """
+    if not oled:
         return
     for cfgs in (data['configs_normal'], data['configs_boombox']):
         if cfgs is None:
@@ -902,16 +937,30 @@ def oled_swap(data, out_name):
                 bg = (i, v)
             elif n == 'metaBGConfInv':
                 inv = (i, v)
-        if not (bg and inv):
-            continue
-        swap = inv[1].strip() == '{ }'
-        if not swap:
-            hm = re.search(r'\}\s*,\s*(\d+)\s*,\s*(?:true|false)\s*\}', inv[1])
-            if hm and int(hm.group(1)) <= 1:
-                swap = True
-        if swap:
-            cfgs[bg[0]] = ('metaBGConf', '{ }')
-            cfgs[inv[0]] = ('metaBGConfInv', bg[1])
+        if bg and inv:
+            hb, hi = _fill_height(bg[1]), _fill_height(inv[1])
+            if hb is None or hi is None:
+                print("  note: metaBGConf/metaBGConfInv heights are not plain integers - left as they are, check by hand")
+                continue
+            if (hb <= META_HAIRLINE_MAX) == (hi <= META_HAIRLINE_MAX):
+                continue        # both rules or both bands: nothing to sort
+            if hb <= META_HAIRLINE_MAX:
+                continue        # already the ehRadio way round
+            cfgs[bg[0]], cfgs[inv[0]] = ('metaBGConf', inv[1]), ('metaBGConfInv', bg[1])
+            data['meta_swapped'] = True
+            print("  meta pair sorted: hairline to metaBGConf, bar to metaBGConfInv")
+        elif bg or inv:
+            name, idx, value = ('metaBGConf', bg[0], bg[1]) if bg else ('metaBGConfInv', inv[0], inv[1])
+            h = _fill_height(value)
+            if h is None:
+                print(f"  note: the lone {name} has no readable height - left where it is")
+                continue
+            hairline = h <= META_HAIRLINE_MAX
+            if hairline == (name == 'metaBGConf'):
+                continue        # already in the slot its height calls for
+            cfgs[idx] = ('metaBGConf' if hairline else 'metaBGConfInv', value)
+            data['meta_swapped'] = True
+            print(f"  lone {name} moved to {cfgs[idx][0]}")
 
 
 def _fmt_string(sname, sval):
@@ -944,6 +993,18 @@ def create_target_file(out_path, data, name, master):
             if lab not in seen:
                 boot.append('        ' + hdr)
                 seen.add(lab)
+        if field == 'apTitleBGConf':
+            # The AP and SD-manager screens draw this band themselves and never read a layout, so it is
+            # derived from the pair the source provided, after normalise_meta_pair() has sorted it: the
+            # band on a TFT, the hairline on an OLED.
+            band = vals.get('metaBGConf')
+            if band is None:
+                boot.append(f'        .{field:19s} = {{ }},   // no band: the layout has no metaBGConf')
+            else:
+                note = ('// was metaBGConfInv (ehRadio flips yoRadio\'s metaBGConf to metaBGConfInv)'
+                        if data.get('meta_swapped') else '// from metaBGConf')
+                boot.append(f'        .{field:19s} = {normalise_value(band)},   {note}')
+            continue
         boot.append(f'        .{field:19s} = ' +
                     (f'{normalise_value(vals[field])},' if field in vals else '{ },'))
     boot.append('};')
@@ -1033,14 +1094,26 @@ def run_import(community_path, name, target, dry_run, script_dir):
     basename = os.path.basename(community_path)
     if target:
         out_name = os.path.basename(target)
+        target_full = os.path.join(script_dir, out_name)
+        oled = 'OLED' in out_name.upper()
+        if not oled and 'TFT' not in out_name.upper() and not os.path.exists(target_full):
+            oled = ask(f"Creating {out_name}, which says neither TFT nor OLED. Is this display an OLED? [y/N]: ", False)
     else:
         TARGET_RE = re.compile(r'^display(TFT|OLED)(\d{2,4})x(\d{2,4})conf\.h$')
         cands = [f for f in os.listdir(script_dir)
                  if TARGET_RE.match(f) and int(TARGET_RE.match(f).group(2)) == data['width']
                  and int(TARGET_RE.match(f).group(3)) == data['height']]
-        out_name = cands[0] if len(cands) == 1 else f"displayTFT{data['width']}x{data['height']}conf.h"
-    target_full = os.path.join(script_dir, out_name)
-    oled_swap(data, out_name)
+        if len(cands) == 1:
+            out_name = cands[0]        # an existing conf answers it: the filename is the family
+            oled = 'OLED' in out_name.upper()
+        else:
+            # A new conf.  No file here matches the source size, and the source cannot say which family
+            # it is for - a yoRadio OLED conf and a yoRadio TFT conf are the same band-plus-rule pair -
+            # so ask.  The answer names the file as well as deciding the meta pair order.
+            oled = ask(f"No conf here matches {data['width']}x{data['height']}. Is this display an OLED? [y/N]: ", False)
+            out_name = f"display{'OLED' if oled else 'TFT'}{data['width']}x{data['height']}conf.h"
+        target_full = os.path.join(script_dir, out_name)
+    normalise_meta_pair(data, oled)
 
     if not os.path.exists(target_full):
         print(f"\nCreating {out_name} from {basename} as \"{name}\"...")

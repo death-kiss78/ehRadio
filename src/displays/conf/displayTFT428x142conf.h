@@ -24,6 +24,8 @@ const BootData _bootConfig PROGMEM = {
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
         .apTitleConf         = {{ TFT_FRAMEWDT, TFT_FRAMEWDT, 3, WA_CENTER }, 140, false, MAX_WIDTH, 0, 4, 20 },
         .apSettConf          = {{ TFT_FRAMEWDT, DSP_HEIGHT-18, 2, WA_LEFT }, 140, false, MAX_WIDTH, 0, 4, 30 },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
+        .apTitleBGConf       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 29, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bootstrConf         = { 0, DSP_HEIGHT-16, 2, WA_CENTER },
         .apNameConf          = { 0, 36, 2, WA_CENTER },
@@ -54,11 +56,11 @@ const LayoutData _layouts[] PROGMEM = {
         /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
         .volbarConf          = {{ TFT_FRAMEWDT, DSP_HEIGHT-TFT_FRAMEWDT-3, 0, WA_LEFT }, MAX_WIDTH, 4, true },
         .bufferbarConf       = {{ TFT_FRAMEWDT, DSP_HEIGHT-2, 0, WA_LEFT }, MAX_WIDTH, 2, false },
-        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
-        .metaBGConf          = {{ 0, 0,  0, WA_LEFT }, DSP_WIDTH, 29, false },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
+        .metaBGConf          = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 29, false },
         .metaBGConfInv       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        .underLineConf       = { },
-        .overLineConf        = { },
+        .underLineConf       = { }, // unused
+        .overLineConf        = { }, // unused
         .playlBGConf         = {{ 0, 107, 0, WA_LEFT }, DSP_WIDTH, 24, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { TFT_FRAMEWDT+120, DSP_HEIGHT-27, 2, WA_RIGHT },
@@ -97,11 +99,11 @@ const LayoutData _layouts[] PROGMEM = {
         /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
         .volbarConf          = {{ TFT_FRAMEWDT, DSP_HEIGHT-TFT_FRAMEWDT-3, 0, WA_LEFT }, MAX_WIDTH, 4, true },
         .bufferbarConf       = {{ TFT_FRAMEWDT, DSP_HEIGHT-2, 0, WA_LEFT }, MAX_WIDTH, 2, false },
-        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
         .metaBGConf          = {{ 0, 0,  0, WA_LEFT }, DSP_WIDTH, 29, false },
         .metaBGConfInv       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        .underLineConf       = { },
-        .overLineConf        = { },
+        .underLineConf       = { }, // unused
+        .overLineConf        = { }, // unused
         .playlBGConf         = {{ 0, 107, 0, WA_LEFT }, DSP_WIDTH, 24, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { TFT_FRAMEWDT+120, DSP_HEIGHT-27, 2, WA_RIGHT },
@@ -142,7 +144,7 @@ const LayoutData _layouts[] PROGMEM = {
         .volbarConf          = {{ TFT_FRAMEWDT, DSP_HEIGHT-3, 0, WA_CENTER }, MAX_WIDTH, 5, true },
         .bufferbarConf       = { }, // unused
         // .bufferbarConf     = {{ 0, 93, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
         .metaBGConf          = {{ 0, 0,  0, WA_LEFT }, DSP_WIDTH, 24, false },
         .metaBGConfInv       = {{ 0, 19, 0, WA_LEFT }, DSP_WIDTH, 1,  false },
         .underLineConf       = { },

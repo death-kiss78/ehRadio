@@ -103,6 +103,7 @@ class FillWidget: public Widget {
     void setHeight(uint16_t newHeight);
   protected:
     uint16_t _height;
+    bool _outlined = false;
     void _draw();
 };
 

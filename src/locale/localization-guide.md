@@ -319,7 +319,9 @@ The WebUI has its own runtime translation layer, independent of the firmware dis
 
 ### How it works
 
-1. **Language detection** — `script2.js` fetches `/locale.json` from the device. If the locale matches the hardcoded `HARDCODED_WEBUI_LOCALE`, the server returns 404 and built-in English text is used.
+1. **Language detection** — [`locale.js`](locale.js) fetches `/locale.json?l=XX` from the device; the code comes from
+   the URL, otherwise the device answers with `config.store.locale_webui`. Every locale is served the same way, English
+   included. A failed fetch is the only fallback path: the page then keeps the English text hardcoded in the HTML.
 
 2. **`t(key, ...args)` helper** — looks up `key` in the loaded `i18n` object. Positional placeholders `{0}`, `{1}` are substituted with extra arguments.
 
@@ -343,7 +345,12 @@ All WebUI locale data is compiled into `wwwlocale.h` as gzip-compressed PROGMEM 
 | `/wwwlocale.json` | Locale index (native names) | `application/json` |
 | `/dsplocale.json` | Display locale index | `application/json` |
 
-No LittleFS files are needed — everything is zero-RAM PROGMEM.
+No LittleFS files are needed — everything is zero-RAM PROGMEM, and the build neither stages nor cleans anything in
+`data/www` for a locale. It used to: the pre-build packaging step read a `WEBUI_LANGUAGE_xx_XX` or
+`DSP_LANGUAGE_xx_XX` flag out of `myoptions.h`, or the same name out of the build flags, and copied
+`src/locale/webui/{code}.json` into `data/www`; the post-build step then deleted that file again. Both halves are
+gone, so such a flag in a `myoptions.h` now does nothing at all - and it never did anything else, because the
+firmware selects its languages with `DSP_LOCALE` (display) and `WEBUI_LOCALE` (WebUI).
 
 ### JSON source files
 
@@ -353,6 +360,27 @@ WebUI locale JSONs live in `src/locale/www/`.
 |---|---|
 | `src/locale/www/en_US.json` | Master key reference |
 | `src/locale/www/ru_RU.json` | Russian translation example |
+
+### English is the source, not a setting
+
+The HTML and JS files are written in English and stay that way. Their text is both the fallback the page shows when
+the fetch fails and the source `www_tool.py` reads, and `src/locale/www/en_US.json` is generated from them:
+
+```
+py src/locale/www_tool.py en_US --fast      # add every key the pages have and the master lacks
+py src/locale/www_tool.py en_US --diff      # check the two still agree, key by key
+```
+
+Every other locale is checked against that file, which is why it is the one that must never be edited by hand.
+
+`www_tool.py` has no option for the source language either. Its master key set is the `data/www` scan, its source text
+is the text found in those files, and the one place a language is named at all is the `_translation_input_locale`
+constant it hands to the `--translate` pass, fixed at `"en_US"`.
+
+There is no option that makes the pages another language: no build flag, no runtime setting, and no
+`HARDCODED_WEBUI_LOCALE` (the define and the `hardcode_locale_to_webui.py` tool that prepared the HTML for it are both
+gone). `/locale.json` serves `en_US` from PROGMEM like any other locale, so an English device makes one successful
+request instead of a 404 the page has to treat as a failure.
 
 ### Key categories
 
@@ -374,7 +402,6 @@ WebUI locale JSONs live in `src/locale/www/`.
 |---|---|
 | `make_dsplocale.py` | Validates display JSONs, generates `dsplocale.h` PROGMEM header |
 | `make_wwwlocale.py` | Validates www JSONs, gzip-compresses into `wwwlocale.h` PROGMEM header |
-| `hardcode_locale_to_webui.py` | Replaces all text in `data/www` files using a locale `.json`; updates `#define HARDCODED_WEBUI_LOCALE` |
 
 ### Maintenance tools
 

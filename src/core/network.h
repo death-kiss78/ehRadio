@@ -44,6 +44,7 @@ class MyNetwork {
 };
 
 void ticks();
+bool spawnStreamRetry();
 void retryStreamConnection(void * pvParameters);
 void wifiReconnectionTask(void * pvParameters);
 void rebootTime();

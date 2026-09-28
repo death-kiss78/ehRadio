@@ -7,11 +7,16 @@ Graft ehRadio's adaptations from the current I2S library (based on Maleksm v0.9.
 
 | Name | Folder | Version | Notes |
 |------|--------|---------|-------|
-| **Active** | `src/libraries/I2S_Audio/` | 3.1.0n + Maleksm v0.9.434m | Current ehRadio library |
-| **Active backup** | `I2S_Audio (ehRadio Maleksm v0.9.434m(04.04.25))` | 3.1.0n | Backup of current library |
+| **Active** | `src/libraries/I2S_Audio/` | 3.1.0n + Maleksm v0.9.434m | Current ehRadio library — **the only copy of our own code** |
 | **Maleksm v0.9.434m** | `I2S_Audio (yoRadio Maleksm v0.9.434m(04.04.25))` | 3.1.0n | Base of Active library |
-| **Maleksm v0.9.512m** | `I2S_Audio (yoRadio Maleksm v0.9.512m(13.07.25))` | 3.3.2p | Intermediate: added psram_unique_ptr, more decoder files |
 | **Maleksm v0.9.720m** | `I2S_Audio (yoRadio Maleksm v0.9.720m(23.06.26))` | 3.4.6w | **GRAFT TARGET** — latest Maleksm |
+
+Two folders were removed on 2026-09-27. `I2S_Audio (ehRadio Maleksm v0.9.434m(04.04.25))` was labelled
+"Active backup" but was a snapshot of `I2S_Audio/` that stopped being accurate as soon as the library was
+patched, and `I2S_Audio (yoRadio Maleksm v0.9.512m(13.07.25))` was an intermediate superseded by
+v0.9.720m. **Git history is the backup for our own code**; folder copies of it are a trap, because
+restoring one silently drops every fix made since it was taken. The upstream folders stay: they are the
+only local copies of code that is not ours, and the graft plan in this file refers to v0.9.720m by name.
 
 ## Trust Order
 Active > Maleksm v0.9.720m (latest)
@@ -199,7 +204,7 @@ With `-std=gnu++2a -fconcepts`, GCC 8.4 crashed with `internal compiler error: i
 Maleksm v0.9.512m+ was developed for ESP-IDF v5.4+ which bundles GCC 13+. The project's Arduino 3.0 framework bundles GCC 8.4. To use Maleksm's newer I2S libraries, the project would need to upgrade to Arduino 3.1+ or direct ESP-IDF v5.3+.
 
 #### Conclusion
-The v0.9.434m I2S library is the **maximum compatible version** for the current toolchain. Both Stage 1 (v0.9.512m) and Stage 2 (v0.9.720m) are blocked until a toolchain upgrade. The active library was restored from backup and builds successfully.
+The v0.9.434m I2S library is the **maximum compatible version** for the current toolchain. Both Stage 1 (v0.9.512m) and Stage 2 (v0.9.720m) are blocked until a toolchain upgrade. The active library was restored from its backup copy and builds successfully — that copy has since been removed (see the note under the library table), so the library that ships is `src/libraries/I2S_Audio/` and its git history is the record.
 
 ---
 
@@ -251,15 +256,14 @@ The v0.9.434m I2S library is the **maximum compatible version** for the current 
 
 `Active` = `src/libraries/I2S_Audio/` — current ehRadio I2S library (Maleksm v0.9.434m base)
 
-`Active backup` = `I2S_Audio (ehRadio Maleksm v0.9.434m(04.04.25))` — backup of current ehRadio I2S library
-
 `Maleksm v0.9.434m` = `I2S_Audio (yoRadio Maleksm v0.9.434m(04.04.25))` — original Maleksm I2S 3.1.0n
-
-`Maleksm v0.9.512m` = `I2S_Audio (yoRadio Maleksm v0.9.512m(13.07.25))` — Maleksm I2S 3.3.2p
 
 `Maleksm v0.9.720m` = `I2S_Audio (yoRadio Maleksm v0.9.720m(23.06.26))` — latest Maleksm I2S 3.4.6w, Stage 2 graft target
 
 Graft result = `src/libraries/I2S_Audio/` — after surgery
+
+Backups: none by folder, for the reason under the library table. Our own code is backed up by git; the
+upstream folders are kept because they are the only local copies of code that is not ours.
 
 ---
 

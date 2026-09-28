@@ -76,6 +76,11 @@ struct BootData {
     /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
     ScrollConfig   apTitleConf;
     ScrollConfig   apSettConf;
+    /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
+    FillConfig     apTitleBGConf;   // The AP and SD-manager band.  Boot screens must not borrow a layout's
+                                    // metaBGConf: a layout is selectable, the boot screens are not.  Invert
+                                    // title does not apply to them either.  The band on TFT, the hairline on
+                                    // OLED (conf_tool.py derives both from the layout's pair).
     /* WIDGETS             { left, top, fontsize, align } */
     WidgetConfig   bootstrConf;
     WidgetConfig   apNameConf;
@@ -97,7 +102,7 @@ struct LayoutData {
     /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
     FillConfig   volbarConf;
     FillConfig   bufferbarConf;
-    /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
+    /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
     FillConfig   metaBGConf;
     FillConfig   metaBGConfInv;
     FillConfig   underLineConf;

@@ -53,14 +53,6 @@ def restore_and_cleanup(source, target, env):
     else:
         print(f"No backup directory found at {TEMP_BACKUP_DIR}")
     
-    # Clean up deployed locale files (deployed during pre-build, should not remain in source)
-    import re
-    locale_pattern = re.compile(r'^[a-z]{2}_[A-Z]{2}\.json$')
-    for locale_file in data_dir.glob("*.json"):
-        if locale_pattern.match(locale_file.name):
-            locale_file.unlink()
-            print(f"Removed {locale_file.name}")
-    
     # Release the build lock
     if LOCK_FILE.exists():
         LOCK_FILE.unlink()

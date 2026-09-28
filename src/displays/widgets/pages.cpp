@@ -63,6 +63,12 @@ Widget& Page::addWidget(Widget* widget) {
   return *widget;
 }
 
+Widget& Page::addWidgetFirst(Widget* widget) {
+  _widgets.push_front(widget);
+  widget->setActive(_active, _active);
+  return *widget;
+}
+
 bool Page::removeWidget(Widget* widget){
   widget->setActive(false, _active);
   auto i = std::find_if(_widgets.begin(), _widgets.end(), [&widget](const Widget* wn){ return widget == wn; });

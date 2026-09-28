@@ -153,8 +153,10 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 // Add this to your myoptions.h to use the monochrome palette:
 // #define OLED_GREYSCALE false
 // SSD1327 proved to have issues showing greyscale so it no longer has this option
-#ifndef OLED_GREYSCALE
-  #define OLED_GREYSCALE true
+#if DSP_MODEL==DSP_SSD1322
+  #ifndef OLED_GREYSCALE
+    #define OLED_GREYSCALE true
+  #endif
 #endif
 
 /* Can the display be dimmed? If it is set to true but the Brightness Pin is not set... */
@@ -842,6 +844,9 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifndef STREAM_RETRY_SLOW_S
   #define STREAM_RETRY_SLOW_S 60 // s between stream retries once the fast attempt budget is spent
 #endif
+#ifndef STREAM_RETRY_RESPAWN_MS
+  #define STREAM_RETRY_RESPAWN_MS 5000 // ms a resume may stay owed with no retry task before ticks() starts a new one
+#endif
 #ifndef NET_REFUSAL_MS
   #define NET_REFUSAL_MS 700 // a failed connect faster than this was refused, so the link is fine
 #endif
@@ -948,8 +953,23 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #endif
 #endif
 #if defined(CONFIG_FREERTOS_UNICORE)
-  #ifdef NETWORK_CORE
-    #error Do not try to define NETWORK_CORE on a single-core ESP - it will be handled automatically!
+  #ifdef DSP_TASK_CORE_ID
+    #error Do not try to define DSP_TASK_CORE_ID on a single-core ESP - it will be handled automatically!
+  #else
+    #define DSP_TASK_CORE_ID 0
+  #endif
+#else
+  #ifndef DSP_TASK_CORE_ID
+    #define DSP_TASK_CORE_ID 1
+  #endif
+#endif
+
+// The following tree is duplicated in options.h AND options_overrides.h so if changes are needed, change both files
+#if defined(CONFIG_FREERTOS_UNICORE)
+  #ifdef NETWORK_CORE // need this extra check because both files may be pulled into the build
+    #if NETWORK_CORE!=0
+      #error Do not try to define NETWORK_CORE on a single-core ESP - it will be handled automatically!
+    #endif
   #else
     #define NETWORK_CORE 0
   #endif
@@ -960,17 +980,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
     #else
       #define NETWORK_CORE 1
     #endif
-  #endif
-#endif
-#if defined(CONFIG_FREERTOS_UNICORE)
-  #ifdef DSP_TASK_CORE_ID
-    #error Do not try to define DSP_TASK_CORE_ID on a single-core ESP - it will be handled automatically!
-  #else
-    #define DSP_TASK_CORE_ID 0
-  #endif
-#else
-  #ifndef DSP_TASK_CORE_ID
-    #define DSP_TASK_CORE_ID 1
   #endif
 #endif
 
@@ -1068,23 +1077,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #endif
 #ifndef LOW_TASK_PRIORITY
   #define LOW_TASK_PRIORITY 1 // lowest: background/deferrable tasks (round-robin with loop())
-#endif
-
-
-/* --- LIBRARY OVERRIDES --- */
-/* These are overrides for external libraries */
-#ifndef CONFIG_ASYNC_TCP_QUEUE_SIZE
-  #if defined(ARDUINO_ESP32S3_DEV)
-    #define CONFIG_ASYNC_TCP_QUEUE_SIZE 64 // ESP32-S3: larger queue for higher network throughput
-  #else
-    #define CONFIG_ASYNC_TCP_QUEUE_SIZE 32 // ESP32 and ESP32-C3
-  #endif
-#endif
-#ifndef CONFIG_ASYNC_TCP_RUNNING_CORE
-  #define CONFIG_ASYNC_TCP_RUNNING_CORE NETWORK_CORE // -1 = any available core (NETWORK_CORE is default)
-#endif
-#ifndef CONFIG_ASYNC_TCP_USE_WDT
-  #define CONFIG_ASYNC_TCP_USE_WDT 0 // 1 = watchdog enabled (adds between 33us and 200us per event)
 #endif
 
 
@@ -1209,12 +1201,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #endif
 #endif
 
-// Is the hardcoded text in the HTML files not English?  If yes, then you should override this
-// OVERRIDE WITH EXTREME CAUTION !!!  You must prepare the HTML files with hardcode_locale_to_html.py
-#ifndef HARDCODED_WEBUI_LOCALE
-  #define HARDCODED_WEBUI_LOCALE "en_US"
-#endif
-
 /* --- RADIO BROWSER API SERVER --- */
 /* Used as fallback for search and primary for sending clicks */
 #ifndef RADIO_BROWSER_SERVER
@@ -1298,9 +1284,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #ifndef WIDGET_DEBUG
     #define WIDGET_DEBUG // This shows the Widget's Text (and the VU draw cost) in logging
   #endif
-  #ifndef MQTT_DEBUG
-    #define MQTT_DEBUG // This shows ESP-IDF transport logs
-  #endif
 #endif
 #ifndef ESPFILEUPDATER_VERBOSE
   #ifdef ALL_DEBUG_LOGS
@@ -1308,6 +1291,15 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #else
     #define ESPFILEUPDATER_VERBOSE false // it needs a value
   #endif
+#endif
+
+/* Save Logs to LittleFS */
+// #define SAVE_LOGS_TO_FS // Save the logs to LittleFS as a rotating file set for later viewing (at http://x.x.x.x./log.txt)
+// Turning on ALL_DEBUG_LOGS can consume 400-500KB per hour so even a 16MB Partition with 3.5MB Little FS will hold about 6-7 hours of logs
+// So be selective about which logs to save... or just don't turn on this option and use another method of logging
+// The log is also available at /log and to clear the log go to /logclear
+#ifndef FS_REQUIRED_FREE_SPACE
+  #define FS_REQUIRED_FREE_SPACE 150 // KB that must stay free in LittleFS: netserver aborts search and curated downloads below it, and it is the log ring's reserve too
 #endif
 
 #ifndef BOOTLOG_TX_TIMEOUT_MS
@@ -1319,7 +1311,6 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #ifdef CORS_DEBUG
  // This enables CORS policy: 'Access-Control-Allow-Origin' (for testing)
 #endif
-
 
 /* CPU CORE NAMES: Name the Cores for what they do... */
 /* Do not use any of these macros directly in myoptions.h! */

@@ -381,7 +381,9 @@ body.sdman .pleitem.dir .sdname { font-weight: bold; cursor: pointer; }
 body.sdman .sdnotice { justify-content: center; padding: 18px; }
 body.sdman .fb.off { opacity: 0.4; cursor: default; }
 body.sdman .formbuttons { justify-content: center; }
-body.sdman #progresslabel { position: absolute; left: 0; right: 0; top: 62%; text-align: center; color: var(--accent-color); }
+body.sdman #progresstext { position: absolute; left: 0; right: 0; top: 62%; transform: translateY(-50%); text-align: center; color: var(--accent-color); }
+body.sdman #progresstext.upload #progresslabel,
+body.sdman #progresstext.upload #progresspct { font-size: 200%; }
 
 
 /* For mobile devices 375px to 1100px */

@@ -1520,7 +1520,7 @@ function progressHandler(event) {
   getId("uploadstatus").textContent = t('msg_upload_pct', '{0}% uploaded | please wait...', Math.round(percent));
   getId("updateprogress").value = Math.round(percent);
   if (percent >= 100) {
-    getId("uploadstatus").textContent = t('msg_upload_writing', 'Please wait, writing file to filesystem');
+    getId("uploadstatus").textContent = t('msg_upload_writing', 'Please wait, writing file to filesystem...');
   }
 }
 function rebootingProgress(waitSeconds) {
@@ -1541,7 +1541,7 @@ function rebootingProgress(waitSeconds) {
 }
 function completeHandler(event) {
   if(uploadWithError) return;
-  getId("uploadstatus").textContent = t('msg_upload_complete', 'Upload Complete, rebooting...');
+  getId("uploadstatus").textContent = t('msg_upload_complete', 'Upload complete, rebooting...');
   rebootingProgress(60);
 }
 function errorHandler(event) {

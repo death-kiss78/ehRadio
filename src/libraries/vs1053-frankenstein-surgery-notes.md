@@ -19,11 +19,15 @@ This document records the complete process of grafting Maleksm's anti-skip FreeR
 
 | Name | Folder | Description |
 |------|--------|-------------|
-| **Grafted (current)** | `src/libraries/VS1053_Audio/` | Result of this surgery — PR226 core + Maleksm task + ehRadio adaptations |
-| **Backup of current** | `src/libraries/VS1053_Audio (ehRadio nsteplanets PR226 frankenstein)` | Backup of this surgery — PR226 core + Maleksm task + ehRadio adaptations |
+| **Grafted (current)** | `src/libraries/VS1053_Audio/` | Result of this surgery — PR226 core + Maleksm task + ehRadio adaptations. **The only copy of our own library.** |
 | **ehRadio PR226 copy** | `VS1053_Audio (ehRadio nsteplanets yoRadio PR226)` | PR226 with Trip5's minimal ehRadio adaptations. **This was the graft base.** |
-| **Active (old)** | `VS1053_Audio (ehRadio Maleksm v0.9.434m(04.04.25))` | Backup of previous Maleksm-based library, preserved for reference |
+| **Active (old)** | `VS1053_Audio (ehRadio Maleksm v0.9.434m(04.04.25))` | The previous (pre-PR226) Maleksm-based ehRadio library, kept for reference |
 | **Maleksm** | `VS1053_Audio (yoRadio Maleksm v0.9.434m(04.04.25))` | Original Maleksm v0.9.434m — FreeRTOS task infrastructure originates here |
+
+There is **no folder backup of the current library**. The one that existed (`VS1053_Audio (ehRadio
+nsteplanets PR226 frankenstein)`) was a snapshot taken at the graft and never refreshed, so it was
+removed on 2026-09-27: restoring from it would have silently reverted every post-graft fix recorded
+below. `src/libraries/VS1053_Audio/` is the only copy, and its git history is the backup.
 
 ---
 
@@ -525,6 +529,67 @@ The full analysis, including the arithmetic behind every number above, is in
 
 ---
 
+## Post-Graft Patch Fixes (2026-09-26)
+
+### A Failed Reconnect Erased the Only Host the Library Could Retry
+
+**Symptom**: nothing crashed and nothing rebooted, but after a network hiccup the VS1053 build could go
+silent and stay silent, while an I2S build over the same kind of night recovered by itself.
+
+**How it was found**: by diffing the two backends' failure paths rather than by reading the log harder.
+Everything above the library — `network.cpp`'s reset ladder and resume latch — is the same code either
+way, so the difference had to be in the audio core. It was.
+
+**Root cause**: the two cores treat `m_lastHost` differently when a connect fails.
+
+| on `AUDIO_ERROR("Request %s failed!")` | I2S (`I2S_Audio/Audio.cpp`) | VS1053 (`VS1053_Audio/audioVS1053Ex.cpp`) |
+|---|---|---|
+| metadata callbacks cleared | yes, all four | yes, all four |
+| `m_f_running` | set `false` | not touched in this branch |
+| `m_lastHost` | **left intact** | **zeroed: `m_lastHost[0] = '\0';`** |
+
+Both library-level retry paths read that host:
+
+- `parseHttpResponseHeader()` on `HEADER_TIMEOUT` → `if(m_f_timeout) connecttohost(m_lastHost);`
+- `streamDetection()` after 5 s with no data → `connecttohost(m_lastHost);`
+
+With the host erased, both of them became `connecttohost("")` — a guaranteed failure — so a single failed
+reconnect left the library with nothing to retry, and ehRadio's own ladder was the only way back. That is
+the asymmetry: the I2S core has two independent recovery paths, the VS1053 core had effectively none.
+
+**Fix**:
+
+1. Removed the `m_lastHost[0] = '\0';` from the failed-connect branch. The four metadata clears stay, and a
+   comment records why the host must survive:
+
+   ```cpp
+   /* m_lastHost is deliberately KEPT here.  streamDetection() retries it every 5 s while no data arrives,
+      so erasing it turned every later library-level retry into connecttohost("") - a guaranteed failure
+      for the rest of the session, which left ehRadio's ladder as the only way back.  The I2S backend keeps
+      the host in the same situation (see the "Request %s failed!" branch in I2S_Audio/Audio.cpp). */
+   ```
+
+2. Added a guard at the top of `streamDetection()`, because one path *does* still clear the host
+   deliberately — `parseHttpResponseHeader()` on `HEADER_TIMEOUT` ("Host not available"):
+
+   ```cpp
+   if(!m_lastHost || m_lastHost[0] == '\0') return false;
+   ```
+
+   Without it, that case would sit in the 5 s retry loop calling `connecttohost("")` forever, spinning a
+   doomed connect plus a log line per attempt.
+
+**Files changed**: `src/libraries/VS1053_Audio/audioVS1053Ex.cpp` only — the failed-connect branch and the
+head of `streamDetection()`. The I2S core was left alone: it already behaved the way we want.
+
+**Not covered here**: the other half of the same investigation lives in `src/core/network.cpp` and
+`src/core/player.cpp` — a checked `xTaskCreatePinnedToCore()` for the stream-retry task, a 5 s respawn in
+`tick()` for the case where that task died while a resume was still owed, and the `WiFiReconnected` re-arm.
+Those are ehRadio-side and are recorded in `.github/code-summary.md`; this note is only the library-side
+half, which is the part a future re-graft would otherwise quietly lose.
+
+---
+
 ## Open Items
 
 1. **Mutex guards on connect functions** (Step 9 deferred): `connecttohost()` and `connecttoFS()` should be wrapped with `mutex_playAudioData` to prevent race conditions. Same pattern Maleksm used.
@@ -558,5 +623,9 @@ The full analysis, including the arithmetic behind every number above, is in
 `ehRadio PR226 copy` = `VS1053_Audio (ehRadio nsteplanets yoRadio PR226)` — PR226 adapted for ehRadio
 
 Graft result = `src/libraries/VS1053_Audio/` — current production library
+
+Backups: none by folder. A copy of our own library decays the moment the first patch lands, so it is
+worse than no copy at all — the graft-time one was removed on 2026-09-27, leaving git history as the
+record. The upstream folders stay because they are the only local copies of code that is not ours.
 
 Someday these files may be needed again...

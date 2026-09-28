@@ -99,6 +99,17 @@ void configTimeLogReset();
     configTimeLog(name); \
   } while (0)
 
+// The log ring (SAVE_LOGS_TO_FS): every line the loggers see, saved to LittleFS as a rotating file set.
+// complete=false is a FRAGMENT - the X loggers' partial text and the progress dots - joined to the next line.
+void     logRingWrite(const char* text, bool complete, bool critical);
+void     logRingInit();     // after the LittleFS mount; reads /logs/idx
+void     logRingFlush();    // call from loop()
+uint32_t logRingPending();  // bytes waiting in RAM
+uint32_t logRingDropped();  // lines lost to a full RAM ring
+size_t   logRingSnapshot(); // fixes the layout for one /log request, returns its total length
+size_t   logRingReadAt(size_t offset, uint8_t* out, size_t maxLen);
+void     logRingClear();
+
 #define LITTLEFSTIMELOGRESET() \
   do { \
     littleFsTimeLogReset(); \

@@ -1,4 +1,5 @@
 #include "options.h"
+#include <esp_system.h>
 #include <ctype.h>
 #include <cstddef>
 #include <esp_log.h>
@@ -214,13 +215,11 @@ void Config::changeMode(int newmode) {
     FUNCTIONLOG("SD", "initPlaylistMode: %lums", millis() - _t_plinit);
     if (pir) player.sendCommand({PR_PLAY, getMode()==PM_WEB?store.lastStation:store.lastSdStation});
     netserver.resetQueue();
-    //netserver.requestOnChange(GETPLAYERMODE, 0);
     netserver.requestOnChange(GETINDEX, 0);
-    //netserver.requestOnChange(GETMODE, 0);
-    // netserver.requestOnChange(CHANGEMODE, 0);
     display.resetQueue();
     display.putRequest(NEWMODE, PLAYER);
     display.putRequest(NEWSTATION);
+    display.putRequest(NEWTITLE);
   #endif //#ifdef USE_SD
 }
 
@@ -228,6 +227,18 @@ void Config::syncSDFS() {
   #ifdef USE_SD
     _SDplaylistFS = (getMode()==PM_SDCARD) ? (FS*)&sdman : (FS*)&LittleFS;
   #endif
+}
+
+// The "there is nothing to play" state, in one place.  The placeholder name is what the meta line shows
+// (_station() renders config.station.name), and clearing the title is what blanks the two title lines (_title()
+// renders config.station.title, split on " - ") - without it a web stream's title survives a card swap or a switch
+// back to an empty card.  Neither line repaints on its own, so the caller must send NEWSTATION/NEWTITLE afterwards.
+static void setNoStationState() {
+  memset(config.station.url, 0, STATION_FIELD_LENGTH);
+  memset(config.station.name, 0, STATION_FIELD_LENGTH);
+  strncpy(config.station.name, "ehRadio", STATION_FIELD_LENGTH);
+  config.station.ovol = 0;
+  config.setTitle("");
 }
 
 void Config::initSDPlaylist(bool force) {
@@ -261,7 +272,16 @@ void Config::initSDPlaylist(bool force) {
       FUNCTIONLOG("SD", "Waiting for SD card indexing.");
       sdman.indexSDPlaylist();
       store.countStation = utility.playlistLength();
-      lastStation(_randomStation());
+      if (store.countStation > 0) {
+        lastStation(_randomStation());   // a re-index picks a station, the way entering SD mode always has
+      } else {
+        // An empty card has no station to point at: _randomStation() would answer 1 for a list of nothing, and
+        // the previous stream's title would stay on screen.  This is also the path a "delete everything, then
+        // Done" takes, which never goes through initPlaylistMode().
+        FUNCTIONLOG("SD", "no playable station after the re-index");
+        lastStation(0);
+        setNoStationState();
+      }
       sdResumePos = 0;
     } else {
       store.countStation = utility.playlistLength();
@@ -350,16 +370,23 @@ void Config::initPlaylistMode() {
   saveValue(&store.play_mode, store.play_mode);
   CONFIGTIMELOG("lastStation & saveValue");
   _bootDone = true;
-  if (_lastStation == 0 && cs > 0) {
-    // Playlist exists but we couldn't determine the last station:
-    // show "ehRadio" instead of misleading first-station name
-    memset(config.station.url, 0, STATION_FIELD_LENGTH);
-    memset(config.station.name, 0, STATION_FIELD_LENGTH);
-    strncpy(config.station.name, "ehRadio", STATION_FIELD_LENGTH);
-    config.station.ovol = 0;
-  } else {
-    utility.loadStation(_lastStation);
+  // Ask the only question that matters: is there a station we can actually load?  A count cannot answer it -
+  // playlistLength() derives the SD count from the index file's size, and an index holding no entries is still
+  // large enough to report one - so an empty card used to resolve to a station that does not exist and keep
+  // whatever name was already there.  A failed read leaves the table untouched (by design), so the placeholder
+  // has to be applied on top of it.
+  const bool haveStation = (_lastStation > 0) && utility.loadStation(_lastStation);
+  if (!haveStation) {
+    FUNCTIONLOG("SD", "no playable station (playlist length %u) - showing the ehRadio placeholder", (unsigned)cs);
+    setNoStationState();
   }
+  // Paint the two derived text lines from what the table now holds.  _station() renders the meta line from
+  // config.station.name and _title() renders both title lines from config.station.title, and neither repaints on
+  // its own - this is the only place the boot path passes through, which is why a meta line nothing had drawn
+  // stayed blank until some other path happened to request it.  While a screen we own is up both requests are
+  // dropped, and changeMode() sends them again after its own page switch.
+  display.putRequest(NEWSTATION);
+  display.putRequest(NEWTITLE);
 }
 
 void Config::_initHW() {
@@ -745,6 +772,8 @@ void Config::setDspOn(bool dspon, bool updateState) {
 }
 
 void Config::bootInfo() {
+  SERIALLOGLF();
+  SERIALLOGLF();
   BOOTLOG("************************************************");
   BOOTLOG("*               ehRadio %s             *", RADIOVERSION);
   BOOTLOG("************************************************");
@@ -760,6 +789,20 @@ void Config::bootInfo() {
   BOOTLOG("Process: Core:\tMain: 1, Audio: %d, Network: %d, Display: %d", AUDIO_CORE, NETWORK_CORE, DSP_TASK_CORE_ID);
   BOOTLOG("Stack Sizes:\tLoop: %dKB, Display: %dKB, Netserver: %dKB, Network: %dKB", LOOP_TASK_STACK_SIZE, DSP_TASK_STACK_SIZE, NETSERVER_TASK_STACK_SIZE, NETWORK_TASK_STACK_SIZE);
   BOOTLOG("Task Priority:\tDisplay: %d, Netserver: %d, Playback: %d, Network: %d, Low: %d", DSP_TASK_PRIORITY, NETSERVER_TASK_PRIORITY, PLAYBACK_TASK_PRIORITY, NET_TASK_PRIORITY, LOW_TASK_PRIORITY);
+  { const esp_reset_reason_t rr = esp_reset_reason();
+    BOOTLOG("Reset Reason:\t%d (%s)", (int)rr,
+            rr == ESP_RST_POWERON    ? "power-on" :
+            rr == ESP_RST_EXT        ? "external pin" :
+            rr == ESP_RST_SW         ? "software restart" :
+            rr == ESP_RST_PANIC      ? "panic/exception" :
+            rr == ESP_RST_INT_WDT    ? "interrupt watchdog" :
+            rr == ESP_RST_TASK_WDT   ? "task watchdog" :
+            rr == ESP_RST_WDT        ? "other watchdog" :
+            rr == ESP_RST_DEEPSLEEP  ? "deep sleep wake" :
+            rr == ESP_RST_BROWNOUT   ? "brownout" :
+            rr == ESP_RST_SDIO       ? "SDIO" :
+                                       "unknown");
+  }
   #ifdef SPIA_SCK
     if (SPIA_SCK!=255) BOOTLOG("SPIA:\t\tSCK: %d, MISO: %d, MOSI: %d", SPIA_SCK, SPIA_MISO, SPIA_MOSI);
   #endif

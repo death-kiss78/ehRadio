@@ -19,6 +19,8 @@ const BootData _bootConfig PROGMEM = {
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
         .apTitleConf         = {{ TFT_FRAMEWDT, TFT_FRAMEWDT, 2, WA_CENTER }, 140, false, MAX_WIDTH, 0, 2, SCROLLTIME },
         .apSettConf          = {{ TFT_FRAMEWDT, 64-7, 1, WA_LEFT }, 140, false, MAX_WIDTH, 0, 1, SCROLLTIME },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
+        .apTitleBGConf       = {{ 0, 17, 0, WA_LEFT }, DSP_WIDTH, 1,  false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bootstrConf         = { 0, 64-8, 1, WA_CENTER },
         .apNameConf          = { 0, 18, 1, WA_CENTER },
@@ -51,11 +53,11 @@ const LayoutData _layouts[] PROGMEM = {
         .volbarConf          = {{ 0, 64-1, 0, WA_LEFT }, DSP_WIDTH, 1, false },
         .bufferbarConf       = { }, // unused
         // .bufferbarConf       = {{ 0, 63, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
-        .metaBGConf          = { },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
+        .metaBGConf          = {{ 0, 17, 0, WA_LEFT }, DSP_WIDTH, 1,  false },
         .metaBGConfInv       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 17, false },
-        .underLineConf       = { },
-        .overLineConf        = { },
+        .underLineConf       = { }, // unused
+        .overLineConf        = { }, // unused
         .playlBGConf         = {{ 0, 26, 0, WA_LEFT }, DSP_WIDTH, 12, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { 0, 19, 1, WA_RIGHT },
@@ -93,11 +95,11 @@ const LayoutData _layouts[] PROGMEM = {
         /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
         .volbarConf          = {{ 0, 64-1, 0, WA_LEFT }, DSP_WIDTH, 1, false },
         .bufferbarConf       = { }, // unused
-        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
-        .metaBGConf          = { },
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
+        .metaBGConf          = {{ 0, 17, 0, WA_LEFT }, DSP_WIDTH, 1,  false },
         .metaBGConfInv       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 17, false },
-        .underLineConf       = { },
-        .overLineConf        = { },
+        .underLineConf       = { }, // unused
+        .overLineConf        = { }, // unused
         .playlBGConf         = {{ 0, 26, 0, WA_LEFT }, DSP_WIDTH, 12, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { 0, 19, 1, WA_RIGHT },
@@ -135,11 +137,11 @@ const LayoutData _layouts[] PROGMEM = {
         .volbarConf          = {{ 0, 63, 0, WA_LEFT }, DSP_WIDTH, 1, false },
         .bufferbarConf       = { }, // unused
         // .bufferbarConf       = {{ 0, 63, 0, WA_LEFT }, DSP_WIDTH, 1, false },
-        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
         .metaBGConf          = {{ 0, 12, 0, WA_LEFT }, DSP_WIDTH, 1, false },
         .metaBGConfInv       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 12, false },
-        .underLineConf       = { },
-        .overLineConf        = { },
+        .underLineConf       = { }, // unused
+        .overLineConf        = { }, // unused
         .playlBGConf         = {{ 0, 26, 0, WA_LEFT }, DSP_WIDTH, 12, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { 0, 16, 1, WA_RIGHT },
@@ -179,11 +181,11 @@ const LayoutData _layouts[] PROGMEM = {
         /* SLIDER BARS         {{ left, top, fontsize, align }, width, height, outlined } */
         .volbarConf          = {{ 0, 64-1, 0, WA_LEFT }, DSP_WIDTH, 1, false },
         .bufferbarConf       = { }, // unused
-        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, false } */
+        /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
         .metaBGConf          = {{ 0, 12, 0, WA_LEFT }, DSP_WIDTH, 1, false },
         .metaBGConfInv       = {{ 0, 0, 0, WA_LEFT }, DSP_WIDTH, 12, false },
-        .underLineConf       = { },
-        .overLineConf        = { },
+        .underLineConf       = { }, // unused
+        .overLineConf        = { }, // unused
         .playlBGConf         = {{ 0, 26, 0, WA_LEFT }, DSP_WIDTH, 12, false },
         /* WIDGETS             { left, top, fontsize, align } */
         .bitrateConf         = { 0, 16, 1, WA_RIGHT },

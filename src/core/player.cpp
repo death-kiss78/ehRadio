@@ -123,7 +123,11 @@ void Player::_stop(bool alreadyStopped) {
   _playingStationId = 0;
   setOutputPins(false);
   if (audioHandlers.clearArtwork()) netserver.requestOnChange(ARTWORK, 0);
-  if (!hasError()) config.setTitle((display.mode()==LOST || display.mode()==UPDATING)?"":l10n(L10N_MSG_STOPPED));
+  // An empty url means the station table was deliberately emptied - an empty card, or a playlist with nothing in
+  // it - and config.setTitle("") was just written for exactly that reason.  Announcing "[stopped]" over it is what
+  // kept a title line alive on a card with nothing to play.
+  const bool noStation = (config.station.url[0] == '\0');
+  if (!hasError() && !noStation) config.setTitle((display.mode()==LOST || display.mode()==UPDATING)?"":l10n(L10N_MSG_STOPPED));
   config.station.bitrate = 0;
   config.setBitrateFormat(BF_UNKNOWN);
   netserver.requestOnChange(BITRATE, 0);
@@ -214,10 +218,10 @@ void Player::loop() {
     if (config.getMode() == PM_WEB && WiFi.status() == WL_CONNECTED && !network.lostPlaying) {
       FUNCTIONLOG("Player", "Stream stopped unexpectedly. Starting reconnection attempts...");
       network.lostPlaying = true;
-      // Launch retry task if not already running
-      if (streamRetryTaskHandle == NULL) {
-        xTaskCreatePinnedToCore(retryStreamConnection, "streamRetry", NETWORK_TASK_STACK_BYTES, NULL, NET_TASK_PRIORITY, &streamRetryTaskHandle, NETWORK_CORE);
-      }
+      // Launch retry task if not already running.  spawnStreamRetry() checks the create result, so a spawn that
+      // failed on a fragmented heap cannot leave lostPlaying set with no task behind it - which used to close
+      // this gate until a reboot (nothing else clears the flag except a fresh WiFi reconnect event).
+      spawnStreamRetry();
     }
     _stop(true);
   }
@@ -298,6 +302,12 @@ void Player::_play(uint16_t stationId) {
   netserver.requestOnChange(STATION, 0);
   bool isConnected = false;
   if (config.getMode()==PM_SDCARD && SD_CS!=255) {
+    // Belt for the station table: a card-mode play with no file to point at must never reach the audio library,
+    // which would try to open the mount point as a track and report a garbage format name.
+    if (config.station.url[0] == '\0') {
+      FUNCTIONLOG("SD", "nothing to play: station %u has no file (empty card?)", (unsigned)stationId);
+      return;
+    }
     uint32_t _t_cfs = millis();
     isConnected=connecttoFS(sdman,config.station.url,config.sdResumePos==0?_resumeFilePos:config.sdResumePos-player.sd_min);
     FUNCTIONLOG("SD", "connecttoFS: %lums", millis() - _t_cfs);

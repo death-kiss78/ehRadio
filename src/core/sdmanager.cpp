@@ -30,7 +30,7 @@
 #endif
 #endif
 
-SDManager sdman(FSImplPtr(new VFSImpl()));
+SDManager sdman(fs::FSImplPtr(new VFSImpl()));
 
 bool SDManager::start() {
   #if defined(SD_USE_MMC)
@@ -165,7 +165,7 @@ void SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uin
   // Process sorted entries
   uint32_t pos = 0;
   for (const auto& entry : entries) {
-    vTaskDelay(2);
+    sdFeedWatchdog();   // the index walk yields here already; this also feeds the watchdog if the caller is subscribed
     player.loop();
     char* filePath = (char*)malloc(entry.path.length() + 1);
     if (filePath == NULL) {
@@ -243,7 +243,7 @@ uint32_t SDManager::_countAudioFilesRecursive(const char* dirname, uint8_t level
   }
 
   while (true) {
-    vTaskDelay(2);
+    sdFeedWatchdog();
     bool isDir;
     String fileName = root.getNextFileName(&isDir);
     if (fileName.isEmpty()) break;

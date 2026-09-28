@@ -7,6 +7,7 @@
 #include "sdmanager.h"
 #include "config.h"
 #include "display.h"
+#include "netserver.h"
 #include "player.h"
 #include "logging.h"
 
@@ -127,14 +128,19 @@ bool FileManager::isPlaying(const String &path) const {
   return false;
 }
 
-// The SD index is derived data, one offset per file. A mutation makes it wrong and deleting it is the
-// cheapest correct answer: config.initSDPlaylist() rebuilds it on the next SD entry. A file rather than a
-// RAM bit, so it survives a power cycle.
+// A mutation makes TWO derived things wrong, and they are wrong independently:
+//   - the SD index file (one offset per file): deleting it is the cheapest correct answer, and
+//     config.initSDPlaylist() rebuilds it.  A file, not a RAM bit, so it survives a power cycle.
+//   - the device's in-RAM SD playlist, which the player and the WebUI read: it stays stale until something
+//     rebuilds it.  Nothing rebuilds it here, and nothing rebuilds it while the manager is open: a session of
+//     many operations pays for one walk, done by FileManager::loop() after the mode closes.  The bit also
+//     suppresses the resume, because a station NUMBER means a different file once the list has changed.
 static void invalidateSdIndex() {
   if (sdman.exists(INDEX_SD_PATH)) {
     sdman.remove(INDEX_SD_PATH);
-    FUNCTIONLOG("SDFileManager", "SD index dropped; it will be rebuilt on the next SD entry");
+    FUNCTIONLOG("SDFileManager", "SD index dropped; it will be rebuilt when the mode closes");
   }
+  filemanager.markCardChanged();
 }
 
 // ==== Directory removal ====
@@ -153,6 +159,8 @@ static bool removeRecursive(const String &path) {
   std::vector<String> children;
   File child = entry.openNextFile();
   while (child) {
+    sdFeedWatchdog();  // a delete walk costs as much as the listing walk - unfed, the task WDT would abort the device
+    filemanager.touch();  // and it takes minutes: unfed, the idle timeout would close the mode mid-delete
     children.push_back(basenameOf(child.name()));  // name() is the full path on ESP32 Arduino
     child = entry.openNextFile();
   }
@@ -161,6 +169,8 @@ static bool removeRecursive(const String &path) {
   String base = path;
   if (!base.endsWith("/")) base += "/";
   for (const String &name : children) {
+    sdFeedWatchdog();  // each call removes files or opens another directory
+    filemanager.touch();  // same clock, same reason
     if (!removeRecursive(base + name)) return false;
   }
   return sdman.rmdir(path);
@@ -172,7 +182,7 @@ static bool removeRecursive(const String &path) {
 // works as well as the address on the display. Idempotent; a second call just refreshes the idle clock.
 // No route at bare "/sdman": a plain URI matches an exact path OR a prefix plus "/", so a handler there
 // would also answer /sdman/list and every sibling. No network test either - entry used to need CONNECTED,
-// which shut the feature out of AP mode, and _swichMode() already refuses mode changes unless the status is
+// which shut the feature out of AP mode, and _switchMode() already refuses mode changes unless the status is
 // CONNECTED or SDOFFLINE. SD-offline needs no test because NetServer::begin() returns before the server.
 static void hEnterApi(AsyncWebServerRequest *request) {
   filemanager.enter();
@@ -181,6 +191,20 @@ static void hEnterApi(AsyncWebServerRequest *request) {
 
 // POST /sdman/done - the Done button at the foot of the page.
 static void hDone(AsyncWebServerRequest *request) {
+  // Refused while a file is mid-write: leave() removes the half-written file on purpose (that is what a close
+  // means), so a Done press from another tab or another device would throw away an upload nobody finished
+  // watching.  Between the files of a batch _upFile is already closed, so this only stops a close that would
+  // destroy something.
+  if (filemanager.uploadOpen()) {
+    // Deliberately inert: no touch(), so a Done press cannot be used to keep a stalled upload's mode alive.  The
+    // line exists so a refusal - a second tab, a second device - is visible in the log rather than silent.
+    FUNCTIONLOG("SDFileManager", "Done refused, upload in progress");
+    sendError(request, 409, "uploading");
+    return;
+  }
+  // Named here, because leave() cannot tell a Done press from its own timeout: until this line existed, a close
+  // the user asked for and a close the countdown asked for were identical in the log.
+  FUNCTIONLOG("SDFileManager", "closing on request (Done button)");
   filemanager.leave();
   request->redirect("/");
 }
@@ -189,8 +213,16 @@ static void hDone(AsyncWebServerRequest *request) {
 static void hInfo(AsyncWebServerRequest *request) {
   if (!requireActive(request)) return;
   filemanager.touch();
-  uint64_t total = sdman.totalBytes();
-  uint64_t used  = sdman.usedBytes();
+  // One walk of the FAT, not two.  usedBytes() counts the free clusters, which means walking the whole FAT; asking
+  // for totalBytes() as well runs that same walk a second time for a total we already have, because cardSize() reads
+  // the CSD the card reported at init and costs nothing.  On a large card the duplicate is seconds of blocked
+  // network task, and this is the handler the page calls on every load and every click.
+  const uint32_t t0 = millis();
+  const uint64_t used = sdman.usedBytes();
+  sdFeedWatchdog();
+  const uint64_t total = sdman.cardSize();
+  FUNCTIONLOG("SDFileManager", "figures: used %llu of %llu, %lu ms",
+              (unsigned long long)used, (unsigned long long)total, (unsigned long)(millis() - t0));
   // The idle deadline goes out with the card figures, so the page can end itself when the device does.
   String body = F("{\"ok\":true,\"idle\":");
   body += String((unsigned long)filemanager.idleRemainingMs());
@@ -275,6 +307,12 @@ static void hDelete(AsyncWebServerRequest *request) {
 
   int start = 0;
   while (start < (int)_deleteBody.length()) {
+    // The selection is N FATFS deletes in one handler, and a *file* never reaches the fed loops inside
+    // removeRecursive() - it returns at that function's isDirectory() branch - so the batch loop is the only
+    // place a many-file delete (a whole card) can be fed.  Without it the task WDT aborts mid-write, which also
+    // leaves the mount dirty for the next boot.  A tick per item lets the display keep up as well.
+    sdFeedWatchdog();
+    filemanager.touch();
     int nl = _deleteBody.indexOf('\n', start);
     if (nl < 0) nl = _deleteBody.length();
     String raw = _deleteBody.substring(start, nl);
@@ -346,6 +384,8 @@ static String _listOut;
 static bool   _listStarted = false;
 static bool   _listFirst   = true;
 static bool   _listDone    = false;
+static uint32_t _listT0    = 0;   // when this walk started, for the cost line
+static uint32_t _listCount = 0;   // entries emitted, for the same
 
 static size_t sdmanListFiller(uint8_t *buffer, size_t maxLen, size_t index) {
   if (maxLen == 0) return 0;
@@ -364,6 +404,9 @@ static size_t sdmanListFiller(uint8_t *buffer, size_t maxLen, size_t index) {
       _listOut += esc;
       _listOut += F("\",\"entries\":[");
     } else if (_listDir) {
+      // One entry per call, but the calls come back to back while the socket window is open, so a large folder
+      // turns into seconds of blocked network task here - which is why the watchdog is fed every few entries.
+      if ((_listCount & 0x07) == 0) sdFeedWatchdog();
       File entry = _listDir.openNextFile();
       if (entry) {
         String name = basenameOf(entry.name());   // name() is the full path on ESP32 Arduino
@@ -379,10 +422,13 @@ static size_t sdmanListFiller(uint8_t *buffer, size_t maxLen, size_t index) {
         _listOut += esc;
         _listOut += tail;
         _listFirst = false;
+        _listCount++;
       } else {
         _listDir.close();   // the walk is over
         _listOut = F("]}");
         _listDone = true;
+        FUNCTIONLOG("SDFileManager", "walked %u entries in %lu ms",
+                    (unsigned)_listCount, (unsigned long)(millis() - _listT0));
       }
     } else {
       _listOut = F("]}");
@@ -404,6 +450,11 @@ static void hList(AsyncWebServerRequest *request) {
   if (!sdman.ready) { sendError(request, 409, "no_card"); return; }
   String path = normalisePath(argOf(request, "path"));
   if (!sdman.exists(path)) { sendError(request, 404, "not_found"); return; }
+  // A listing that was cut off - the client went away, or the page reloaded mid-drain - leaves its directory
+  // handle open, and this is the only place that can close it.  Without this the handles accumulate until
+  // sdman.open() fails, and from then on listings come back empty or partial.  One listing at a time is the
+  // contract (the page loads a folder and waits).
+  if (_listDir) { _listDir.close(); }
   _listDir = sdman.open(path);
   if (!_listDir || !_listDir.isDirectory()) {
     if (_listDir) _listDir.close();
@@ -413,6 +464,8 @@ static void hList(AsyncWebServerRequest *request) {
   _listPath = path;
   _listOut = "";        // nothing may survive from an attempt that was cut off
   _listStarted = false;
+  _listCount = 0;
+  _listT0 = millis();
   _listFirst = true;
   _listDone = false;
   AsyncWebServerResponse *response = request->beginChunkedResponse("application/json", sdmanListFiller);
@@ -431,6 +484,7 @@ static void hList(AsyncWebServerRequest *request) {
 static File     _upFile;
 static String   _upPath;
 static uint64_t _upFree = 0;
+static uint64_t _upBytes = 0;
 static bool     _upSkipped = false;
 static const char *_upReason = nullptr;
 static int      _upCode = 400;
@@ -438,13 +492,21 @@ static int      _upCode = 400;
 static void onUploadChunk(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
   // Re-tested per chunk, not just at the start: the mode can end (timeout, card removal) mid-file. The
   // reason is reported by the request handler at the end.
-  if (!filemanager.active()) { _upReason = "not_active"; _upCode = 409; return; }
+  if (!filemanager.active()) {
+    // Close what this upload opened.  The next attempt's index == 0 would close it, but a batch that stops
+    // here would otherwise hold a card handle until then.
+    if (_upFile) _upFile.close();
+    _upReason = "not_active";
+    _upCode = 409;
+    return;
+  }
   // Every chunk refreshes the idle clock, so a slow upload cannot look like an idle browser.
   filemanager.touch();
 
   if (index == 0) {
     _upReason = nullptr;
     _upFree = 0;
+    _upBytes = 0;
     _upSkipped = false;
     // A cut-off attempt leaves the handle open and the file half-written; closing it here is what the
     // missing UPLOAD_FILE_ABORTED notification would otherwise do.
@@ -481,6 +543,10 @@ static void onUploadChunk(AsyncWebServerRequest *request, String filename, size_
           uint64_t used  = sdman.usedBytes();
           _upFree = (total > used) ? (total - used) : 0;
           _upPath = target;
+          // Logged at the start, not just at the end: "upload refused" and "the request never arrived" were
+          // indistinguishable in the log, and that is exactly what made the browser that sent nothing look
+          // like a device fault.
+          FUNCTIONLOG("SDFileManager", "upload start %s (client name '%s')", target.c_str(), filename.c_str());
         }
       }
     }
@@ -494,6 +560,7 @@ static void onUploadChunk(AsyncWebServerRequest *request, String filename, size_
       _upCode = 507;
     } else if (_upFile) {
       _upFile.write(data, len);
+      _upBytes += len;
     }
   }
 
@@ -528,7 +595,7 @@ static void hUploadDone(AsyncWebServerRequest *request) {
   // Still answered inside the mode: "ok" from a mode that has since closed would leave the page thinking it
   // can carry on reading the card.
   if (!requireActive(request)) return;
-  FUNCTIONLOG("SDFileManager", "uploaded %s", _upPath.c_str());
+  FUNCTIONLOG("SDFileManager", "uploaded %s (%lu bytes)", _upPath.c_str(), (unsigned long)_upBytes);
   _upPath = "";
   invalidateSdIndex();
   sendOk(request);
@@ -536,8 +603,22 @@ static void hUploadDone(AsyncWebServerRequest *request) {
 
 // ==== Mode ====
 
+bool FileManager::uploadOpen() const {
+  return _upFile ? true : false;
+}
+
 void FileManager::touch() {
   _lastActivity = millis();
+  // The manager stops the player, which leaves the display in the state the screensaver branch counts
+  // towards (mode PLAYER, nothing playing).  Any API call is the user being here, so it also resets that
+  // countdown.  The display-mode guard is the other half of this: only SDMAN can take the screen while the
+  // mode is open, so the mode cannot fall back to PLAYER under an active session in the first place.
+  config.screensaverTicks = 0;
+  config.screensaverPlayingTicks = 0;
+}
+
+void FileManager::markCardChanged() {
+  _cardChanged = true;
 }
 
 uint32_t FileManager::idleRemainingMs() const {
@@ -565,31 +646,79 @@ void FileManager::enter() {
   if (_active) return;
   _active = true;
   display.putRequest(NEWMODE, SDMAN);
-  FUNCTIONLOG("SDFileManager", "open (SD %s)", sdman.ready ? "mounted" : "NOT mounted");
+  #if defined(SD_USE_MMC)
+    const char* transport = "MMC";
+  #else
+    const char* transport = "SPI";
+  #endif
+  // Transport, card type and capacity all in the entry line: the next report about a card problem should not
+  // need a second round trip to know what was actually mounted.
+  FUNCTIONLOG("SDFileManager", "open (%s transport, SD %s, type %d, %lu MB)", transport,
+              sdman.ready ? "mounted" : "NOT mounted", (int)sdman.cardType(),
+              (unsigned long)(sdman.cardSize() / (1024ULL * 1024ULL)));
 }
 
 void FileManager::leave(bool resumeAudio) {
   if (!_active) return;
+  // An upload still open means the browser was cut off mid-file, and hUploadDone() may never run for it (the
+  // browser aborts the request).  Close it and take the partial file away: a truncated track is worse than
+  // none, and the reason is left set so a late hUploadDone() reports it instead of a success.
+  if (_upFile) {
+    const uint32_t wrote = (uint32_t)_upBytes;
+    _upFile.close();
+    if (_upPath.length()) {
+      sdman.remove(_upPath);
+      FUNCTIONLOG("SDFileManager", "upload interrupted at %lu bytes, removed %s", (unsigned long)wrote, _upPath.c_str());
+    }
+    _upPath = "";
+    _upBytes = 0;
+    _upReason = "interrupted";
+    _upCode = 409;
+  }
   _active = false;
   display.putRequest(NEWMODE, PLAYER);
-  // SmartStart hands the audio back, with the same two branches as stopStandby(): a web stream resumes from
-  // its saved URL, the card plays by station index. The card needs nothing else - _stop() saved the byte
-  // offset and the play path resumes from it, and a stale offset after an edit goes to the player's own
-  // self-healing.
-  if (resumeAudio && _wasPlaying && config.store.smartstart) {
+  // SmartStart hands the audio back, with the same branches as stopStandby(): a web stream resumes from its
+  // saved URL, the card plays by station index.  The card never resumes once the card has changed, because a
+  // station NUMBER points at a different file after the list moves, and the re-index that follows picks a
+  // station at random anyway.  A web stream is untouched by card edits, so that one still comes back.
+  const bool smartStart = resumeAudio && _wasPlaying && config.store.smartstart;
+  const bool cardChanged = smartStart && _cardChanged && config.getMode() == PM_SDCARD;
+  if (smartStart && !cardChanged) {
     FUNCTIONLOG("SDFileManager", "resuming %s playback (offset %lu)",
                 config.getMode() == PM_WEB ? "web" : "card", (unsigned long)config.sdResumePos);
     if (config.getMode() == PM_WEB) player.resumeLastWebSource();
     else player.sendCommand({PR_PLAY, config.lastStation()});
   } else {
     // Names which condition was false, so a silent close differs from a resume that failed in the player.
-    FUNCTIONLOG("SDFileManager", "closed without resume (was playing %d, smartstart %d, allowed %d)",
-                (int)_wasPlaying, (int)config.store.smartstart, (int)resumeAudio);
+    FUNCTIONLOG("SDFileManager", "closed without resume (was playing %d, smartstart %d, allowed %d, card changed %d)",
+                (int)_wasPlaying, (int)config.store.smartstart, (int)resumeAudio, (int)cardChanged);
   }
   FUNCTIONLOG("SDFileManager", "closed");
 }
 
 void FileManager::loop() {
+  // A session's mutations owe ONE re-index, and it is paid here: after the mode has closed, never while the
+  // manager is open and never from a request handler.  A hundred deletes therefore cost one walk instead of a
+  // hundred, the walk is visible on the SDCHANGE counting screen, and no handler blocks the AsyncTCP task on
+  // it.  The card must still be there - a card that left the slot took the derived files with it, so the debt
+  // is simply dropped.  This runs on the main loop, which calls loop() whether or not the mode is open.
+  if (!_active && _cardChanged) {
+    _cardChanged = false;
+    if (sdman.ready && config.getMode() == PM_SDCARD) {
+      FUNCTIONLOG("SDFileManager", "re-indexing the card after a change");
+      display.putRequest(NEWMODE, SDCHANGE);   // same handshake as changeMode(): show the screen, then wait for it
+      const unsigned long waitStart = millis();
+      while (display.mode() != SDCHANGE && millis() - waitStart < 2000) delay(10);
+      config.initSDPlaylist(true);             // forced: the index file is exactly what the mutations dropped
+      netserver.requestOnChange(PLAYLIST, 0);  // PLAYLIST, not PLAYLISTSAVED: that one would rebuild again
+      display.putRequest(NEWMODE, PLAYER);
+      // After the mode switch, because a screen we own drops both requests: the meta and title lines are derived
+      // from station.name/title, which the re-index above may just have reset to the "nothing to play" state.
+      display.putRequest(NEWSTATION);
+      display.putRequest(NEWTITLE);
+    }
+  }
+
   if (!_active) return;
 
   // A card leaving the slot ends the mode: every path in the UI would 404, and the player needs the device
@@ -614,8 +743,19 @@ void FileManager::loop() {
     display.sdmanCountdown();
   }
 
-  if (idleRemainingMs() == 0) {
-    FUNCTIONLOG("SDFileManager", "idle for %lums, closing", (unsigned long)SDMAN_AUTO_EXIT_MS);
+  // An upload in flight touches the clock with every chunk, so zero here means the browser really has gone
+  // quiet: a stalled upload is closed, and leave() then removes what it left half-written.  Guarding on _upFile
+  // instead would be worse - a browser that died mid-file would hold the mode open for good.
+  //
+  // _active is read again here rather than trusted from the top of this function.  idleRemainingMs() answers zero
+  // for "the mode is already closed" as much as for "the timeout expired", so a leave() from the network task
+  // landing in between was reported here as a 180-second timeout - a line that named a cause this branch had not
+  // caused, and that made a close by the Done button look like the browser going quiet.  The numbers go in for
+  // the same reason: a base that is not what the chunk touches wrote is only ever visible here.
+  if (_active && idleRemainingMs() == 0) {
+    FUNCTIONLOG("SDFileManager", "idle for %lums, closing (now %lu, base %lu, elapsed %lu)",
+                (unsigned long)SDMAN_AUTO_EXIT_MS, (unsigned long)millis(), (unsigned long)_lastActivity,
+                (unsigned long)(millis() - _lastActivity));
     leave();
   }
 }

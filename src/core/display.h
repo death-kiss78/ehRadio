@@ -36,8 +36,8 @@ class Display {
     void _drawPlaylist();
     void _drawNextStationNum(uint16_t num);
     void putRequest(displayRequestType_e type, int payload=0);
-    /* Same as putRequest(), but the display task holds it until delayMs has passed - for a message that must not
-       replace what is on screen yet (the boot scan would otherwise overwrite the firmware version ~100ms in). */
+    // Same as putRequest(), but held until delayMs has passed - for a message that must not replace what is on
+    // screen yet (the boot scan would otherwise overwrite the firmware version ~100ms in).
     void putRequestDelayed(displayRequestType_e type, int payload=0, uint32_t delayMs=0);
     void _layoutChange(bool played);
     void loop();
@@ -84,35 +84,41 @@ class Display {
     uint32_t _bufferbarMax = 0;
     Pager *_pager = nullptr;
     Page *_footer = nullptr;
+    // The over line gets a page of its own, attached to the player page after the footer: a page draws its own
+    // widgets and then its sub-pages in insertion order, so that is what makes the line paint above the bottom row.
+    Page *_overLinePage = nullptr;
     VuWidget *_vuwidget = nullptr;
     NumWidget *_nums = nullptr;
     ClockWidget *_clock = nullptr;
     Page *_boot = nullptr;
     TextWidget *_bootstring = nullptr, *_volip = nullptr, *_voltxt = nullptr, *_battery = nullptr, *_rssi = nullptr, *_bitrate = nullptr;
     #ifdef USE_SD
-      // The manager's countdown line.  Non-null also means "the page currently in _boot is the manager's" which is how _swichMode knows it is safe to tear that page down again
+      // The SD File Manager's countdown line.  Non-null also means "the page currently in _boot is the manager's" which is how _switchMode knows it is safe to tear that page down again
       TextWidget *_sdmanCountText = nullptr;
       void _sdmanScreen();
     #endif
     Ticker _returnTicker;
     bool _locked = false;
     uint8_t _bootStep = 0;
-    /* One deferred request.  loop() sends it to displayQueue when its time comes, so it takes the same path an
-       immediate request does; a later boot-line message cancels it, and resetQueue() drops it, so a stale one can
-       never overwrite newer text.  NOPE is the empty slot. */
     displayRequestType_e _deferredType = NOPE;
     int _deferredPayload = 0;
     uint32_t _deferredDueMs = 0;
     void _createDspTask();
     void _reinitWidgets();
     void _setLayoutPointers();
+    void _syncLineRule(FillWidget*& w, const FillConfig* conf, bool under);
+    void _applyMetaInvert();
     void _applyState();
     void _showDialog(const char *title);
     void _setReturnTicker(uint8_t time_s);
-    /* Widget visibility = runtime state AND active layout, decided in one place. */
+    // Screens the display owns rather than borrows: the SD File Manager and the card-change wait screen.  Both are
+    // holding patterns, not player pages, so the widget requests that draw themselves are dropped while one is up
+    // and the clock and weather are hidden with it.
+    bool _ownScreen() const;
+    // Widget visibility = runtime state AND active layout, decided in one place.
     bool _clockHidden();
     bool _weatherHidden();
-    void _swichMode(displayMode_e newmode);
+    void _switchMode(displayMode_e newmode);
     void _updateBattery();
     void _updateVolume();
     void _buildJsonCache();
@@ -132,6 +138,7 @@ class Display {
     void init();
     void _start();
     void putRequest(displayRequestType_e type, int payload=0);
+    void putRequestDelayed(displayRequestType_e type, int payload=0, uint32_t delayMs=0) { putRequest(type, payload); }
 
     displayMode_e mode() { return _mode; }
     void mode(displayMode_e m) { _mode=m; }
