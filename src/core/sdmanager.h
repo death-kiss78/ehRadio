@@ -41,7 +41,7 @@ class SDManager : public SDMAN_FS_BASE {
     bool start();
     void stop();
     bool cardPresent();
-    void listSD(File &plSDfile, File &plSDindex, const char * dirname, uint8_t levels);
+    bool listSD(File &plSDfile, File &plSDindex, const char * dirname, uint8_t levels);
     void indexSDPlaylist();
     uint32_t countAudioFiles();
     void trySdRemount();  // attempt SD mount + re-index (called from controls in SDOFFLINE mode)

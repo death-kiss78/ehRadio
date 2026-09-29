@@ -110,11 +110,10 @@ class Display {
     void _applyMetaInvert();
     void _applyState();
     void _showDialog(const char *title);
+    void _showNumbers(const char* header, int32_t value, const char* fmt, bool dialogPage);
     void _setReturnTicker(uint8_t time_s);
-    // Screens the display owns rather than borrows: the SD File Manager and the card-change wait screen.  Both are
-    // holding patterns, not player pages, so the widget requests that draw themselves are dropped while one is up
-    // and the clock and weather are hidden with it.
     bool _ownScreen() const;
+    bool _drawsOverOwnScreen(displayRequestType_e type) const;
     // Widget visibility = runtime state AND active layout, decided in one place.
     bool _clockHidden();
     bool _weatherHidden();

@@ -153,7 +153,7 @@ protected:
 };
 //----------------------------------------------------------------------------------------------------------------------
 
-static const size_t AUDIO_STACK_SIZE = 3300;
+static const size_t AUDIO_STACK_SIZE = 3500;
 static StaticTask_t __attribute__((unused)) xAudioTaskBuffer;
 static StackType_t  __attribute__((unused)) xAudioStack[AUDIO_STACK_SIZE];
 extern char audioI2SVers[];

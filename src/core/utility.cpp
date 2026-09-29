@@ -19,6 +19,45 @@
 #include "player.h"
 #include "../displays/tools/pretext.h"
 
+bool clockTrustworthy() {
+  /* The clock may only print a time the device can stand behind.  Two ways it could not, and both were visible at
+     boot on this hardware:
+       1. Nothing has set the time yet.  network.timeinfo is a zeroed struct then, i.e. the year 1900 - so 1901 or
+          less IS the "never set" state, and it is what the no-RTC radio showed as 00:00 until the first doSync()
+          landed.  A device that never syncs never leaves that state, so no arbitrary epoch floor is needed: the
+          zeroed struct is its own marker.
+       2. The RTC and the clock disagree.  RTC::getTime()/setTime() carry whatever zone the chip happens to hold, so
+          a chip set by another tool (or set before the timezone was changed) holds UTC - which is indistinguishable
+          from a correct time, right year and right minute - and only an agreement test catches it.  That is the UTC
+          step the RTC radio showed between 00:00 and the local time.
+     When the system clock itself is unset there is nothing to agree WITH.  Offline with an RTC that is the SD-offline
+     case, where the chip is the only time source there will ever be - the year test above has already rejected a
+     zeroed chip, so the chip is trusted there.  Online it is NOT trusted, and that is the whole point: the agreement
+     test needs a local zone to exist, and the timezone only arrives with configTzTime() at the WiFi-connect event. */
+  if (network.timeinfo.tm_year + 1900 <= 1901) return false;   // nothing has set it: year 1900, the zeroed struct
+  /* Before the system clock is real, `localtime()` has no timezone to apply, so a chip holding UTC agrees with it
+     perfectly and its value would be printed as if it were local - which is exactly the UTC step the RTC radio still
+     showed.  Until then the chip is only trusted offline.  "Real" needs a floor: before SNTP the system clock is
+     seconds since boot, a valid-looking positive time_t that cannot be told from a date any other way.  One year of
+     epoch is the smallest honest floor - far above any uptime, far below any real date. */
+  const time_t now = time(nullptr);
+  const bool sysClockSet = (now > 31536000);
+  if (!sysClockSet) return network.status == SDOFFLINE;
+  #if RTCSUPPORTED
+    if (config.isRTCFound()) {
+      struct tm sysTm;
+      if (!localtime_r(&now, &sysTm)) return false;
+      if (network.timeinfo.tm_year != sysTm.tm_year) return false;                  // a halted cell reads 2000
+      int dmin = (network.timeinfo.tm_hour * 60 + network.timeinfo.tm_min)
+               - (sysTm.tm_hour * 60 + sysTm.tm_min);
+      if (dmin >  720) dmin -= 1440;                                                // compare across midnight
+      if (dmin < -720) dmin += 1440;
+      if (dmin > 1 || dmin < -1) return false;                                      // the chip is in another zone
+    }
+  #endif
+  return true;
+}
+
 namespace {
 
 bool readStationEntry(File& playlist, File& index, uint16_t idx, char* name, char* url, int& ovol) {

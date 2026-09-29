@@ -120,23 +120,22 @@ bool SDManager::_checkNoMedia(const char* path) {
 }
 
 bool SDManager::_endsWith (const char* base, const char* str) {
-  int slen = strlen(str) - 1;
-  const char *p = base + strlen(base) - 1;
-  while(p > base && isspace(*p)) p--;
-  p -= slen;
-  if (p < base) return false;
-  return (strncmp(p, str, slen) == 0);
+  const size_t slen = strlen(str);
+  const char* end = base + strlen(base);                          // one past the last character
+  while (end > base && isspace((unsigned char)end[-1])) end--;    // ignore trailing whitespace
+  if ((size_t)(end - base) < slen) return false;
+  return (strncmp(end - slen, str, slen) == 0);
 }
 
-void SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uint8_t levels) {
+bool SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uint8_t levels) {
   File root = sdman.open(dirname);
   if (!root) {
-    ERRORLOG("Failed to open directory");
-    return;
+    ERRORLOG("Failed to open directory %s", dirname);
+    return false;
   }
   if (!root.isDirectory()) {
-    ERRORLOG("Not a directory");
-    return;
+    ERRORLOG("Not a directory: %s", dirname);
+    return false;
   }
 
   // Collect all entries for sorting (dirs first, then alphanumeric by basename)
@@ -164,12 +163,14 @@ void SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uin
 
   // Process sorted entries
   uint32_t pos = 0;
+  bool ok = true;
   for (const auto& entry : entries) {
     sdFeedWatchdog();   // the index walk yields here already; this also feeds the watchdog if the caller is subscribed
     player.loop();
     char* filePath = (char*)malloc(entry.path.length() + 1);
     if (filePath == NULL) {
       ERRORLOG("Memory allocation failed");
+      ok = false;
       break;
     }
     strcpy(filePath, entry.path.c_str());
@@ -177,54 +178,82 @@ void SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uin
     const char* fn = fnSlash ? fnSlash + 1 : filePath;
     if (entry.isDir) {
       if (levels && !_checkNoMedia(filePath)) {
-        listSD(plSDfile, plSDindex, filePath, levels - 1);
+        if (!listSD(plSDfile, plSDindex, filePath, levels - 1)) ok = false;
       }
     } else {
       if (_endsWith(strlwr((char*)fn), ".mp3") || _endsWith(fn, ".m4a") || _endsWith(fn, ".aac") ||
           _endsWith(fn, ".wav") || _endsWith(fn, ".flac") || _endsWith(fn, ".ogg") ||
           _endsWith(fn, ".opus")) {
         pos = plSDfile.position();
-        plSDfile.print(fn);
-        plSDfile.print('\t');
-        plSDfile.print(filePath);
-        plSDfile.write((const uint8_t*)"\t0\r\n", 4);
-        plSDindex.write((uint8_t*)&pos, 4);
-        SERIALLOGDOT();
-        if (display.mode()==SDCHANGE) display.putRequest(SDFILEINDEX, _sdFCount+1);
-        _sdFCount++;
-        if (_sdFCount % 64 == 0) SERIALLOGLF();
+        const size_t rowBody = (size_t)plSDfile.print(fn) + (size_t)plSDfile.print('\t') + (size_t)plSDfile.print(filePath);
+        const size_t rowTail = plSDfile.write((const uint8_t*)"\t0\r\n", 4);
+        const size_t idxWrote = plSDindex.write((uint8_t*)&pos, 4);
+        if (rowTail != 4 || idxWrote != 4 || rowBody == 0) {
+          // a write the card refused: the pair is short from here on, so say so rather than counting the file anyway
+          ERRORLOG("SD write failed at %s", filePath);
+          ok = false;
+        } else {
+          SERIALLOGDOT();
+          if (display.mode()==SDCHANGE) display.putRequest(SDFILEINDEX, _sdFCount+1);
+          _sdFCount++;
+          if (_sdFCount % 64 == 0) SERIALLOGLF();
+        }
       }
     }
     free(filePath);
+    if (!ok) break;   // a failing card only produces more of the same
   }
+  return ok;
 }
 
 void SDManager::indexSDPlaylist() {
   _sdFCount = 0;
-  if (exists(PLAYLIST_SD_PATH)) remove(PLAYLIST_SD_PATH);
-  if (exists(INDEX_SD_PATH)) remove(INDEX_SD_PATH);
-  File playlist = open(PLAYLIST_SD_PATH, "w", true);
+  if (exists(PLAYLIST_SD_TMP_PATH)) remove(PLAYLIST_SD_TMP_PATH);
+  if (exists(INDEX_SD_TMP_PATH)) remove(INDEX_SD_TMP_PATH);
+  File playlist = open(PLAYLIST_SD_TMP_PATH, "w", true);
   if (!playlist) {
     return;
   }
-  File index = open(INDEX_SD_PATH, "w", true);
-  listSD(playlist, index, "/", SD_MAX_LEVELS);
+  File index = open(INDEX_SD_TMP_PATH, "w", true);
+  const bool walked = listSD(playlist, index, "/", SD_MAX_LEVELS);
+
+  index.flush();                                 // size() is only accurate after a flush
+  const size_t idxRows = index ? index.size() : 0;
+  const bool complete = walked && playlist && index && idxRows == (size_t)_sdFCount * 4;
+
+  if (!complete) {
+    if (index) index.close();
+    playlist.flush();
+    playlist.close();
+    remove(PLAYLIST_SD_TMP_PATH);
+    remove(INDEX_SD_TMP_PATH);
+    SERIALLOGLF();
+    FUNCTIONLOG("SD", "indexing did not finish (%u files, %u index bytes): the partial pair was discarded, any previous pair is untouched",
+                (unsigned)_sdFCount, (unsigned)idxRows);
+    delay(50);
+    return;
+  }
 
   // Append footer: [magic:4][count:4] = 8 bytes
   // - magic = 0x1867 validates this is our format
   // - count = number of audio files found (staleness check)
-  if (index) {
-    index.flush();  // ensure size() is accurate before appending footer
-    uint32_t magic = 0x1867;
-    uint32_t fcount = _sdFCount;
-    index.seek(index.size());
-    index.write((uint8_t*)&magic, 4);
-    index.write((uint8_t*)&fcount, 4);
-  }
+  uint32_t magic = 0x1867;
+  uint32_t fcount = _sdFCount;
+  index.seek(index.size());
+  index.write((uint8_t*)&magic, 4);
+  index.write((uint8_t*)&fcount, 4);
   index.close();
 
   playlist.flush();
   playlist.close();
+
+  if (exists(PLAYLIST_SD_PATH)) remove(PLAYLIST_SD_PATH);
+  if (exists(INDEX_SD_PATH)) remove(INDEX_SD_PATH);
+  bool swapped = rename(PLAYLIST_SD_TMP_PATH, PLAYLIST_SD_PATH);
+  swapped = rename(INDEX_SD_TMP_PATH, INDEX_SD_PATH) && swapped;
+  if (!swapped) {
+    ERRORLOG("could not move the new SD playlist and index into place");
+  }
   SERIALLOGLF();
   delay(50);
 }
@@ -277,12 +306,12 @@ void SDManager::trySdRemount() {
   display.putRequest(NEWMODE, SDCHANGE);
   if (start()) {
     config.initSDPlaylist();
-    config.setTitle(l10n(L10N_MSG_READY));
+    player.setReady();                    // the one implementation of the mode-entry text: see player.h
     display.putRequest(NEWMODE, PLAYER);
     display.putRequest(NEWSTATION);
   } else {
     display.putRequest(NEWMODE, PLAYER);  // restore from SDCHANGE
-    config.setTitle(l10n(L10N_MSG_NO_SD_CARD));
+    player.setReady();                    // no card mounted: the same helper, which knows that variant
   }
 }
 #endif

@@ -71,7 +71,7 @@
 (function () {
   'use strict';
 
-  var state = { path: '/', entries: [], sortKey: 'n', sortDir: 1, armed: false, arming: false, card: '', locked: false, uploading: false,
+  var state = { path: '/', entries: [], sortKey: 'n', sortDir: 1, armed: false, arming: false, card: '', locked: false, uploading: false, busy: false,
                 notice: { text: '', error: false, sticky: false } };
 
   /* The download glyph is the one the curated list uses (see the source reference there, svgviewer.dev).
@@ -113,14 +113,33 @@
     $('progresslabel').textContent = on ? (text || '') : '';
     $('progressfile').textContent = '';
     $('progresspct').textContent = '';
+    /* While an operation runs, the whole button row is inert and dimmed - the same look the controls have inside the
+       protected folder - and the Delete button drops its "Delete 3?" wording: the count belongs to the press that
+       armed it, not to the seconds the request takes. */
+    state.busy = !!on;
+    document.body.classList.toggle('busy', !!on);
+    if (on) armDelete(false);
   }
 
   function busyUpload(step, name, pct) {
     $('progress').classList.remove('hidden');
     $('progresstext').classList.add('upload');
+    state.busy = true;                    // an upload is the other shape of busy: the same inert button row
+    document.body.classList.add('busy');
     $('progresslabel').textContent = t('msg_file_uploading', 'Uploading') + (step ? ' ' + step : '');
     $('progressfile').textContent = name || '';
     $('progresspct').textContent = pct || '';
+  }
+
+  /* The listing has a spinner of its own inside the list, so it must NOT raise the full-screen overlay - but the
+     controls above it are just as inert while the folder is being walked: a Done pressed now closes the mode out
+     from under the request, and a Rename, Delete or Mkdir would act on a list that is no longer on screen.  It is
+     counted because the not_active path calls load() again from inside load(), and the inner request must not lower
+     the outer one's guard. */
+  var _listing = 0;
+  function listing(on) {
+    _listing = Math.max(0, _listing + (on ? 1 : -1));
+    document.body.classList.toggle('listing', _listing > 0);
   }
 
   /* The message slot lives in state, not in the element.  Two places used to empty it deliberately - the render
@@ -165,6 +184,10 @@
       case 'bad_name':      return t('msg_name_not_allowed', 'That name is not allowed.');
       case 'not_dir':       return t('msg_not_folder', 'That is not a folder.');
       case 'uploading':     return t('msg_file_upload_in_progress', 'An upload is in progress - wait for it to finish.');
+      /* A delete batch holds the mode too, so a Done press from another tab is refused the same way.  Reusing the
+         upload key would be dishonest about what is running; this key has no translation yet and falls back to the
+         English default until the locale tooling picks it up. */
+      case 'busy':          return t('msg_file_delete_in_progress', 'A delete is in progress - wait for it to finish.');
       case 'not_active':    return t('msg_sd_file_manager_closed', 'SD File Manager was closed.');
       default:              return t('msg_operation_failed', 'The operation failed.');
     }
@@ -310,6 +333,13 @@
     var box = $('pleditorcontent');
     var wasScroll = keepScroll ? box.scrollTop : 0;
     box.innerHTML = '<li class="pleitem sdnotice"><span class="plloader"><span class="loader"></span></span></li>';
+    /* The row is inert for as long as the folder is being walked, and `release` drops that on every way out of this
+       function: the success path, each of the returns below, the catch, and the not_active retry (which calls load()
+       again, so the inner call's release lowers the count and this one lowers the outer).  Disarming here as well
+       because the selection is about to be replaced - a "Delete 3?" label would be counting a list that is gone. */
+    listing(true);
+    armDelete(false);
+    function release() { listing(false); }
 
     return fetch('/sdman/list?path=' + enc(path)).then(function (r) {
       return r.json().catch(function () { return { ok: false, error: 'bad_response' }; });
@@ -338,7 +368,7 @@
     }).catch(function () {
       notice(errText('bad_response'), true);
       box.innerHTML = '';
-    });
+    }).then(release, release);
   }
 
   function loadInfo() {

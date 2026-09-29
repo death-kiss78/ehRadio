@@ -42,6 +42,13 @@ class FileManager {
     // half-written file by design, so a close arriving mid-upload would destroy one the user is still watching.
     bool uploadOpen() const;
 
+    // True while a mutating request is running - the delete batch, whose whole selection is handled inside one
+    // request (uploads report through uploadOpen()).  hDone() refuses while it is set: leave() would close the mode
+    // and tear the operation down underneath it, and a second tab is the case the page's own inert buttons cannot
+    // cover.  Cleared by the handler that set it, and by leave() as a backstop.
+    bool busy() const { return _busy; }
+    void markBusy(bool on) { _busy = on; }
+
     // Refreshes the idle clock. Public because the handlers are free functions and must stamp activity.
     void touch();
 
@@ -67,6 +74,16 @@ class FileManager {
        while FATFS is mid-write from the AsyncTCP task.  leave() also reads it to suppress the resume, because
        a station NUMBER points at a different file once the list has changed. */
     bool _cardChanged = false;
+    bool _busy = false;              // a mutating request is in flight, see busy()
+    /* An unfinished build leaves NO index at all - indexSDPlaylist() writes a temporary pair and renames it into
+       place only when the walk finished - so "the index is missing" is the repair signal, the same one
+       initSDPlaylist() acts on at mode entry.  A build that failed here is therefore owed another pass rather than
+       being forgotten, but not immediately: a card that is failing for real must not turn loop() into an endless
+       walk, so the retry waits and then gives up until the next mode entry asks again. */
+    uint32_t _reindexNotBeforeMs = 0;
+    uint8_t  _reindexTries = 0;      // attempts since the last build that wrote an index
+    static constexpr uint32_t SD_REINDEX_RETRY_MS = 4000;
+    static constexpr uint8_t  SD_REINDEX_MAX_RETRIES = 2;
     uint32_t _lastActivity = 0;
     uint32_t _lastCountdownMs = 0;   // the on-screen countdown is redrawn at most once a second
     uint8_t  _cardGone = 0;          // consecutive failed presence probes, see SDMAN_CARD_GONE_STRIKES

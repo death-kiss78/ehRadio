@@ -306,6 +306,11 @@ table.stations .importantmessage { color: var(--accent-color) !important; font-s
 #settingspopup.ir #settingsbuttonwifi { min-width: 104px; width: 104px; display: inline-block; }
 #settingspopup.ir #settingsbuttonir { min-width: 60px; width: 60px; display: inline-block; margin-left: 0; float: right; }
 .fb.tool { padding: 4px 12px; font-size: 14px; font-weight: normal; min-width: 100px; text-transform: var(--tt-lowercase); margin-top: 30px; }
+
+/* A mode switch: entering SD mode verifies the card and may rebuild the whole index, so until the device says the
+   mode is settled every control on the player page is inert and dimmed.  All of them carry `.gb`; the playlist is
+   its own element.  `pointer-events` is what actually stops the press - opacity alone only looks disabled. */
+body.switching .gb, body.switching #playlist { opacity: 0.5; pointer-events: none; }
 @keyframes spinner { 0% { transform: rotate(0deg);  } 100% { transform: rotate(360deg); } }
 @-webkit-keyframes spinner { 0% { transform: rotate(0deg);  } 100% { transform: rotate(360deg); } }
 
@@ -380,6 +385,16 @@ body.sdman #pleditorcontent .sdiconbtn.off { opacity: 0.35; cursor: default; }
 body.sdman .pleitem.dir .sdname { font-weight: bold; cursor: pointer; }
 body.sdman .sdnotice { justify-content: center; padding: 18px; }
 body.sdman .fb.off { opacity: 0.4; cursor: default; }
+/* Two inert states, wearing the same look.  `busy` is a running operation and comes with the full-screen overlay;
+   `listing` is a folder being walked, whose spinner lives inside the list itself.  Either way every control above
+   the list is inert: a Done pressed during a listing closes the mode out from under the request, and a Rename or
+   Mkdir would act on a list that is no longer on screen.  `.off` only dims and drops the cursor, so
+   `pointer-events` is what actually stops the click. */
+body.sdman.busy .fb, body.sdman.listing .fb { opacity: 0.4; cursor: default; pointer-events: none; }
+body.sdman.busy input, body.sdman.listing input { opacity: 0.4; pointer-events: none; }
+/* The header sorts the list that is on screen, so it is a control like the rest - but it is not dimmed, so the sort
+   arrow does not flicker on every folder tap. */
+body.sdman.listing .sdsort { pointer-events: none; }
 body.sdman .formbuttons { justify-content: center; }
 body.sdman #progresstext { position: absolute; left: 0; right: 0; top: 62%; transform: translateY(-50%); text-align: center; color: var(--accent-color); }
 body.sdman #progresstext.upload #progresslabel,

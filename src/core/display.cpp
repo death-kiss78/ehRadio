@@ -562,6 +562,33 @@ void Display::_showDialog(const char *title) {
   _meta->setText(title);
 }
 
+// The one way a big number goes on screen.  VOL, NUMBERS and SDCHANGE all come through here, so the widget-sharing
+// behaviour cannot drift apart again and a layout can be checked from the volume screen alone.
+
+// dialogPage=true switches to the dialog page: the panel is wiped and the number is the only thing on it, with the
+// header on the meta line.  false is the volume overlay - the number is drawn over the live player page, where the
+// row tidy-up below is what keeps it legible.  A negative value blanks the widget, which is how the card-change
+// screen starts before its counter exists (SDFILEINDEX fills it in later). */
+void Display::_showNumbers(const char* header, int32_t value, const char* fmt, bool dialogPage) {
+  // The shared rows first, in both variants: several layouts put the number on a row the weather, IP, battery or
+  // RSSI line normally uses, and those widgets draw themselves on request rather than through the page pass.
+  if (*shareWeatherIP_ptr && config.store.showweather && _weather) {
+    _weather->lock(true);   // pause weather updates while the number is up, so it cannot overwrite the IP line
+    _weather->setText("");
+  }
+  if (*shareBattRSSI_ptr && _battery && _rssi) {
+    _battery->setText(""); _battery->setActive(false);
+    _rssi->setActive(rssiInLayout());
+  }
+  if (dialogPage) _showDialog(header);
+  if (_volip) {
+    if (network.status == SDOFFLINE) _volip->setText(utf8_trim15(l10n(L10N_MSG_OFFLINE_15CHAR)), "\030\031%s");
+    else _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
+  }
+  if (value < 0) _nums->setText("");
+  else _nums->setText(value, fmt);
+}
+
 void Display::_setReturnTicker(uint8_t time_s) {
   _returnTicker.detach();
   _returnTicker.once(time_s, returnPlayer);
@@ -655,24 +682,7 @@ void Display::_switchMode(displayMode_e newmode) {
     config.isScreensaver = false;
   }
   if (newmode == VOL) {
-    // weather and IP share the same bottom row; pause weather so VOL can show IP
-    if (*shareWeatherIP_ptr && config.store.showweather && _weather) {
-      // Pause weather updates while volume UI is active to avoid shared-line collisions.
-      _weather->lock(true);
-      _weather->setText("");
-    }
-    if (*shareBattRSSI_ptr && _battery && _rssi) {
-      _battery->setText(""); _battery->setActive(false);
-      _rssi->setActive(rssiInLayout());
-    }
-    if (config.store.volumepage) {
-      _showDialog(l10n(L10N_LBL_VOLUME));
-    }
-    if (_volip) {
-        if (network.status == SDOFFLINE) _volip->setText(utf8_trim15(l10n(L10N_MSG_OFFLINE_15CHAR)), "\030\031%s");
-        else _volip->setText(utility.ipToStr(WiFi.localIP()), iptxtFmt);
-      }
-    _nums->setText(config.store.volume, numtxtFmt);
+    _showNumbers(l10n(L10N_LBL_VOLUME), config.store.volume, numtxtFmt, config.store.volumepage);
   }
   if (newmode == LOST)      _showDialog(l10n(L10N_LBL_LOST));
   if (newmode == UPDATING)  { _showDialog(l10n(L10N_LBL_UPDATE));
@@ -681,9 +691,9 @@ void Display::_switchMode(displayMode_e newmode) {
     #endif
   }
   if (newmode == SLEEPING)  _showDialog(l10n(L10N_LBL_SLEEPING));
-  if (newmode == SDCHANGE)  _showDialog(l10n(L10N_LBL_WAITFORSD));
+  if (newmode == SDCHANGE)  _showNumbers(l10n(L10N_LBL_WAITFORSD), -1, "%d", true);  // no count yet: SDFILEINDEX fills it in
   if (newmode == INFO || newmode == SETTINGS || newmode == TIMEZONE || newmode == WIFI) _showDialog("");
-  if (newmode == NUMBERS) _showDialog("");
+  if (newmode == NUMBERS)   _showNumbers("", -1, "%d", true);   // the header and the number arrive per digit
   if (newmode == STATIONS) {
     _pager->setPage(pages[PG_PLAYLIST]);
     _plcurrent->setText("");
@@ -722,8 +732,7 @@ void Display::_drawPlaylist() {
 
 void Display::_drawNextStationNum(uint16_t num) {
   _setReturnTicker(30);
-  _meta->setText(utility.stationByNum(num));
-  _nums->setText(num, "%d");
+  _showNumbers(utility.stationByNum(num), (int32_t)num, "%d", true);
 }
 
 void Display::putRequest(displayRequestType_e type, int payload) {
@@ -766,7 +775,8 @@ void Display::updateProgress(const char* label, float progress) {
 // widget requests are dropped while one is up (drawsOverOwnScreen) and the clock and weather are hidden, because
 // nothing repaints them afterwards and their page no longer ticks.
 bool Display::_ownScreen() const {
-  if (_mode == SDCHANGE) return true;
+  if (_mode == SDCHANGE || _mode == NUMBERS) return true;
+  if (_mode == VOL && config.store.volumepage) return true;
   #ifdef USE_SD
     return filemanager.active();
   #endif
@@ -832,10 +842,11 @@ void Display::_layoutChange(bool played) {
 // a holding pattern where the count is the only thing that should change.  Arriving late matters here - the title,
 // the IP line, the RSSI and battery icons and the VU all have their own refresh paths, and none of them is gated on
 // the mode.  _switchMode(PLAYER) re-derives the state from the live player on the way out.
-static bool drawsOverOwnScreen(displayRequestType_e type) {
+bool Display::_drawsOverOwnScreen(displayRequestType_e type) const {
+  if (type == DRAWVOL) return !(_mode == VOL || _mode == NUMBERS);
   switch (type) {
     case PSTART: case PSTOP: case SHOWVUMETER: case SHOWWEATHER: case NEWWEATHER:
-    case NEWTITLE: case NEWSTATION: case DRAWVOL: case SHOWBUFFERBAR:
+    case NEWTITLE: case NEWSTATION: case SHOWBUFFERBAR:
     case DSPRSSI: case DSPBATTERY: case NEWIP:
       return true;
     default:
@@ -872,7 +883,7 @@ void Display::loop() {
   if (xQueueReceive(displayQueue, &request, DSP_QUEUE_TICKS)) {
     #ifdef USE_SD
       // One pass without dsp.loop(), like the early return further down this switch.
-      if (_ownScreen() && drawsOverOwnScreen(request.type)) return;
+      if (_ownScreen() && _drawsOverOwnScreen(request.type)) return;
     #endif
     switch (request.type) {
         case NEWMODE: _switchMode((displayMode_e)request.payload); break;

@@ -7,6 +7,8 @@
 #include <FS.h>
 #include <Ticker.h>
 
+bool clockTrustworthy();
+
 /* ===== Deep Sleep Wake GPIO Mask =====
    All defined input pins on RTC-capable GPIOs are automatically used as wake sources.
    ANY interaction (button press release, rotary turn) wakes the device.

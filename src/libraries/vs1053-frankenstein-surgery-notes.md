@@ -68,8 +68,8 @@ For future migrations, do both comparisons before starting the graft.
 ### FreeRTOS Task Infrastructure Is From Maleksm
 The original Maleksm library contains `startAudioTask()`, `performAudioTask()`, `mutex_playAudioData`, `mutex_audioTask`, `m_f_audioTaskIsRunning`, etc. in both `.h` (lines 264-267, 460-467) and `.cpp`. Maleksm added the task to solve skipping on yoRadio. The old Active library kept it unchanged.
 
-### Stack Size: 3300 Words
-`AUDIO_STACK_SIZE = 3300` words (13.2KB on ESP32-S3). This value was "mostly fixed" after earlier overflow testing and is used in Maleksm, Active, and the ehRadio Maleksm backup.
+### Stack Size: 3500 Words
+`AUDIO_STACK_SIZE = 3500` words (14KB on ESP32-S3), raised from Maleksm's 3300 for parity with the I2S library. Maleksm's value was "mostly fixed" after his own overflow testing and is used in Maleksm, Active, and the ehRadio Maleksm backup; the I2S side needed 3500 because a specific stream's software decode overflowed the task's stack (`Stack canary watchpoint triggered (PeriodicTask)` — see `i2s-frankenstein-surgery-notes.md`, Addendum 2). VS1053 feeds a hardware decoder and never reaches that depth, so this is alignment rather than a fix.
 
 ### Mutex Type Mismatch (Documented, Not a Bug)
 `mutex_playAudioData` is created with `xSemaphoreCreateMutex()` (non-recursive) but the connect functions use `xSemaphoreTakeRecursive()`. This works in practice because the mutex is never recursively taken — always take-once-give-once per function. No action needed.
@@ -118,7 +118,7 @@ Copy all files from `VS1053_Audio (ehRadio nsteplanets yoRadio PR226)` into `src
 
 **Added static task buffers** (between AudioBuffer class and Audio class):
 ```cpp
-static const size_t AUDIO_STACK_SIZE = 3300;
+static const size_t AUDIO_STACK_SIZE = 3500;   // was 3300; see the Stack Size note above
 static StaticTask_t __attribute__((unused)) xAudioTaskBuffer;
 static StackType_t  __attribute__((unused)) xAudioStack[AUDIO_STACK_SIZE];
 ```

@@ -108,7 +108,9 @@ uint32_t logRingPending();  // bytes waiting in RAM
 uint32_t logRingDropped();  // lines lost to a full RAM ring
 size_t   logRingSnapshot(); // fixes the layout for one /log request, returns its total length
 size_t   logRingReadAt(size_t offset, uint8_t* out, size_t maxLen);
-void     logRingClear();
+bool     logRingServeBusy();// a /log download is in flight: a second one is refused rather than sharing the layout
+size_t   logRingClear();    // wipes the ring, returns the bytes removed
+void     logRingShutdown(); // before a filesystem format: get the last lines out, then stop touching the files
 
 #define LITTLEFSTIMELOGRESET() \
   do { \

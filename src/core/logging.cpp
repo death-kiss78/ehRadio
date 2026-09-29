@@ -7,6 +7,8 @@
   #include <LittleFS.h>
   #include <time.h>
   #include <esp_heap_caps.h>
+  #include <freertos/FreeRTOS.h>
+  #include <freertos/semphr.h>
 #endif
 
 namespace {
@@ -198,6 +200,7 @@ constexpr size_t   PENDING_BYTES   = 192;           // fragment runs join the ne
 constexpr uint32_t FLUSH_MAX_MS    = 15;            // bound one flush so loop() cannot stall on a sector erase
 constexpr uint32_t FLUSH_PERIOD_MS = 250;           // ordinary flush cadence from loop()
 constexpr uint32_t SERVE_IDLE_MS   = 5000;          // a download that reads nothing for this long is abandoned
+constexpr uint32_t IO_LOCK_WAIT_MS = 40;            // how long a /log chunk waits for the flash lock before giving up
 constexpr uint32_t CLOCK_MIN_EPOCH = 1600000000UL;  // below this the clock was never set, so stamp millis
 
 const char* const LOG_DIR  = "/logs";
@@ -225,14 +228,27 @@ uint16_t _pendingLen = 0;
 // internal-DRAM buffer: a PSRAM pointer must never reach File::write().
 uint8_t _stage[STAGE_BYTES];
 
-// The file a download is reading through, kept open between chunk callbacks: the loader asks for increasing offsets,
-// and opening the file per chunk callback was the whole cost of fetching a 1 MB log.
-File     _serveFile;
-uint8_t  _serveSlot = 0xFF;   // index into _snap, not the slot number
-size_t   _servePos  = 0;      // where _serveFile's read head is, so a seek is only issued when it is not already there
-uint32_t _serveLastMs = 0;    // when that handle last returned a byte, for the abandoned-request timeout
+// ONE lock for every LittleFS touch in the ring, and no handle cached across calls.  The old design kept the
+// download's file open between chunk callbacks and let flush()/snapshot()/clear() close that handle from other
+// tasks, so a seek could land on a handle littlefs no longer had open - which is exactly what lfs_file_seek
+// asserts on.  Every operation now opens what it needs, uses it and closes it before returning, with this mutex
+// excluding the others.  A real mutex, never a critical section: flash I/O must not run with interrupts disabled.
+SemaphoreHandle_t _ioLock = nullptr;
+
+bool ioLockTake(uint32_t waitMs) {
+  return _ioLock && xSemaphoreTake(_ioLock, pdMS_TO_TICKS(waitMs)) == pdTRUE;
+}
+void ioLockGive() { if (_ioLock) xSemaphoreGive(_ioLock); }
+
+// A /log download: its layout is written once per request, and these two fields are the only cross-task state the
+// reader keeps.  flush() uses them to leave the oldest slot alone while a client is reading through it; a request
+// that reads nothing for SERVE_IDLE_MS is treated as abandoned and stops protecting the slot.
+uint32_t _serveLastMs = 0;
+bool     _serveActive = false;
 
 void pathOf(char* out, size_t n, uint8_t slot) { snprintf(out, n, "%s/log%u.txt", LOG_DIR, (unsigned)slot); }
+
+bool downloadLive() { return _serveActive && (uint32_t)(millis() - _serveLastMs) <= SERVE_IDLE_MS; }
 
 uint16_t ringUsed() {
   const uint16_t h = _head, t = _tail;
@@ -274,6 +290,8 @@ size_t takeFromRing(size_t maxLen) {
   return n;
 }
 
+// saveIdx(), ensureFile(), currentSize() and rotate() are for callers that already hold _ioLock - flush(),
+// logRingInit() and logRingClear() - and must never take it themselves: it is not a recursive mutex.
 void saveIdx() {
   File f = LittleFS.open(IDX_PATH, "w");
   if (!f) return;
@@ -298,7 +316,8 @@ uint32_t currentSize() {
 }
 
 // Entering a slot deletes it: its content is the oldest in the ring, which keeps one generation of history and
-// makes (cur + 1) mod N the oldest file.
+// makes (cur + 1) mod N the oldest file.  Callers hold _ioLock, and call it only when no download is reading the
+// ring (flush() checks), because the slot being removed is the one a live download starts from.
 void rotate() {
   _cur = (uint8_t)((_cur + 1) % RING_FILES);
   char p[24];
@@ -317,13 +336,17 @@ void flush(bool force) {
   }
   _lastFlushMs = now;
 
-  // A download is reading through these files.  Appending while its read handle is open is not safe - littlefs can
-  // relocate the tail of the newest file when it compacts a directory - so the write waits here and the RAM ring
-  // absorbs the delay.  A request that stops reading is treated as abandoned and its handle is dropped.
-  if (_serveFile) {
-    if (now - _serveLastMs <= SERVE_IDLE_MS) return;
-    _serveFile.close(); _serveSlot = 0xFF; _servePos = 0;
-  }
+  // A download is reading through these files.  No handle is held open between its chunks any more, so an append
+  // landing between two of them is safe - but the rotate below is not: it deletes the oldest slot, which is where a
+  // live download is reading.  So this waits while one is alive and the RAM ring absorbs the delay; a request that
+  // has read nothing for SERVE_IDLE_MS is treated as abandoned and stops protecting its slot.
+  const bool live = downloadLive();
+  if (!live && _serveActive) _serveActive = false;
+
+  // One flasher at a time, and never blocking: a critical line can arrive from the player, the network or the audio
+  // task, so two flushes used to interleave their appends and each advance _cur on its own.  If the lock is busy this
+  // pass is skipped, and the ring simply keeps the bytes for the next one.
+  if (!ioLockTake(0)) return;
 
   char p[24];
   pathOf(p, sizeof(p), _cur);
@@ -331,6 +354,7 @@ void flush(bool force) {
   if (!f) {
     _disabled = true;   // no point retrying every loop; the mount may be gone
     FUNCTIONLOG("Logs", "cannot open %s - file logging stopped for this boot", p);
+    ioLockGive();
     return;
   }
 
@@ -348,12 +372,16 @@ void flush(bool force) {
   if (ioError) {
     _disabled = true;
     FUNCTIONLOG("Logs", "write failed - file logging stopped for this boot");
+    ioLockGive();
     return;
   }
 
-  // _perFile is non-zero here (init disables logging otherwise): a zero cap would rotate on every flush.  Reaching
-  // this point means no download is being served, so the slot about to be entered - the oldest - is nobody's.
-  if (_perFile && currentSize() >= _perFile) rotate();
+  // _perFile is non-zero here (init disables logging otherwise): a zero cap would rotate on every flush.  A rotate
+  // deletes the slot it enters - the oldest - so it waits for a download that is still reading through the ring;
+  // the size test simply fires again on a later flush once that download has finished or been abandoned.
+  if (_perFile && !live && currentSize() >= _perFile) rotate();
+
+  ioLockGive();
 
   if (_dropped && !_saidDrop) {
     _saidDrop = true;
@@ -440,6 +468,11 @@ void logRingWrite(const char* text, bool complete, bool critical) {
 
 void logRingInit() {
   if (!_buf && !allocRing()) return;
+  if (!_ioLock) {
+    _ioLock = xSemaphoreCreateMutex();
+    if (!_ioLock) { _disabled = true; return; }   // without the lock nothing here may touch the files at all
+  }
+  if (!ioLockTake(pdMS_TO_TICKS(500))) { _disabled = true; return; }
   if (!LittleFS.exists(LOG_DIR)) LittleFS.mkdir(LOG_DIR);
 
   // Where the rotating window is.  Without /logs/idx (first boot, manual delete) the highest-numbered existing
@@ -468,6 +501,8 @@ void logRingInit() {
   if (_perFile && _perFile < 4096) _perFile = 4096;   // never rotate on a handful of lines
 
   _ready = true;
+  ioLockGive();
+
   if (_perFile == 0) {   // not one file's worth of room: off for this boot rather than rotating in a spiral
     _disabled = true;
     FUNCTIONLOG("Logs", "no room to log: %u bytes total vs a %u KB reserve", (unsigned)total, (unsigned)(reserve / 1024));
@@ -500,10 +535,9 @@ size_t   _snapTotal = 0;
 }  // namespace
 
 size_t logRingSnapshot() {
-  if (_serveFile) { _serveFile.close(); _serveSlot = 0xFF; _servePos = 0; }   // a new request
   _snapCount = 0;
   _snapTotal = 0;
-  if (!_ready) return 0;
+  if (!_ready || !ioLockTake(IO_LOCK_WAIT_MS)) return 0;
   for (uint8_t i = 1; i <= RING_FILES; i++) {   // i == RING_FILES lands on _cur, the newest
     const uint8_t s = (uint8_t)((_cur + i) % RING_FILES);
     char p[24];
@@ -518,6 +552,9 @@ size_t logRingSnapshot() {
     _snapTotal += sz;
     _snapCount++;
   }
+  ioLockGive();
+  _serveActive = (_snapCount > 0);   // this request owns the layout until the loader walks past it
+  _serveLastMs = millis();
   return _snapTotal;
 }
 
@@ -526,37 +563,46 @@ size_t logRingReadAt(size_t offset, uint8_t* out, size_t maxLen) {
   size_t skip = offset;
   for (uint8_t i = 0; i < _snapCount; i++) {
     if (skip >= _snap[i].size) { skip -= _snap[i].size; continue; }
-    if (!_serveFile || _serveSlot != i) {   // first chunk of this file, or one further along the snapshot
-      if (_serveFile) _serveFile.close();
-      char p[24];
-      pathOf(p, sizeof(p), _snap[i].slot);
-      _serveFile = LittleFS.open(p, "r");
-      if (!_serveFile) return 0;
-      _serveSlot = i;
-      _servePos = 0;
-    }
-    if (_servePos != skip) {                // only when the loader skipped or restarted
-      if (!_serveFile.seek(skip, SeekSet)) return 0;
-      _servePos = skip;
-    }
     size_t avail = _snap[i].size - skip;
     if (avail > maxLen) avail = maxLen;
-    const size_t got = _serveFile.read(out, avail);
-    _servePos += got;
-    _serveLastMs = millis();   // tells flush() this download is still alive, so it keeps waiting
+    // Open, seek, read and close inside this one call: the handle never outlives the callback, so no other task can
+    // close it and no rotate can remove the file under it.  The lock keeps this read out of the middle of a flush's
+    // append or a rotate's remove, and the wait is bounded so a stalled flash op cannot wedge the network task.
+    size_t got = 0;
+    if (ioLockTake(IO_LOCK_WAIT_MS)) {
+      char p[24];
+      pathOf(p, sizeof(p), _snap[i].slot);
+      File f = LittleFS.open(p, "r");
+      if (f) {
+        if (f.seek(skip, SeekSet)) got = f.read(out, avail);
+        f.close();
+      }
+      ioLockGive();
+    }
+    _serveLastMs = millis();     // tells flush() this download is still alive, so it keeps waiting
+    _serveActive = (got > 0);    // a failed open or read here is the end of this response
     return got;
   }
+  _serveActive = false;          // the loader walked past the snapshot: this download is done
   return 0;
 }
 
-void logRingClear() {
-  if (_serveFile) { _serveFile.close(); _serveSlot = 0xFF; _servePos = 0; }
-  char p[24];
-  for (uint8_t i = 0; i < RING_FILES; i++) {
-    pathOf(p, sizeof(p), i);
-    LittleFS.remove(p);
+// Returns the bytes wiped, so the caller does not have to snapshot first - that snapshot was what used to rewrite
+// the layout a live download was reading.
+size_t logRingClear() {
+  size_t had = 0;
+  _serveActive = false;
+  if (_ready && ioLockTake(pdMS_TO_TICKS(200))) {
+    char p[24];
+    for (uint8_t i = 0; i < RING_FILES; i++) {
+      pathOf(p, sizeof(p), i);
+      File f = LittleFS.open(p, "r");
+      if (f) { had += f.size(); f.close(); }
+      LittleFS.remove(p);
+    }
+    LittleFS.remove(IDX_PATH);
+    ioLockGive();
   }
-  LittleFS.remove(IDX_PATH);
   portENTER_CRITICAL(&_mux);
   _head = _tail = 0;
   _dropped = 0;
@@ -565,10 +611,25 @@ void logRingClear() {
   _snapCount = 0;
   _snapTotal = 0;
   _cur = 0;
-  if (_ready) {
+  if (_ready && ioLockTake(pdMS_TO_TICKS(200))) {
     saveIdx();
     ensureFile();
+    ioLockGive();
   }
+  return had;
+}
+
+// True while a /log download is reading the current snapshot.  A second request is refused rather than sharing the
+// layout the first one is using (and rather than stealing its offsets) - the same "one at a time" rule the SD card
+// manager applies to a delete.
+bool logRingServeBusy() { return downloadLive(); }
+
+// The danger zone is about to format the filesystem: get the last lines out, then stop touching the files for the
+// rest of this boot.  Every entry point checks _disabled first, so a format cannot race the ring afterwards.
+void logRingShutdown() {
+  flush(true);
+  _serveActive = false;
+  _disabled = true;
 }
 
 #else
@@ -580,6 +641,8 @@ uint32_t logRingPending() { return 0; }
 uint32_t logRingDropped() { return 0; }
 size_t   logRingSnapshot() { return 0; }
 size_t   logRingReadAt(size_t, uint8_t*, size_t) { return 0; }
-void     logRingClear() {}
+bool     logRingServeBusy() { return false; }
+size_t   logRingClear() { return 0; }
+void     logRingShutdown() {}
 
 #endif  // SAVE_LOGS_TO_FS

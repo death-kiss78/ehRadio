@@ -140,13 +140,30 @@ function onMessage(event) {
       return;
     }
     if(typeof data.playermode !== 'undefined') { //Web, SD
+      const wasSd = modesd;
       modesd = data.playermode=='modesd';
+      const modeChanged = _modeKnown && (wasSd !== modesd);
+      _modeKnown = true;
       classEach('modeitem', function(el){ el.classList.add('hidden') });
       if(modesd) { getId('toggleplaylist').classList.add('sd-mode'); showById(['modesd', 'sdmanbtn', 'shuffle'],['plsvg']); } else { getId('toggleplaylist').classList.remove('sd-mode'); showById(['modeweb','plsvg','bitinfo'],['sdmanbtn','shuffle']); }
       /* if sdslider is ever fixed, it will be hidden without the next line to unhide it */
       // if(modesd) { showById(['volslider', 'sdslider'],[]); } else { showById(['volslider'],['sdslider']); }
       showById(['volslider'],[]);
       getId('toggleplaylist').classList.remove('active');
+      /* This notice means one thing only: the mode has CHANGED, so a switch has started.  The device sends it before
+         it verifies or indexes the card, so the page blanks, shows the loader and locks HERE - and does not fetch,
+         because anything the device could answer now is either the list being left behind or one that is still being
+         rewritten.  The fetch waits for playlistready (below).  The first report after a page load only establishes
+         which mode we are on; it is not a switch, so it must not lock anything. */
+      if (modeChanged) setModeSwitching(true);
+      return;
+    }
+    if(typeof data.playlistready !== 'undefined') {
+      /* The device has finished what the switch implied: the card was verified or rebuilt, or the web playlist is the
+         one in play.  This is the cue to unlock and load.  It arrives whether or not a build produced anything,
+         deliberately - the page waits for the device to STOP TRYING, never for a build to succeed - and it is also
+         sent when a client connects, so a page opened mid-switch ends up with a list either way. */
+      setModeSwitching(false);
       generatePlaylist(`http://${hostname}/data/playlist.csv`+"?"+new Date().getTime());
       return;
     }
@@ -455,6 +472,36 @@ function alignPlaylistStripes() {
   ul.style.backgroundPositionY = (((end - shift) % cycle + cycle) % cycle) + 'px';
 }
 window.addEventListener('resize', alignPlaylistStripes);
+
+/* ---- a mode switch: the icon, the blanked list, the loader and the lock, all at once ---------------------- */
+
+/* Entering SD mode verifies the card and can rebuild the whole index, which is minutes on a big card.  For all of
+   that the player page must not keep showing the mode being left - the streaming playlist was exactly the wrong
+   thing - and must not accept a press that belongs to that mode.  So the list is blanked to the same spinner
+   generatePlaylist uses and the whole page is locked, from the click (or from the device's first notice, for a
+   switch started on the box itself) until the device says the mode is settled.  The backstop only exists so a
+   device that never answers cannot leave the page dead. */
+var _switching = false;
+var _switchTimer = null;
+var _modeKnown = false;            // has the device told us which mode we are on yet (first report != a switch)
+var SWITCH_BACKSTOP_MS = 180000;   // 3 minutes
+
+function setModeSwitching(on){
+  _switching = !!on;
+  document.body.classList.toggle('switching', _switching);
+  if (_switchTimer) { window.clearTimeout(_switchTimer); _switchTimer = null; }
+  if (!_switching) return;
+  const pl = getId('playlist');
+  if (pl) pl.innerHTML = '<div class="plloader"><span class="loader"></span></div>';
+  const ple = getId('pleditorcontent');       // the editor must not offer the mode we are leaving either
+  if (ple) ple.innerHTML = '';
+  _switchTimer = window.setTimeout(function(){
+    _switchTimer = null;
+    setModeSwitching(false);
+    generatePlaylist(`http://${hostname}/data/playlist.csv`+"?"+new Date().getTime());
+  }, SWITCH_BACKSTOP_MS);
+}
+
 function generatePlaylist(path){
   getId('playlist').innerHTML='<div class="plloader"><span class="loader"></span></div>';
   var xhr = new XMLHttpRequest();
@@ -1175,8 +1222,14 @@ function applyCommonPageMeta(){
 function changeMode(el){
   const cmd = el.dataset.command;
   el.classList.add('hidden');
-  if(cmd=='web') getId('modesd').classList.remove('hidden');
+  /* The two mode icons are a pair, and this is the only place a switch starts, so flip them HERE - blank the list,
+     put the loader in it and lock the page in the same tick, before the request is even sent.  These branches used
+     to be the wrong way round: each hid the icon just pressed and then showed that same icon again, so the flip
+     never happened locally and only the device's playermode message ever did it - which arrives after the card has
+     been verified, or after it has been indexed. */
+  if(cmd=='sd') getId('modesd').classList.remove('hidden');
   else getId('modeweb').classList.remove('hidden');
+  setModeSwitching(true);
   websocket.send("newmode="+(cmd=="web"?0:1));
 }
 function toggleShuffle(){

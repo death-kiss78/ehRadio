@@ -183,6 +183,7 @@ void Config::changeMode(int newmode) {
     saveValue(&store.play_mode, store.play_mode);
     player.resetQueue();  // clear stale ticks commands before mode transition
     _SDplaylistFS = getMode()==PM_SDCARD?&sdman:(true?&LittleFS:_SDplaylistFS);
+    netserver.requestOnChange(GETPLAYERMODE, 0);
     if (getMode()==PM_SDCARD) {
       if (pir) player.sendCommand({PR_STOP, 0});
       display.putRequest(NEWMODE, SDCHANGE);
@@ -216,7 +217,9 @@ void Config::changeMode(int newmode) {
     if (pir) player.sendCommand({PR_PLAY, getMode()==PM_WEB?store.lastStation:store.lastSdStation});
     netserver.resetQueue();
     netserver.requestOnChange(GETINDEX, 0);
+    netserver.requestOnChange(PLAYLISTREADY, 0);
     display.resetQueue();
+    player.setReady();
     display.putRequest(NEWMODE, PLAYER);
     display.putRequest(NEWSTATION);
     display.putRequest(NEWTITLE);
@@ -247,9 +250,10 @@ void Config::initSDPlaylist(bool force) {
     if (!doIndex) {
       File index = sdman.open(INDEX_SD_PATH, "r");  // use sdman directly — SDPLFS() may be LittleFS after safe mode
       // Footer: [magic:4][count:4] = 8 bytes
-      if (index && index.size() >= 12) {  // min: 1 entry (4) + footer (8)
+      const size_t idxSize = index ? index.size() : 0;
+      if (index && idxSize >= 12) {  // min: 1 entry (4) + footer (8)
         uint32_t magic, storedCount;
-        index.seek(index.size() - 8);
+        index.seek(idxSize - 8);
         index.readBytes((char*)&magic, 4);
         index.readBytes((char*)&storedCount, 4);
         uint32_t currentCount = sdman.countAudioFiles();
@@ -258,9 +262,22 @@ void Config::initSDPlaylist(bool force) {
         if (magic != 0x1867) {
           FUNCTIONLOG("SD", "Magic mismatch (should be 1867). Re-indexing.");
           doIndex = true;
+        } else if (idxSize != (size_t)storedCount * 4 + 8) {
+          FUNCTIONLOG("SD", "Index is %u bytes for %u tracks (expected %u). Re-indexing.",
+                      (unsigned)idxSize, (unsigned)storedCount, (unsigned)((size_t)storedCount * 4 + 8));
+          doIndex = true;
         } else if (storedCount != currentCount) {
           FUNCTIONLOG("SD", "File count mismatch. Re-indexing.");
           doIndex = true;
+        } else if (currentCount > 0) {
+          File csv = sdman.open(PLAYLIST_SD_PATH, "r");
+          const size_t csvSize = csv ? csv.size() : 0;
+          if (csv) csv.close();
+          if (csvSize < (size_t)currentCount * 16) {
+            FUNCTIONLOG("SD", "Playlist file holds %u bytes for %u tracks. Re-indexing.",
+                        (unsigned)csvSize, (unsigned)currentCount);
+            doIndex = true;
+          }
         }
       } else {
         FUNCTIONLOG("SD", "Index open failed or too small. Re-indexing.");

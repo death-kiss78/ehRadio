@@ -9,6 +9,20 @@
 #define MAX_WIDTH       DSP_WIDTH-TFT_FRAMEWDT*2
 #define BOOTLOGOTOP     8
 
+/* YO_MONO's glyphs sit a little narrower and lower than the chunky fonts, so its
+   clock wants a small nudge right and up.  Two shifts, one per axis, so the
+   .clockConf below stays one line for every font.
+
+   THIS DEFINITELY NEEDS TO BE REMOVED IF WE ALTER HOW CLOCK LOCATION IS DETERMINED */
+
+#if CLOCKFONT == YO_MONO
+  #define CLOCKSHIFT_X 4
+  #define CLOCKSHIFT_Y -1
+#else
+  #define CLOCKSHIFT_X 0
+  #define CLOCKSHIFT_Y 0
+#endif
+
 const BootData _bootConfig PROGMEM = {
         /* SCROLLS             {{ left, top, fontsize, align }, buffsize, uppercase, width, scrolldelay, scrolldelta, scrolltime } */
         .apTitleConf         = {{ TFT_FRAMEWDT+1, TFT_FRAMEWDT+1, 1, WA_CENTER }, 140, false, MAX_WIDTH-2, 0, 1, SCROLLTIME },
@@ -60,7 +74,7 @@ const LayoutData _layouts[] PROGMEM = {
         .iptxtConf           = { 0, 64-13, 1, WA_LEFT },
         .rssiConf            = { 0, 64-12-10, 1, WA_LEFT },
         .numConf             = { TFT_FRAMEWDT, 57, 0, WA_CENTER },
-        .clockConf           = { 3, 56, 0, WA_RIGHT },
+        .clockConf           = { CLOCKSHIFT_X, 58 + CLOCKSHIFT_Y, 0, WA_RIGHT },
         // .clockConf         = { 6, 34, 2, WA_CENTER },
         //.vuConf              = { }, // unused
         .vuConf              = { DSP_WIDTH/2+4, DSP_HEIGHT/2-7, 1, WA_CENTER },

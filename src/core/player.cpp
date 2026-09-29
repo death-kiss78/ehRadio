@@ -104,6 +104,14 @@ void Player::stopInfo() {
 
 // Lives here because this file already owns the display locale: duplicating dsplocale.h into another
 // translation unit embeds a second copy of every locale table, which costs tens of KB of flash.
+void Player::setReady() {
+  setError("");
+  #ifdef USE_SD
+    if (network.status == SDOFFLINE && !sdman.ready) { config.setTitle(l10n(L10N_MSG_NO_SD_CARD)); return; }
+  #endif
+  if (config.station.url[0] != '\0') config.setTitle(l10n(L10N_MSG_READY));
+}
+
 bool Player::isConnecting() {
   return strcmp_P(config.station.title, l10n(L10N_MSG_CONNECT)) == 0;
 }

@@ -7,6 +7,7 @@
 #include "core/backlightcontrols.h"
 #include "core/config.h"
 #include "core/controls.h"
+#include "core/crashreport.h"
 #include "core/display.h"
 #include "core/logging.h"
 #include "core/mqtt.h"
@@ -45,10 +46,17 @@ void setup() {
   #endif
   Serial.begin(115200);
   #if (CORE_DEBUG_LEVEL > 0) || defined(ALL_DEBUG_LOGS)
-    if (esp_reset_reason() == ESP_RST_POWERON || esp_reset_reason() == ESP_RST_EXT) { // checking if this is a poweron boot
+    // A crash needs the same wait as a cold boot.  esp_reset_reason() after a panic is ESP_RST_PANIC (or one of the
+    // WDT reasons) rather than ESP_RST_POWERON, so without this the crash summary below would be printed before the
+    // host terminal had attached and the burst would be clipped.  "A core dump is waiting" is therefore the third
+    // reason to hold the boot here - and it is the one that the log ring needs, since a crash is only reported on
+    // the boot AFTER it.
+    const bool dumpedCrash = crashDumpAvailable();
+    if (dumpedCrash || esp_reset_reason() == ESP_RST_POWERON || esp_reset_reason() == ESP_RST_EXT) { // poweron boot or a crash
       delay(1000);
       BOOTLOG("1 second delay after cold boot to ensure serial logs are available (CORE_DEBUG_LEVEL > 0 or ALL_DEBUG_LOGS)...");
     }
+    if (dumpedCrash) crashDumpReport();   // the previous boot's crash: serial log and log ring both get it
   #endif
   #if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
     Serial.setTxTimeoutMs(BOOTLOG_TX_TIMEOUT_MS);

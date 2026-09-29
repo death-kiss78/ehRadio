@@ -30,6 +30,8 @@ extern uint32_t vuPsramBytes;
 #define INDEX_PATH           "/data/" INDEX_FILE
 #define PLAYLIST_SD_PATH     "/data/" PLAYLIST_SD_FILE
 #define INDEX_SD_PATH        "/data/" INDEX_SD_FILE
+#define PLAYLIST_SD_TMP_PATH "/data/" PLAYLIST_SD_FILE ".tmp"
+#define INDEX_SD_TMP_PATH    "/data/" INDEX_SD_FILE ".tmp"
 
 // --- LittleFS partition / mount configuration --------------------------------
 // FS_PARTITION_LABEL must match the Name column of the filesystem partition in

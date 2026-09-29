@@ -270,6 +270,10 @@ static size_t logChunk(uint8_t* buffer, size_t maxLen, size_t index) {
 }
 
 void handleLog(AsyncWebServerRequest *request) {
+  if (logRingServeBusy()) {
+    request->send(409, "text/plain", "a log download is already in progress\n");
+    return;
+  }
   const size_t total = logRingSnapshot();
   if (total == 0) {
     request->send(200, "text/plain", "no log stored\n");
@@ -282,8 +286,11 @@ void handleLog(AsyncWebServerRequest *request) {
 
 // /logclear empties the ring (state file too)
 void handleLogClear(AsyncWebServerRequest *request) {
-  const size_t had = logRingSnapshot();   // length before the wipe, for the confirmation text
-  logRingClear();
+  if (logRingServeBusy()) {   // the wipe would pull the files out from under that download
+    request->send(409, "text/plain", "a log download is in progress - wait for it to finish\n");
+    return;
+  }
+  const size_t had = logRingClear();   // wipes and reports the bytes, without snapshotting over anyone
   char body[48];
   snprintf(body, sizeof(body), "log cleared (%u bytes)\n", (unsigned)had);
   AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", body);
@@ -608,6 +615,7 @@ void NetServer::processQueue() {
           requestOnChange(MODE, clientId); 
           requestOnChange(SDINIT, clientId);
           requestOnChange(GETPLAYERMODE, clientId);
+          requestOnChange(PLAYLISTREADY, clientId);
           requestOnChange(GETBATTERY, clientId); 
           if (config.getMode()==PM_SDCARD) { requestOnChange(SDPOS, clientId); requestOnChange(SDLEN, clientId); requestOnChange(SDSHUFFLE, clientId); } 
           return; 
@@ -739,6 +747,7 @@ void NetServer::processQueue() {
       case GETPLAYERMODE: snprintf(wsbuf, sizeof(wsbuf), "{\"playermode\": \"%s\"}", config.getMode()==PM_SDCARD?"modesd":"modeweb"); break;
       case SEARCH_DONE:   snprintf(wsbuf, sizeof(wsbuf), "{\"search_done\":true}"); break;
       case SEARCH_FAILED: snprintf(wsbuf, sizeof(wsbuf), "{\"search_failed\":true}"); break;
+      case PLAYLISTREADY: snprintf(wsbuf, sizeof(wsbuf), "{\"playlistready\":true}"); break;
       case CURATED_INDEX_DONE: snprintf(wsbuf, sizeof(wsbuf), "{\"curated_index_done\":true}"); break;
       case CURATED_PLAYLIST_DONE: snprintf(wsbuf, sizeof(wsbuf), "{\"curated_playlist_done\":true}"); break;
       case CURATED_FAILED: snprintf(wsbuf, sizeof(wsbuf), "{\"curated_failed\":true}"); break;

@@ -762,6 +762,12 @@ Adafruit_GFX& ClockWidget::getRealDsp(){
 }
 
 void ClockWidget::_printClock(bool force){
+  /* The one place the time reaches the screen, whichever caller arrived: the tick-driven draw(), the forced _draw()
+     that Pager::setPage() and the layout helpers use, and the screensaver.  Nothing is printed until the device has a
+     time it can stand behind (clockTrustworthy() in utility.cpp) - a zeroed timeinfo prints 00:00 and a chip in
+     another zone prints a plausible-looking wrong time, which is what the bouncing clock at boot was.  The first
+     genuine paint needs no help: ticks() and doSync() both request CLOCK the moment they have something to show. */
+  if (!clockTrustworthy()) return;
   auto& gfx = getRealDsp();
   gfx.setTextSize(Clock_GFXfontPtr==nullptr?TIME_SIZE:1);
   gfx.setFont(Clock_GFXfontPtr);

@@ -128,18 +128,21 @@ bool FileManager::isPlaying(const String &path) const {
   return false;
 }
 
-// A mutation makes TWO derived things wrong, and they are wrong independently:
-//   - the SD index file (one offset per file): deleting it is the cheapest correct answer, and
-//     config.initSDPlaylist() rebuilds it.  A file, not a RAM bit, so it survives a power cycle.
+// A mutation makes these wrong:
+//   - the pair of derived files: playlistsd.csv (the rows) and indexsd.dat (one offset per row, plus a footer
+//     count).  They are one object in two files and are always dropped together - see dropSdDerivedFiles() - and
+//     config.initSDPlaylist() rebuilds them.  Files, not RAM bits, so they survive a power cycle.  Dropping only
+//     the index is how a valid index came to sit beside a truncated playlist, which SD mode then read as an empty
+//     card; the index must go for the rebuild to trigger at all, since its absence is what that test looks for.
 //   - the device's in-RAM SD playlist, which the player and the WebUI read: it stays stale until something
 //     rebuilds it.  Nothing rebuilds it here, and nothing rebuilds it while the manager is open: a session of
 //     many operations pays for one walk, done by FileManager::loop() after the mode closes.  The bit also
 //     suppresses the resume, because a station NUMBER means a different file once the list has changed.
-static void invalidateSdIndex() {
-  if (sdman.exists(INDEX_SD_PATH)) {
-    sdman.remove(INDEX_SD_PATH);
-    FUNCTIONLOG("SDFileManager", "SD index dropped; it will be rebuilt when the mode closes");
-  }
+static void dropSdDerivedFiles() {
+  bool dropped = false;
+  if (sdman.exists(INDEX_SD_PATH))    { sdman.remove(INDEX_SD_PATH);    dropped = true; }
+  if (sdman.exists(PLAYLIST_SD_PATH)) { sdman.remove(PLAYLIST_SD_PATH); dropped = true; }
+  if (dropped) FUNCTIONLOG("SDFileManager", "SD playlist and index dropped; they will be rebuilt when the mode closes");
   filemanager.markCardChanged();
 }
 
@@ -202,6 +205,13 @@ static void hDone(AsyncWebServerRequest *request) {
     sendError(request, 409, "uploading");
     return;
   }
+  // Same rule for a delete batch, and the same reason to be inert: the page's own buttons are already dimmed and
+  // inert while one runs (see busy() in sdmanager.html), so what arrives here is a second tab or a second device.
+  if (filemanager.busy()) {
+    FUNCTIONLOG("SDFileManager", "Done refused, a delete is in progress");
+    sendError(request, 409, "busy");
+    return;
+  }
   // Named here, because leave() cannot tell a Done press from its own timeout: until this line existed, a close
   // the user asked for and a close the countdown asked for were identical in the log.
   FUNCTIONLOG("SDFileManager", "closing on request (Done button)");
@@ -251,7 +261,7 @@ static void hMkdir(AsyncWebServerRequest *request) {
   if (!isSafeName(basenameOf(path))) { sendError(request, 400, "bad_name"); return; }
   if (!sdman.mkdir(path)) { sendError(request, 500, "mkdir_failed"); return; }
   FUNCTIONLOG("SDFileManager", "mkdir %s", path.c_str());
-  invalidateSdIndex();
+  dropSdDerivedFiles();
   sendOk(request);
 }
 
@@ -284,7 +294,7 @@ static void doRename(AsyncWebServerRequest *request, bool sameDirectory) {
   if (!sdman.rename(from, target)) { sendError(request, 500, "rename_failed"); return; }
 
   FUNCTIONLOG("SDFileManager", "%s %s -> %s", sameDirectory ? "rename" : "move", from.c_str(), target.c_str());
-  invalidateSdIndex();
+  dropSdDerivedFiles();
   sendOk(request);
 }
 
@@ -303,6 +313,9 @@ static void onDeleteBody(AsyncWebServerRequest *request, uint8_t *data, size_t l
 static void hDelete(AsyncWebServerRequest *request) {
   if (!requireActive(request)) return;
   filemanager.touch();
+  // The whole selection is handled inside this one request, so this is the operation the mode cannot be closed in
+  // the middle of: leave() would tear it down and leave the card's derived files half-written.
+  filemanager.markBusy(true);
   int deleted = 0, failed = 0;
 
   int start = 0;
@@ -341,8 +354,9 @@ static void hDelete(AsyncWebServerRequest *request) {
     }
   }
   _deleteBody = "";
+  filemanager.markBusy(false);   // the long part is over: the invalidation and the answer are both quick
 
-  if (deleted) invalidateSdIndex();
+  if (deleted) dropSdDerivedFiles();
 
   String body = F("{\"ok\":");
   body += (failed == 0) ? "true" : "false";
@@ -597,7 +611,7 @@ static void hUploadDone(AsyncWebServerRequest *request) {
   if (!requireActive(request)) return;
   FUNCTIONLOG("SDFileManager", "uploaded %s (%lu bytes)", _upPath.c_str(), (unsigned long)_upBytes);
   _upPath = "";
-  invalidateSdIndex();
+  dropSdDerivedFiles();
   sendOk(request);
 }
 
@@ -676,6 +690,7 @@ void FileManager::leave(bool resumeAudio) {
     _upCode = 409;
   }
   _active = false;
+  _busy = false;   // backstop: a handler that died mid-operation must not be able to lock the mode closed
   display.putRequest(NEWMODE, PLAYER);
   // SmartStart hands the audio back, with the same branches as stopStandby(): a web stream resumes from its
   // saved URL, the card plays by station index.  The card never resumes once the card has changed, because a
@@ -702,7 +717,7 @@ void FileManager::loop() {
   // hundred, the walk is visible on the SDCHANGE counting screen, and no handler blocks the AsyncTCP task on
   // it.  The card must still be there - a card that left the slot took the derived files with it, so the debt
   // is simply dropped.  This runs on the main loop, which calls loop() whether or not the mode is open.
-  if (!_active && _cardChanged) {
+  if (!_active && _cardChanged && (int32_t)(millis() - _reindexNotBeforeMs) >= 0) {
     _cardChanged = false;
     if (sdman.ready && config.getMode() == PM_SDCARD) {
       FUNCTIONLOG("SDFileManager", "re-indexing the card after a change");
@@ -710,12 +725,31 @@ void FileManager::loop() {
       const unsigned long waitStart = millis();
       while (display.mode() != SDCHANGE && millis() - waitStart < 2000) delay(10);
       config.initSDPlaylist(true);             // forced: the index file is exactly what the mutations dropped
-      netserver.requestOnChange(PLAYLIST, 0);  // PLAYLIST, not PLAYLISTSAVED: that one would rebuild again
       display.putRequest(NEWMODE, PLAYER);
       // After the mode switch, because a screen we own drops both requests: the meta and title lines are derived
       // from station.name/title, which the re-index above may just have reset to the "nothing to play" state.
       display.putRequest(NEWSTATION);
       display.putRequest(NEWTITLE);
+      /* The list is as ready as this pass can make it, so let the player page unlock and fetch.  Sent even when the
+         build above failed, because that page must never wait for a build to SUCCEED. */
+      netserver.requestOnChange(PLAYLISTREADY, 0);
+      /* ...but a failed build is owed another pass: it left no index at all, which is the state initSDPlaylist()
+         repairs at mode entry.  The flag was consumed at the top of this block, so it is set again here, with a
+         delay and a cap so a card that cannot be written does not turn loop() into an endless walk. */
+      if (!sdman.exists(INDEX_SD_PATH)) {
+        if (_reindexTries < SD_REINDEX_MAX_RETRIES) {
+          _reindexTries++;
+          _cardChanged = true;
+          _reindexNotBeforeMs = millis() + SD_REINDEX_RETRY_MS;
+          FUNCTIONLOG("SDFileManager", "no index was written: retry %u of %u in %lums",
+                      (unsigned)_reindexTries, (unsigned)SD_REINDEX_MAX_RETRIES, (unsigned long)SD_REINDEX_RETRY_MS);
+        } else {
+          FUNCTIONLOG("SDFileManager", "no index after %u attempts: leaving it empty until the next mode entry",
+                      (unsigned)_reindexTries);
+        }
+      } else {
+        _reindexTries = 0;
+      }
     }
   }
 

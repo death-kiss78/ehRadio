@@ -124,7 +124,7 @@ void Audio::performAudioTask() {
 - `setAudioTaskCore(uint8_t coreID)` — same pattern, stops/restarts task
 - `startAudioTask()` uses `xTaskCreateStaticPinnedToCore(..., m_audioTaskCoreId)`
 - **No `AUDIO_CORE` macro used** — needs to be wired to options.h AUDIO_CORE
-- `AUDIO_STACK_SIZE` still 3300 words
+- `AUDIO_STACK_SIZE` raised to **3500** words (was 3300) — see Addendum 2 for the stream that overflowed it
 - Task starts from `I2Sstart()` method, not constructor
 
 ### 6. New Logging System
@@ -267,6 +267,40 @@ upstream folders are kept because they are the only local copies of code that is
 
 ---
 
-## Addendum (problem discovered much later)
+## Post-Graft Patch Fixes (2026-08-10)
 
 Fixed AudioBuffer::bytesWritten() at Audio.cpp:142: m_writePtr == m_endPtr → >= with overflow wrapping (same pattern as bytesWasRead at line 150). Prevents write pointer from overshooting buffer and corrupting adjacent PSRAM.
+
+---
+
+## Post-Graft Patch Fixes (2026-09-28)
+
+`AUDIO_STACK_SIZE` went from **3300 to 3500 words** (13.2 KB → 14 KB) because one station killed the firmware
+in the middle of decoding it: `streams.echoesofbluemars.org:8000/cryosleep`, which the decoder reports as
+`MPEG-2.5, Layer I`.
+
+```
+Guru Meditation Error: Core  0 panic'ed (Unhandled debug exception).
+Debug exception reason: Stack canary watchpoint triggered (PeriodicTask)
+Backtrace: 0x40381e58:0x3fca49a0 0x40380621:0x3fca49e0 0x4037ec48:0x3fca4a10 0x4037ec3e:0xa5a5a5a5 |<-CORRUPTED
+```
+
+`PeriodicTask` is this library's own audio decode task — the static one created around `Audio.cpp:6802` with
+`AUDIO_STACK_SIZE` words and priority 2, pinned to `AUDIO_CORE` — so the canary trip is that task's stack
+ending, not a fault in something it called. 4096 words was tried and the stream was stable; 3500 is what was
+kept, because upstream Maleksm 0.9.720m uses it too (`I2S_Audio (yoRadio Maleksm v0.9.720m(23.06.26))/Audio.cpp:39`)
+and the stream is stable at that value. One more reason to keep Maleksm's libraries on disk: he had already
+raised this number for the same class of failure.
+
+What this was **not**, since that ground was walked first:
+
+- **Not the task watchdog.** There is no `task_wdt` line in the panic, and `CONFIG_ASYNC_TCP_USE_WDT` makes no
+  difference to it: the canary is a hardware watchpoint at the end of a stack, not the TWDT.
+- **Not the AsyncTCP core or priority.** The panic happened at `CONFIG_ASYNC_TCP_PRIORITY` 2, 3 *and* 4, and on
+  an I2S build `async_tcp` is pinned to `NETWORK_CORE` = 1 while the audio task sits on `AUDIO_CORE` = 0, so the
+  two never shared a core. A fault that is invariant under a setting is not caused by that setting — leave the
+  priority at 3 and the core pinned, because `-1` would let `async_tcp` land on the audio core.
+
+**Where the value lives**: `AUDIO_STACK_SIZE` is a plain `static const size_t` in `Audio.h`, beside the static
+`xAudioStack[]` the task is handed. It is not read from `options.h` and is not scaled by `STACK_MULTIPLIER`, so
+it cannot be tuned from `myoptions.h` — the header itself has to be edited.

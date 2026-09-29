@@ -174,7 +174,11 @@ protected:
 //----------------------------------------------------------------------------------------------------------------------
 
 // [Maleksm graft] FreeRTOS audio task stack (feeds VS1053 independently of Arduino loop)
-static const size_t AUDIO_STACK_SIZE = 3300;                             // words (13.2KB on ESP32-S3)
+// 3300 -> 3500 for parity with the I2S library, which needed the extra room for a stream whose software decode
+// overflowed this task's stack (panic: Stack canary watchpoint triggered (PeriodicTask)) - see
+// i2s-frankenstein-surgery-notes.md, Addendum 2.  This backend hands the bitstream to a hardware decoder, so it
+// never reaches that depth, but the two should not disagree about the number.
+static const size_t AUDIO_STACK_SIZE = 3500;                             // words (14KB on ESP32-S3)
 static StaticTask_t __attribute__((unused)) xAudioTaskBuffer;
 static StackType_t  __attribute__((unused)) xAudioStack[AUDIO_STACK_SIZE];
 

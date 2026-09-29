@@ -37,6 +37,7 @@ class Player: public Audio {
     void stopSync();  // synchronous stop — closes audio file before SD unmount
     void stopInfo();
     void setError(const char *e);
+    void setReady();
     void initHeaders(const char *file);
     void loop();
     bool queueResolvedUrl(const char* url);

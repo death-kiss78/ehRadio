@@ -14,8 +14,10 @@ Output:
 
 Usage:
   python png_to_gfxfont.py input.png output.h
+
+  python png_to_gfxfont.py input.png output.h --glow-char '/'
+
   python png_to_gfxfont.py input.png output.h --digit-width 40
-    python png_to_gfxfont.py input.png output.h --glow-char '/'
 """
 
 import argparse

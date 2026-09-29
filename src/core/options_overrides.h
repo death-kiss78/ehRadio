@@ -55,7 +55,7 @@
   #define CONFIG_ASYNC_TCP_USE_WDT 1 // library task subscribes to the task WDT (0 = disable)
 #endif
 #ifndef CONFIG_ASYNC_TCP_PRIORITY
-  #define CONFIG_ASYNC_TCP_PRIORITY 2 // library default is 10 (2 is same as audio task)
+  #define CONFIG_ASYNC_TCP_PRIORITY 4 // library default is 10 (2 is same as audio task, 3 is highest, 4 puts it above everything else)
 #endif
 
 #endif // options_overrides_h

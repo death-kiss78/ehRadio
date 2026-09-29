@@ -218,6 +218,7 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 #define YO_MONO         0  // Default modern yoRadio 7-Segment font (monospaced)
 #define CHUNKY6_PX      1  // Default (spacing pixels) - great on color screens
 #define CHUNKY6         2  // Really heavy looking - great on mono screens
+#define LED             3  // A 7-Segment LED font
 
 /* Chunky6 with spaces between pixels is the default (except on OLEDs) */
 #ifndef CLOCKFONT
@@ -1292,6 +1293,14 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
     #define ESPFILEUPDATER_VERBOSE false // it needs a value
   #endif
 #endif
+
+/* Print the previous boot's crash at boot */
+#define COREDUMP_SUMMARY_AT_BOOT // BOOTLOG the last core dump's task, PC, backtrace and ELF SHA into the serial log and
+                                 // into the log ring, so /log.txt carries the crash.  ESP-IDF writes that dump itself:
+                                 // every partition table here already reserves a "coredump" partition and the prebuilt
+                                 // libraries are built with core-dump-to-flash in ELF format.  Nothing is printed when
+                                 // there is no dump.  Comment this out to leave the dump alone entirely.
+// #define COREDUMP_KEEP_DUMP    // keep the dump in flash after reporting it, for esp-coredump and the Espressif tools
 
 /* Save Logs to LittleFS */
 // #define SAVE_LOGS_TO_FS // Save the logs to LittleFS as a rotating file set for later viewing (at http://x.x.x.x./log.txt)

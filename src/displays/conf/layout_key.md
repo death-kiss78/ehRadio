@@ -264,6 +264,27 @@ is non-zero. Two consequences:
 - To put a clock at the very top-left corner you must set a fourth field, for example
   `.clockConf = { 0, 0, 0, WA_LEFT }` — otherwise it is indistinguishable from "absent".
 
+### `numConf` serves three screens, so test it once
+
+The same digits draw in three places, which is why one check is enough: the volume screen
+(with `volumepage` on it is a dialog page with the volume label as the header; with the option off
+it is an overlay drawn straight over the player page), the station-number entry screen, and the
+SD card index screen that counts the files while the card is being indexed. All three go through
+`Display::_showNumbers()`, so `numConf`'s position, font and colours are identical in all of them
+and only the header text differs.
+
+Two consequences worth knowing when you place `numConf`:
+
+- Several layouts share a row between the weather and the IP text, and between the battery and the
+  signal. All three number screens clear and pause those widgets while they are up, so the digits
+  win the row — but the row is also **not** free afterwards: the player page puts it back when the
+  number screen closes, so a layout that overlaps `numConf` with the weather line will show the
+  weather again a moment after the volume disappears.
+- The clock is *not* covered by the digits — `numConf` draws only its own glyph cells, with no
+  background fill. A layout that overlaps the clock with the digits will therefore show the clock
+  around them; the three number screens hide the clock only where the screen has no ticks of its
+  own to keep them in step (the volume page, the number entry and the SD index screen all do).
+
 ### What you cannot leave out
 
 `metaConf` and `playlistConf` are load-bearing: dialogs write into the station line, and the
