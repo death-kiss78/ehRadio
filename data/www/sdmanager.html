@@ -99,7 +99,7 @@
     if (!b) return '';
     var u = ['B', 'KB', 'MB', 'GB'], i = 0;
     while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
-    return (i ? b.toFixed(1) : String(b)) + ' ' + u[i];
+    return (i ? b.toFixed(2) : String(b)) + ' ' + u[i];
   }
 
   /* The overlay has two shapes because its work does.  busy() is the one-line form a rename, delete or mkdir uses
