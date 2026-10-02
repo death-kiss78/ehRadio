@@ -26,7 +26,7 @@ for additional noise filtering.
 | EI14 600:600Ω                   |   1   | 1:1 audio isolation transformer (line-level)         | Any 600:600Ω audio transformer, 10μF DC blocking caps |
 | EC11                            |   1   | Rotary encoder (15 pulse/30 detent) with push switch | KY-040, PEC11, any quadrature encoder with switch |
 | VS1838B                         |   1   | 38kHz IR receiver                                    | TSOP38238, TSOP4838, TSOP31238 |
-| SD Card module                  |   1   | SPI microSD card reader for offline playback         | Built-in display SD slot (check for proper resistors!) |
+| SD card module                  |   1   | SPI microSD card reader for offline playback         | Built-in display SD slot (check for proper resistors!) |
 | XRR6H-6*10-3T                   |   7   | 6-hole ferrite bead (6×10mm, 3-turn); EMI suppression on signal/power lines | Any 6-hole ferrite bead (6×10mm), clip-on ferrite choke, toroidal ferrite core |
 
 ### Capacitors & Resistors

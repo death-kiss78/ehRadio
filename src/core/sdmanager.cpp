@@ -20,6 +20,10 @@
 #include "utility.h"
 #include "../locale/dsplocale.h"
 
+// FATFS itself, for the allocation-unit figure.  Included on BOTH transports on purpose: the MMC path does not pull
+// in diskio_impl.h (which is what carries ff.h on the SPI path), and the cluster size is worth reporting either way.
+#include "ff.h"
+
 #if !defined(SD_USE_MMC)
 // SPIB is declared and initialized in config.cpp (Config::init) — do not re-declare here.
 // SD uses Bus B if assigned via SD_SPI 'B', otherwise Bus A.
@@ -32,7 +36,7 @@
 
 SDManager sdman(fs::FSImplPtr(new VFSImpl()));
 
-bool SDManager::start() {
+bool SDManager::_mount(uint32_t freq) {
   #if defined(SD_USE_MMC)
     // ---- Native SDMMC host (ESP32-S3 only; configured by the SDMMC_ block in options.h) ----
     // Pins must be set before the first begin(); setPins() is a no-op once the card is mounted.
@@ -68,23 +72,88 @@ bool SDManager::start() {
       SPI.end();
       SPI.begin(SPIA_SCK, SPIA_MISO, SPIA_MOSI);
     #endif
-    ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
+    ready = begin(SD_CS, SDREALSPI, freq);
     if (ready) return ready;
     vTaskDelay(10);
-    ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
+    ready = begin(SD_CS, SDREALSPI, freq);
     if (ready) return ready;
     vTaskDelay(20);
-    ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
+    ready = begin(SD_CS, SDREALSPI, freq);
     if (ready) return ready;
     vTaskDelay(50);
-    ready = begin(SD_CS, SDREALSPI, SDSPISPEED);
+    ready = begin(SD_CS, SDREALSPI, freq);
     return ready;
   #endif
+}
+
+/* Mount, and then read the card's allocation unit.  The AU is asked for HERE rather than inside _mount() because it
+   is a figure to REPORT: asking FATFS for it must never be able to fail a mount, and on a card it cannot be read
+   from the answer is simply "unknown". */
+bool SDManager::start(uint32_t freq) {
+  const bool ok = _mount(freq);
+  if (ok) _readAllocationUnit();
+  else _auBytes = 0;
+  return ok;
+}
+
+/* ASK FATFS FOR THE CLUSTER SIZE - `csize`, in SECTORS - and keep it in bytes.  Two drive letters are tried because a
+   second FatFs volume would take "0:" if one were ever mounted (FFat is FatFs too); in this firmware the SD card is
+   the only one, so "0:" answers.  f_getfree() also fills in the free-cluster count, and the WebUI already asks for
+   that figure, so the call is no more expensive than a screen refresh. */
+void SDManager::_readAllocationUnit() {
+  _auBytes = 0;
+  for (const char *drv : {"0:", "1:"}) {
+    DWORD nclst = 0;
+    FATFS *fs = nullptr;
+    if (f_getfree(drv, &nclst, &fs) != FR_OK || fs == nullptr || fs->csize == 0) continue;
+    /* FF_MAX_SS != FF_MIN_SS means the sector size is a runtime figure (`ssize`); when they are equal it is fixed at
+       512 and the field does not exist, so the constant is the only answer.  Neither path is a guess. */
+    #if FF_MAX_SS != FF_MIN_SS
+      const uint32_t ss = (uint32_t)fs->ssize;
+    #else
+      const uint32_t ss = 512;
+    #endif
+    _auBytes = (uint32_t)fs->csize * (ss ? ss : 512);
+    return;
+  }
 }
 
 void SDManager::stop() {
   end();
   ready = false;
+  _auBytes = 0;
+}
+
+/* Mount if needed, remount if the CLOCK is not the one asked for.  The SPI path is the one that can be asked for a
+   different clock: it takes the frequency as an argument to begin(), so a remount is the only way to change it, and a
+   remount discards every open handle - which is why the callers switch speed only at a mode boundary or from the main
+   loop between transfers, never underneath a request.  The SDMMC path takes its clock from the driver configuration
+   and cannot be steered this way, so it is left alone once mounted. */
+bool SDManager::ensureSpeed(uint32_t freq) {
+  #if defined(SD_USE_MMC)
+    if (ready) return true;
+    return start(freq);
+  #else
+    if (ready && _freq == freq) return true;
+    const uint32_t previous = _freq;
+    if (ready) stop();
+    if (start(freq)) {
+      _freq = freq;
+      FUNCTIONLOG("SD", "card clock now %lu Hz", (unsigned long)freq);
+      return true;
+    }
+    /* The card did not come back at the clock we asked for.  Leaving it unmounted would be far worse than a slower
+       bus: every path in the manager answers `no_card` while ready is false, the writer abandons the file it was
+       continuing, and a step-down would have destroyed a transfer instead of helping it.  So fall back to the clock
+       that DID work and keep the card mounted; the next transfer simply runs where the previous one did. */
+    if (previous != freq && start(previous)) {
+      _freq = previous;
+      FUNCTIONLOG("SD", "the card did not mount at %lu Hz - back at %lu Hz", (unsigned long)freq, (unsigned long)previous);
+      return true;
+    }
+    FUNCTIONLOG("SD", "the card did not come back at %lu Hz or %lu Hz", (unsigned long)freq, (unsigned long)previous);
+    return false;
+  #endif
 }
 #if !defined(SD_USE_MMC)
   #include "diskio_impl.h"  // readRAW()/sectorSize() probe below is SPI-transport specific
@@ -127,6 +196,21 @@ bool SDManager::_endsWith (const char* base, const char* str) {
   return (strncmp(end - slen, str, slen) == 0);
 }
 
+/* What the last walk actually SAW, so a failure can tell an empty listing from a folder that was skipped, and both
+   from a card that refused the writes.  "walked yes" cannot: it only ever meant that no step reported an error. */
+static uint32_t _walkEntries = 0;   // entries counted across every listing the walk read
+static uint32_t _walkDirs = 0;      // directories it opened
+
+/* The size of a file ON THE CARD, read by opening it fresh.  The same instrument the upload path uses, and for the
+   same reason: a handle the walk has been writing through can report anything at all once the card beneath it has
+   stopped taking writes, and a fresh open is the only second opinion there is. */
+static size_t sdFileSize(const char* path) {
+  File f = sdman.open(path);
+  const size_t n = f ? (size_t)f.size() : 0;
+  if (f) f.close();
+  return n;
+}
+
 bool SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uint8_t levels) {
   File root = sdman.open(dirname);
   if (!root) {
@@ -138,6 +222,7 @@ bool SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uin
     return false;
   }
 
+  _walkDirs++;
   // Collect all entries for sorting (dirs first, then alphanumeric by basename)
   struct DirEntry { String path; bool isDir; };
   std::vector<DirEntry> entries;
@@ -150,6 +235,7 @@ bool SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uin
     entries.push_back({fileName, isDir});
   }
   root.close();
+  _walkEntries += entries.size();
 
   // Sort: directories before files, both case-insensitive alphanumeric by basename
   std::sort(entries.begin(), entries.end(), [](const DirEntry& a, const DirEntry& b) {
@@ -206,30 +292,86 @@ bool SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uin
   return ok;
 }
 
+// The folder the derived pair lives in is SD_DATA_DIR, defined in config.h - the ONE place the name is written, and
+// the parent of PLAYLIST_SD_PATH and INDEX_SD_PATH, so it cannot drift from them.
+
 void SDManager::indexSDPlaylist() {
   _sdFCount = 0;
+  _walkEntries = 0;
+  _walkDirs = 0;
+  /* Make sure the folder exists ON THE CARD before anything is opened in it.  FATFS cannot create a file inside a
+     directory that is not there, and NOTHING ELSE creates this one: startup.cpp's `LittleFS.mkdir("/data")` is for
+     the FLASH filesystem - a different filesystem that merely shared the name, which is exactly why the CARD's
+     folder is now called SD_DATA_DIR.  So on a card without it, this function used to return silently, the index
+     was never built, and SD mode reported "no playable station" for ever - while uploads kept working, because they
+     only need the folder they write into.  That is what hid the fault for so long. */
+  if (!exists(SD_DATA_DIR)) {
+    if (!mkdir(SD_DATA_DIR)) {
+      ERRORLOG("SD: cannot create %s on the card - the playlist and index have nowhere to live", SD_DATA_DIR);
+      SERIALLOGLF();
+      return;
+    }
+    /* One line, and nothing about the folder this replaced: NOTHING MIGRATES, so there is no transition to describe.
+       An old /data on the card is simply irrelevant clutter the user may delete - naming it here only invited the
+       question of what happens to it. */
+    FUNCTIONLOG("SD", "created %s on the card", SD_DATA_DIR);
+  }
   if (exists(PLAYLIST_SD_TMP_PATH)) remove(PLAYLIST_SD_TMP_PATH);
   if (exists(INDEX_SD_TMP_PATH)) remove(INDEX_SD_TMP_PATH);
+  errno = 0;
   File playlist = open(PLAYLIST_SD_TMP_PATH, "w", true);
+  /* Captured HERE and never asked again: the handles below are closed before anything is reported, and a CLOSED
+     handle answers false - which is how the failure line came to blame "the index file could not be created" every
+     single time, whatever had really happened. */
+  const bool plOpened = playlist ? true : false;
+  const int  plErr    = plOpened ? 0 : errno;
   if (!playlist) {
+    // Never silent: a failed open here is the difference between a working card and a device that claims to have
+    // nothing to play, and the old code returned without a word.
+    ERRORLOG("SD: cannot create %s - indexing skipped", PLAYLIST_SD_TMP_PATH);
+    SERIALLOGLF();
     return;
   }
+  errno = 0;
   File index = open(INDEX_SD_TMP_PATH, "w", true);
+  const bool idxOpened = index ? true : false;
+  const int  idxErr    = idxOpened ? 0 : errno;
   const bool walked = listSD(playlist, index, "/", SD_MAX_LEVELS);
 
   index.flush();                                 // size() is only accurate after a flush
-  const size_t idxRows = index ? index.size() : 0;
-  const bool complete = walked && playlist && index && idxRows == (size_t)_sdFCount * 4;
+  const size_t idxRows = idxOpened ? index.size() : 0;
+  const bool complete = walked && plOpened && idxOpened && idxRows == (size_t)_sdFCount * 4;
 
   if (!complete) {
-    if (index) index.close();
-    playlist.flush();
-    playlist.close();
+    if (idxOpened) index.close();
+    if (plOpened) playlist.flush();
+    const size_t plBytes = plOpened ? playlist.size() : 0;
+    if (plOpened) playlist.close();
+    /* A SECOND, INDEPENDENT OPINION, taken before the pair is removed: the figures above come from handles the walk
+       has been writing through, and a handle can report anything at all once the card beneath it has stopped
+       accepting writes - 1.9 GB from a fresh temp file is what that looks like in a log.  Re-opened by name, the
+       two files report what actually reached the card. */
+    const size_t plOnCard  = sdFileSize(PLAYLIST_SD_TMP_PATH);
+    const size_t idxOnCard = sdFileSize(INDEX_SD_TMP_PATH);
     remove(PLAYLIST_SD_TMP_PATH);
     remove(INDEX_SD_TMP_PATH);
     SERIALLOGLF();
-    FUNCTIONLOG("SD", "indexing did not finish (%u files, %u index bytes): the partial pair was discarded, any previous pair is untouched",
-                (unsigned)_sdFCount, (unsigned)idxRows);
+    /* WHICH condition failed, named, together with everything that decides it: the open state captured at the open,
+       the errno behind a failure to open, and what the walk actually SAW.  "walked yes" only ever meant that no step
+       reported an error, so on its own it cannot tell an empty listing from a folder that was skipped - and asking a
+       CLOSED handle whether it was open made this line blame "the index file could not be created" every single
+       time.  `_sdFCount` only counts a file when all four of its writes reported their full length, so a large count
+       beside a small index would mean the writes were accepted and lost, which is a failing card rather than a
+       failed walk. */
+    const char* why = !idxOpened ? "the index temp could not be created"
+                                 : (!walked ? "the walk stopped at a refused write"
+                                            : "the row count does not match the files counted");
+    FUNCTIONLOG("SD", "indexing did not finish (%s): playlist open %s (errno %d, %u bytes, %u on the card), index open %s (errno %d, rows %u, %u on the card), walked %s, saw %u entries in %u dir(s), counted %u files (rows should be %u) - the partial pair was discarded, any previous pair is untouched",
+                why,
+                plOpened ? "yes" : "no", plErr, (unsigned)plBytes, (unsigned)plOnCard,
+                idxOpened ? "yes" : "no", idxErr, (unsigned)idxRows, (unsigned)idxOnCard,
+                walked ? "yes" : "no", (unsigned)_walkEntries, (unsigned)_walkDirs,
+                (unsigned)_sdFCount, (unsigned)(_sdFCount * 4));
     delay(50);
     return;
   }

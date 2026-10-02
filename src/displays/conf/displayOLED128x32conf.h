@@ -14,7 +14,7 @@ const BootData _bootConfig PROGMEM = {
         .apTitleConf         = {{ TFT_FRAMEWDT, 1, 1, WA_CENTER }, 140, false, MAX_WIDTH, 0, 1, SCROLLTIME },
         .apSettConf          = {{ TFT_FRAMEWDT, 32-7, 1, WA_LEFT }, 140, false, MAX_WIDTH, 0, 1, SCROLLTIME },
         /* LINES + RECTANGLES  {{ left, top, fontsize, align }, width, height, outlined } */
-        .apTitleBGConf       = {{ 0, 9, 0, WA_LEFT }, DSP_WIDTH/*-6*5-3*/, 1, false },
+        .apTitleBGConf       = { }, // unused
         /* WIDGETS             { left, top, fontsize, align } */
         .bootstrConf         = { 0, 32-8, 1, WA_CENTER },
         .apNameConf          = { 0, 9, 1, WA_LEFT },

@@ -330,7 +330,7 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
       #ifndef DEEP_SLEEP_DISABLE
         printf(clientId, "  sleep <for>[,<after>]  Sleep timer\r\n");
       #endif
-      printf(clientId, "  mode <0|1|2>           0=Radio(Web), 1=SD Card, 2=Cycle\r\n");
+      printf(clientId, "  mode <0|1|2>           0=Radio(Web), 1=SD card, 2=Cycle\r\n");
       printf(clientId, "\r\n");
       printf(clientId, "For a full list, consult the documentation.\r\n");
       goto show_prompt;

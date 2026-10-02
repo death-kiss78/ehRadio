@@ -473,18 +473,26 @@ void Display::_sdmanScreen() {
   // apName2Conf, not apNameConf: the fontsize-2 title already occupies y=2..18 on a 128x64 and apNameConf's
   // top is 18, so the countdown drew over the title's last row.
   _sdmanCountText = (TextWidget*) &_boot->addWidget(new TextWidget(_bootConfig.apName2Conf, 30, false, config.theme.clock, config.theme.background));
+  _sdmanCountShown = false;   // a fresh widget holds nothing: the first paint is a transition whatever it shows
   sdmanCountdown();   // paint the first value, so the line is never blank
   _pager->addPage(_boot);
   _pager->setPage(_boot);
 }
 
-// Draws only while the manager's page is up, so a late tick costs one comparison.  Minutes:seconds: a deadline.
+// Draws only while the manager's page is up, so a late tick costs one comparison
 void Display::sdmanCountdown() {
   if (_mode != SDMAN || !_sdmanCountText) return;
   const uint32_t left = filemanager.idleRemainingMs();
+  const bool show = (left <= SDMAN_COUNTDOWN_FROM_MS);
   char buf[12];
-  snprintf(buf, sizeof(buf), "%lu:%02lu", (unsigned long)(left / 60000UL), (unsigned long)((left / 1000UL) % 60UL));
+  if (show) snprintf(buf, sizeof(buf), "%lu:%02lu", (unsigned long)(left / 60000UL), (unsigned long)((left / 1000UL) % 60UL));
+  else buf[0] = '\0';
+  if (show != _sdmanCountShown) {
+    FUNCTIONLOG("SDFileManager", "countdown %s (idle left %lu ms)", show ? "shown" : "blanked", (unsigned long)left);
+    _sdmanCountShown = show;
+  }
   _sdmanCountText->setText(buf);
+  if (!show) _sdmanCountText->repaint();
 }
 #endif
 

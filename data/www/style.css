@@ -26,6 +26,8 @@ input[type=text], select[type=text], input[type=password], input[type=number] {
   padding: 6px 12px; font-size: 20px; font-weight: normal; margin-top: 4px; border-radius: 4px; 
 }
 input[type=text]:focus, input[type=password]:focus, input[type=number]:focus { outline: none; }
+input[type=checkbox] { accent-color: var(--accent-color); width: 18px; height: 18px; cursor: pointer; vertical-align: middle; }
+input[type=checkbox]:disabled { cursor: default; opacity: 0.4; }
 
 /* SLIDERS */
 input[type=range]::-webkit-slider-runnable-track { background: transparent !important; }
@@ -358,8 +360,6 @@ body.sdman .sdpath { text-align: center; color: var(--accent-color); padding: 2p
 body.sdman .sdsort { cursor: pointer; }
 body.sdman #pleheader { border-bottom: var(--accent-color) 2px solid; margin-bottom: 2px; }
 body.sdman #pleditorcontent .pleitem { align-items: center; }
-/* A fixed cell must not flex, or a long name inflates the row and squeezes them - which wrapped the size text.
-   sdname is the only item that grows or shrinks, and it truncates. */
 body.sdman .sdico { flex: 0 0 34px; display: flex; align-items: center; justify-content: center; }
 body.sdman .sdload { flex: 0 0 34px; display: flex; align-items: center; justify-content: center; }
 body.sdman .sdname { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -383,17 +383,13 @@ body.sdman #pleditorcontent .sdiconbtn svg.fill { fill: var(--accent-color); str
 }
 body.sdman #pleditorcontent .sdiconbtn.off { opacity: 0.35; cursor: default; }
 body.sdman .pleitem.dir .sdname { font-weight: bold; cursor: pointer; }
-body.sdman .sdnotice { justify-content: center; padding: 18px; }
+body.sdman .sdnotice { justify-content: center; padding: 0 10px; min-height: 32px; background: transparent; }
+body.sdman .sdnotice .plloader { padding: 0; width: auto; border: 0; }
+body.sdman .sdnotice .plloader .loader { width: 18px; height: 18px; padding: 0;
+  border: 3px solid var(--accent-color); border-bottom-color: transparent; }
 body.sdman .fb.off { opacity: 0.4; cursor: default; }
-/* Two inert states, wearing the same look.  `busy` is a running operation and comes with the full-screen overlay;
-   `listing` is a folder being walked, whose spinner lives inside the list itself.  Either way every control above
-   the list is inert: a Done pressed during a listing closes the mode out from under the request, and a Rename or
-   Mkdir would act on a list that is no longer on screen.  `.off` only dims and drops the cursor, so
-   `pointer-events` is what actually stops the click. */
 body.sdman.busy .fb, body.sdman.listing .fb { opacity: 0.4; cursor: default; pointer-events: none; }
 body.sdman.busy input, body.sdman.listing input { opacity: 0.4; pointer-events: none; }
-/* The header sorts the list that is on screen, so it is a control like the rest - but it is not dimmed, so the sort
-   arrow does not flicker on every folder tap. */
 body.sdman.listing .sdsort { pointer-events: none; }
 body.sdman .formbuttons { justify-content: center; }
 body.sdman #progresstext { position: absolute; left: 0; right: 0; top: 62%; transform: translateY(-50%); text-align: center; color: var(--accent-color); }

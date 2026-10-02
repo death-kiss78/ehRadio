@@ -261,6 +261,31 @@ py www_tool.py * --newkeys --sort
 - The template is the record of what this release added. The machine translations are in the locale files already; the
   English source in the template is what a native speaker should review.
 
+### Checking what a locale says — `--extract`
+
+The template is the list of new keys; this is what one language currently says for them. Send that to a native speaker
+or to a forum, to have the wording checked before a release:
+
+```
+py display_tool.py ru_RU --extract
+py www_tool.py ru_RU --extract
+```
+
+- The output is a **sheet, not a locale file**: a label (`New www keys: ru_RU`), a blank line, then the JSON block —
+  which is the shape a forum post takes.
+- With no filename it goes to the console. With one it is **appended** to that file, and that file is never read,
+  parsed or rewritten — so a display check and a www check can land in one document, one after the other, for a single
+  paste. A bare name resolves beside the tools, so a sheet is never a mystery path.
+- A key the template lists but the locale does not have yet is **skipped**, and the counts are reported: an empty
+  string would read as a translation of nothing.
+- Keys come out in the template's order, in the locale files' own formatting (real characters, two-space indent), so
+  the block can be edited in place and then clipped by hand into an input file for `--merge`.
+- One locale at a time; `*` is refused, and `--merge` is refused as the opposite direction. Every other option is
+  inert in this mode and is named on the console if it was typed, so a stray `--translate` cannot look like it did
+  something.
+- Both tools print in **UTF-8**, which is what makes Cyrillic, Greek, Thai and Arabic come out readable instead of
+  raising `UnicodeEncodeError` on a Windows console.
+
 ### Merging a translator's partial file
 
 A contributor can send a small JSON holding only the keys they worked on. Merge it into the locale that already

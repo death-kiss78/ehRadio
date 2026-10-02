@@ -72,26 +72,42 @@ void TextWidget::init(WidgetConfig wconf, uint16_t buffsize, bool uppercase, uin
 }
 
 void TextWidget::setText(const char* txt) {
-  /* A widget whose init() has not run has null buffers and a zero _buffsize.  Bail rather than reach
-     strcmp(_oldtext, _text) with nulls: a predicate mistake upstairs should degrade to "nothing drawn",
-     not to a LoadProhibited boot loop. */
+  // A widget whose init() has not run has null buffers and a zero _buffsize.  Bail rather than reach
+  // strcmp(_oldtext, _text) with nulls: a predicate mistake upstairs should degrade to "nothing drawn",
+  // not to a LoadProhibited boot loop.
   if (!_text || !_oldtext || !txt) return;
   strlcpy(_text, txt, _buffsize);
-  /* Resolve against the font once, here, rather than per glyph on every draw.
+  // Resolve against the font once, here, rather than per glyph on every draw.
      The text a scrolling widget re-prints each step is the same text, so the
      chain walk is paid on change instead of 50 times a second.  It also means
      the width computed just below and the glyphs actually drawn come from the
      SAME bytes, instead of agreeing only because resolution happens to be 1:1.
      Never longer than the input, so the buffer already sized for txt is enough. */
   preTextString(_text, displayFont());
-  /* Compute width by character count (utf8_strlen) * _charWidth.
-     Pixel spacers (0x1E) are 2px wide instead of _charWidth, so adjust. */
+  // Compute width by character count (utf8_strlen) * _charWidth.
+  // Pixel spacers (0x1E) are 2px wide instead of _charWidth, so adjust.
   uint16_t w = utf8_strlen(_text) * _charWidth;
   for (const char *p = _text; *p; ++p) {
     if ((unsigned char)*p == 0x1E) w += (2 - _charWidth); /* spacer: 2px instead of _charWidth */
   }
   _textwidth = w;
   if (strcmp(_oldtext, _text) == 0) return;
+  _paint();
+}
+
+// The early return above is what makes setText() cheap, and it is also why a HIDDEN line needs something else: the
+// one blank is issued when the string first becomes empty, and every tick after that the string is still empty, so
+// nothing is ever painted again - whatever touched the panel in between then owns those pixels.  That is exactly
+// the SD manager's countdown, whose blank state has to hold for minutes.
+void TextWidget::repaint() {
+  if (!_text || !_oldtext) return;
+  _paint();
+}
+
+// Clears where the previous picture was, then draws the current text there.  Split out of setText() so both
+// entries reach the same code: the erase uses the OLD rectangle, because the new one may be narrower and would
+// leave the tail of the old string behind.
+void TextWidget::_paint() {
   if (_active) dsp.fillRect(_oldleft == 0 ? _realLeft() : min(_oldleft, _realLeft()),  _config.top, max(_oldtextwidth, _textwidth), _textheight, _bgcolor);
   _oldtextwidth = _textwidth;
   _oldleft = _realLeft();
@@ -113,9 +129,9 @@ void TextWidget::setText(const char* txt, const char *format){
 uint16_t TextWidget::_realLeft(bool w_fb) {
   uint16_t realwidth = (_width>0 && w_fb)?_width:dsp.width();
   uint16_t offset = w_fb?0:_config.left;
-  /* Text wider than the space it is being placed in would wrap these subtractions to ~65500 and paint the string
-     clean off the panel - which reads as "nothing was drawn" rather than as "drawn in the wrong place".  Park it
-     at the edge instead.  A ScrollWidget with a too-long string never reaches here: it scrolls in _draw(). */
+  // Text wider than the space it is being placed in would wrap these subtractions to ~65500 and paint the string
+  // clean off the panel - which reads as "nothing was drawn" rather than as "drawn in the wrong place".  Park it
+  // at the edge instead.  A ScrollWidget with a too-long string never reaches here: it scrolls in _draw().
   switch (_config.align) {
     case WA_CENTER: return (_textwidth >= realwidth)?0:(uint16_t)((realwidth - _textwidth) / 2); break;
     case WA_RIGHT: return ((uint32_t)_textwidth + offset >= realwidth)?0:(uint16_t)(realwidth - _textwidth - offset); break;
@@ -129,9 +145,9 @@ void TextWidget::_draw() {
   dsp.setFont();
   dsp.setTextSize(_config.textsize);
 
-  /* Render characters one-by-one (not byte-by-byte) so multi-byte UTF-8
-     sequences are written to the decoder as an unbroken group.  Pixel
-     spacers (0x1E = 2px) are handled per-byte as before. */
+  // Render characters one-by-one (not byte-by-byte) so multi-byte UTF-8
+  // sequences are written to the decoder as an unbroken group.  Pixel
+  // spacers (0x1E = 2px) are handled per-byte as before.
   uint16_t x = _realLeft();
   const char *p = _text;
   while (*p) {
@@ -175,10 +191,10 @@ void ScrollWidget::init(const char* separator, ScrollConfig conf, uint16_t fgcol
   _sep = (char *) malloc(sizeof(char) * 4);
   memset(_sep, 0, 4);
   snprintf(_sep, 4, " %.*s ", 1, separator);
-  /* Resolved for the same reason as _text: _sepwidth is strlen-based, so a
-     multi-byte separator would otherwise be measured in bytes and drawn in
-     codepoints.  This also sanitises the "%.*s" above, which cuts on a byte and
-     can leave a broken lead byte when the separator is not ASCII. */
+  // Resolved for the same reason as _text: _sepwidth is strlen-based, so a
+  // multi-byte separator would otherwise be measured in bytes and drawn in
+  // codepoints.  This also sanitises the "%.*s" above, which cuts on a byte and
+  // can leave a broken lead byte when the separator is not ASCII.
   preTextString(_sep, displayFont());
   _x = conf.widget.left;
   _startscrolldelay = conf.startscrolldelay;
@@ -220,8 +236,8 @@ bool ScrollWidget::_checkIsScrollNeeded() {
 }
 
 void ScrollWidget::setText(const char* txt) {
-  /* A ScrollWidget whose init() has not run (the layout omits it) has null buffers, a zero _buffsize and
-     a null _fb.  Without this, strlcpy would be handed _buffsize - 1 == 65535 and write into null. */
+  // A ScrollWidget whose init() has not run (the layout omits it) has null buffers, a zero _buffsize and
+  // a null _fb.  Without this, strlcpy would be handed _buffsize - 1 == 65535 and write into null.
   if (!_text || !_oldtext || !txt) return;
   strlcpy(_text, txt, _buffsize - 1);
   // Resolve once per change: the scroll step re-prints this window repeatedly,
@@ -241,7 +257,7 @@ void ScrollWidget::setText(const char* txt) {
         _fb->fillRect(0, 0, _width, _textheight, _bgcolor);
         _fb->setCursor(0, 0);
         snprintf(_window, _width / _charWidth * 4 + 1, "%s", _text); //TODO
-        /* Truncate to visible character count */
+        // Truncate to visible character count
         { uint16_t maxVis = _width / _charWidth;
           if (utf8_strlen(_window) > maxVis) {
             char *cut = (char*)utf8_offset(_window, maxVis);

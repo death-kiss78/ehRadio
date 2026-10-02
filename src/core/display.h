@@ -95,6 +95,7 @@ class Display {
     #ifdef USE_SD
       // The SD File Manager's countdown line.  Non-null also means "the page currently in _boot is the manager's" which is how _switchMode knows it is safe to tear that page down again
       TextWidget *_sdmanCountText = nullptr;
+      bool _sdmanCountShown = false;
       void _sdmanScreen();
     #endif
     Ticker _returnTicker;
