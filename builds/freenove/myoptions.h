@@ -109,6 +109,7 @@
 /* --- Extra defines --- */
 
 /*
+#define SD_USE_MMC
 #define SDMMC_CLK 38
 #define SDMMC_CMD 40
 #define SDMMC_D0 39
