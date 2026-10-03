@@ -78,17 +78,17 @@ void TextWidget::setText(const char* txt) {
   if (!_text || !_oldtext || !txt) return;
   strlcpy(_text, txt, _buffsize);
   // Resolve against the font once, here, rather than per glyph on every draw.
-     The text a scrolling widget re-prints each step is the same text, so the
-     chain walk is paid on change instead of 50 times a second.  It also means
-     the width computed just below and the glyphs actually drawn come from the
-     SAME bytes, instead of agreeing only because resolution happens to be 1:1.
-     Never longer than the input, so the buffer already sized for txt is enough. */
+  // The text a scrolling widget re-prints each step is the same text, so the
+  // chain walk is paid on change instead of 50 times a second.  It also means
+  // the width computed just below and the glyphs actually drawn come from the
+  // SAME bytes, instead of agreeing only because resolution happens to be 1:1.
+  // Never longer than the input, so the buffer already sized for txt is enough.
   preTextString(_text, displayFont());
   // Compute width by character count (utf8_strlen) * _charWidth.
   // Pixel spacers (0x1E) are 2px wide instead of _charWidth, so adjust.
   uint16_t w = utf8_strlen(_text) * _charWidth;
   for (const char *p = _text; *p; ++p) {
-    if ((unsigned char)*p == 0x1E) w += (2 - _charWidth); /* spacer: 2px instead of _charWidth */
+    if ((unsigned char)*p == 0x1E) w += (2 - _charWidth); // spacer: 2px instead of _charWidth
   }
   _textwidth = w;
   if (strcmp(_oldtext, _text) == 0) return;
