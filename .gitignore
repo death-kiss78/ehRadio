@@ -3,3 +3,6 @@
 /platformio.ini
 /*.h
 /Notes.txt
+*.lck
+*._bk
+/mystuff
