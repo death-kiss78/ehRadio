@@ -11,6 +11,7 @@ USAGE:
     python display_tool.py * [mode] [options]
     python display_tool.py <target> --merge <file.json> [options]
     python display_tool.py <target|*> --newkeys [file.json] [options]
+    python display_tool.py <target> --extract [file]
 
 TARGET:
     <target>         One locale → check against en_US.json (default master)
@@ -24,6 +25,11 @@ MODES:
     --diff, -d       Only prompt when target text differs from master (to find changed translations)
     --ndiff, -n      Only prompt when target text is same as master (to fix untranslated text)
     --merge, -m FILE Merge a partial locale JSON into ONE locale file
+    --extract, -x [FILE]
+                     Print the locale's values for the keys the --newkeys template lists, as a labelled sheet for a
+                     native-speaker check.  With no FILE the sheet goes to the console; with a FILE it is APPENDED
+                     to that file - which is never read back or rewritten, so a display check and a www check can
+                     share one sheet.  Nothing else has a function in this mode.
 
 OPTIONS:
     --translate, -t  Translate master text (can't use with --diff).  An unchanged or failed translation asks
@@ -54,6 +60,12 @@ EXAMPLES:
 
     # Collect every key the locales still lack into a template for the translators
     py display_tool.py * --newkeys --sort
+
+    # Show what one locale currently says for the recently added keys, to paste into a forum post
+    py display_tool.py ru_RU --extract
+
+    # The same, appended to a sheet beside this script (a www check can share the same file)
+    py display_tool.py ru_RU --extract RU_check.txt
 
     # Redo one key everywhere, after its text in the master changed
     py display_tool.py * --translate --fast --clean --sort --key msg_open
@@ -584,6 +596,63 @@ def merge_partial_file(locale_code, master_code, master_data, merge_path, auto_c
 DEFAULT_NEWKEYS_PATH = os.path.join(SCRIPT_DIR, 'display_newkeys.json')
 
 
+def extract_keys(json_path, template_path, out_path, label):
+    """
+    Print or append this locale's values for the keys the template lists, as a sheet for a native-speaker check.
+
+    The template is what --newkeys wrote: the keys that were recently added, still holding their MASTER text.  This
+    mode answers the next question - what does this locale currently say for them - so a translator, or a forum, can
+    check the wording in place.  Keys the locale does not have yet are SKIPPED: there is no value to check, and an
+    empty string would read as a translation of nothing.  The count is reported instead, so a short sheet is never
+    mistaken for the whole template.
+
+    The output is a SHEET rather than a file the tools will read back - a label naming the tool and the locale, then a
+    blank line, then the JSON block: the shape that goes into a forum post.  It is deliberately never read, parsed or
+    rewritten, and with a filename it is only ever APPENDED to, so a display check and a www check can end up in one
+    document.  The block uses the locale files' own formatting (real characters, two-space indent) so it can be edited
+    in place and then clipped by hand into an input file for --merge.
+    """
+    if not os.path.exists(template_path):
+        print(f"Error: template not found: {template_path}")
+        print("       --newkeys writes it, and it holds the keys this mode reads - run that first.")
+        return False
+    if not os.path.exists(json_path):
+        print(f"Error: locale file not found: {json_path}")
+        return False
+
+    template = load_json_safe(template_path)
+    if template is None:
+        return False
+    if not isinstance(template, dict):
+        print(f"Error: {template_path} does not contain a JSON object")
+        return False
+    data = load_json_safe(json_path)
+    if data is None:
+        return False
+
+    # Template order, so the sheet reads in the order the keys were added rather than the locale's own order.
+    picked = {key: data[key] for key in template if key in data}
+    skipped = [key for key in template if key not in data]
+    block = label + "\n\n" + json.dumps(picked, ensure_ascii=False, indent=2) + "\n"
+
+    if out_path is None:
+        print(block)
+    else:
+        # APPEND ONLY.  The file may already hold a www or a display check - or a translator's edits - so it is never
+        # opened for reading, and a block that follows another starts after a blank line.
+        empty = (not os.path.exists(out_path)) or os.path.getsize(out_path) == 0
+        with open(out_path, 'a', encoding='utf-8') as f:
+            if not empty:
+                f.write("\n")
+            f.write(block)
+        print(f"Appended to {out_path} ({len(picked)} key(s))")
+
+    if skipped:
+        print(f"Note: {len(picked)} of {len(template)} template key(s) are in this locale; "
+              f"skipped {', '.join(skipped)}")
+    return True
+
+
 def newkeys_display(master_code, master_data, target_codes, out_path, auto_clean, auto_sort):
     """
     Write the keys the master has and one or more targets lack.
@@ -877,6 +946,7 @@ def main():
     parser.add_argument('--key', metavar='NAME', default=None, help='Work on one key only, in every locale: write it even where it exists, ignore every other key (refused with --merge/--newkeys)')
     parser.add_argument('--merge', '-m', metavar='FILE', default=None, help='Merge a partial locale JSON into one locale file (upsert, no prompts)')
     parser.add_argument('--newkeys', '-k', nargs='?', const=DEFAULT_NEWKEYS_PATH, default=None, metavar='FILE', help='Write the keys the target(s) lack into a template file (default: display_newkeys.json), keyed to the master text')
+    parser.add_argument('--extract', '-x', nargs='?', const='', default=None, metavar='FILE', help='Print this locale\'s values for the keys the --newkeys template lists, as a labelled sheet for a native-speaker check; with FILE, append the sheet to it instead (no other option applies in this mode)')
     args = parser.parse_args()
 
     # Determine master and target(s)
@@ -933,6 +1003,36 @@ def main():
         if args.key is not None:
             print("Error: --newkeys collects the keys the locales lack, --key redoes one key they already have - use one or the other")
             sys.exit(1)
+
+    if args.extract is not None:
+        # A sheet is built from ONE locale file, so the wildcard has nothing to mean here; --merge would write the
+        # very file being read, which is the opposite direction.  Everything else is inert BY DESIGN - this mode only
+        # reads the template and the locale and writes a sheet - so any that were typed are named rather than
+        # silently ignored, which is how a stray --translate would otherwise look like it had done something.
+        if args.target == '*':
+            print("Error: --extract works on one locale at a time - name the locale, never *")
+            sys.exit(1)
+        if args.merge is not None:
+            print("Error: --extract reads a locale to build a sheet, --merge writes one - use one or the other")
+            sys.exit(1)
+        inert = [name for name, given in (('--translate', args.translate), ('--clean', args.clean),
+                                          ('--sort', args.sort), ('--fast', args.fast), ('--every', args.every),
+                                          ('--diff', args.diff), ('--ndiff', args.ndiff),
+                                          ('--newkeys', args.newkeys is not None),
+                                          ('--key', args.key is not None)) if given]
+        if inert:
+            print(f"Note: {' '.join(inert)} ignored in --extract mode")
+
+        # Resolved here rather than below, because this mode leaves before the interactive machinery is set up.
+        json_path = os.path.join(DISPLAY_DIR, f'{target_code}.json')
+        out_path = None
+        if args.extract:
+            # A bare name lands beside this script and the template, so a sheet is never a mystery path.
+            out_path = args.extract if os.path.isabs(args.extract) else os.path.join(SCRIPT_DIR, args.extract)
+            out_path = os.path.abspath(out_path)
+        print()
+        ok = extract_keys(json_path, DEFAULT_NEWKEYS_PATH, out_path, f"New display keys: {target_code}")
+        sys.exit(0 if ok else 1)
 
     if args.translate and args.diff:
         print("Error: --translate cannot be used with --diff mode")

@@ -232,7 +232,7 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
 
 /* This makes the characters get an LED/VFD background color that makes it look like a real clock (only has an effect on color displays) */
 #ifndef CLOCKGLOW // CLOCKGLOW uses a special character to color COLOR_CLOCK_BG behind the clock for a glow effect
-  #if CLOCKFONT == YO_MONO || CLOCKFONT == CHUNKY6_PX
+  #if CLOCKFONT == YO_MONO || CLOCKFONT == CHUNKY6_PX || CLOCKFONT ==  LED
     #define CLOCKGLOW true
   #else
     #define CLOCKGLOW false // with CHUNKY6, this effect looks not great
@@ -506,10 +506,15 @@ https://trip5.github.io/ehRadio/myoptions/generator.html
   #if defined(ARDUINO_ESP32_DEV)
     #define SDSPISPEED 20000000 // safe
   #elif defined(ARDUINO_ESP32S3_DEV) || defined(ARDUINO_ESP32C3_DEV)
-    #define SDSPISPEED 40000000 // S3 known to work at this speed (even with custom pins)
+    #define SDSPISPEED 40000000 // S3 known to work at this speed
   #else
     #define SDSPISPEED 20000000 // safe
   #endif
+#endif
+
+// A special speed for the SD File Manager
+#ifndef SDSPISPEED_MANAGER
+  #define SDSPISPEED_MANAGER 10000000 // a lower speed makes uploads to SD more reliable, higher results in errors (not a speed increase)
 #endif
 
 /* --- SDMMC (ESP32-S3 only) --- */

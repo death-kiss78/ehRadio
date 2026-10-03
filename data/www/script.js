@@ -155,14 +155,32 @@ function onMessage(event) {
          because anything the device could answer now is either the list being left behind or one that is still being
          rewritten.  The fetch waits for playlistready (below).  The first report after a page load only establishes
          which mode we are on; it is not a switch, so it must not lock anything. */
-      if (modeChanged) setModeSwitching(true);
+      if (modeChanged) { setModeSwitching(true); return; }
+      /* THE MODE DID NOT CHANGE WHILE THE PAGE WAS WAITING, which means the device REFUSED the switch.  There is
+         exactly one refusal that matters to a user: SD mode with no card in the slot.  config.changeMode() logs
+         "SD card not found", sends this very report, and returns WITHOUT changing the mode - so the page sat on its
+         spinner until the 3-minute backstop ran out, which is the "stuck" it was reported as.  Only the first report
+         after a page load is innocent, and _modeKnown is what marks it; if a switch is still outstanding (_switching)
+         the wait ends HERE instead of running out the clock.
+         The mode that was REQUESTED is compared rather than assumed: asking for the mode we are already in is a
+         no-op, not a failure, and it must never raise "no SD card". */
+      if (_switching) {
+        const refusedSd = (_switchWanted === 'sd');
+        _switchWanted = null;
+        setModeSwitching(false);
+        generatePlaylist(`http://${hostname}/data/playlist.csv`+"?"+new Date().getTime());
+        if (refusedSd) alert(t('msg_no_sd', 'No SD card is mounted.'));
+      }
       return;
     }
     if(typeof data.playlistready !== 'undefined') {
-      /* The device has finished what the switch implied: the card was verified or rebuilt, or the web playlist is the
-         one in play.  This is the cue to unlock and load.  It arrives whether or not a build produced anything,
-         deliberately - the page waits for the device to STOP TRYING, never for a build to succeed - and it is also
-         sent when a client connects, so a page opened mid-switch ends up with a list either way. */
+      /* One signal, two states.  false: a rebuild is walking the card right now, so blank, show the loader and LOCK -
+         the list must not be visible or playable while the card is being walked, which is exactly what used to
+         happen (a stream started mid-rebuild put a reader on the card alongside the walker, and an SPI card cannot
+         take that).  true: the list is ready, so unlock and fetch.  It arrives whether or not a build produced
+         anything - the page waits for the device to STOP TRYING, never for a build to succeed - and it is also sent
+         when a client connects, so a page opened mid-switch ends up with a list either way. */
+      if (data.playlistready === false) { setModeSwitching(true); return; }
       setModeSwitching(false);
       generatePlaylist(`http://${hostname}/data/playlist.csv`+"?"+new Date().getTime());
       return;
@@ -482,6 +500,7 @@ window.addEventListener('resize', alignPlaylistStripes);
    switch started on the box itself) until the device says the mode is settled.  The backstop only exists so a
    device that never answers cannot leave the page dead. */
 var _switching = false;
+var _switchWanted = null;          // which mode the page ASKED for, so a refusal can be told from a plain no-op
 var _switchTimer = null;
 var _modeKnown = false;            // has the device told us which mode we are on yet (first report != a switch)
 var SWITCH_BACKSTOP_MS = 180000;   // 3 minutes
@@ -1229,6 +1248,7 @@ function changeMode(el){
      been verified, or after it has been indexed. */
   if(cmd=='sd') getId('modesd').classList.remove('hidden');
   else getId('modeweb').classList.remove('hidden');
+  _switchWanted = (cmd=='web') ? 'web' : 'sd';   // remembered so a REFUSAL can be told from the mode we already had
   setModeSwitching(true);
   websocket.send("newmode="+(cmd=="web"?0:1));
 }

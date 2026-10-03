@@ -29,7 +29,7 @@ Order and sections match that file.
 | `start` | Start playback from last station. |
 | `stop` | Stop playback. |
 | `sleep` | Set sleep timer using for,after values (may be disabled by build) |
-| `mode` | Change playback mode: `0` = Radio/Web, `1` = SD Card, out-of-range values cycle modes (`2` cycles in Telnet). |
+| `mode` | Change playback mode: `0` = Radio/Web, `1` = SD card, out-of-range values cycle modes (`2` cycles in Telnet). |
 | `submitplaylist` | Stop playback before playlist submit flow. |
 | `submitplaylistdone` | Finalize playlist submit flow, reload best station target, and trigger MQTT playlist sync. |
 
@@ -230,7 +230,7 @@ Handled in src/core/telnet.cpp before commandhandler dispatch.
 - MQTT supports raw URL payloads and maps them to `burl`.
 - Telnet connect example: `telnet <radio-ip> 23`
 - Telnet command examples: `toggle`, `volume 80`, `play 12`, `sleep(30,5)`
-- Telnet mode examples: `mode 0` (Radio/Web), `mode 1` (SD Card), `mode 2` (cycle mode).
+- Telnet mode examples: `mode 0` (Radio/Web), `mode 1` (SD card), `mode 2` (cycle mode).
 - Telnet maps `play` with no value to `start`, and `play` with URL to `burl`.
 - Boolean-like values use numeric parsing (0 false, non-zero true in most handlers).
 - Numeric values are parsed with atoi-style integer conversion.

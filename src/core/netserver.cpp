@@ -747,7 +747,16 @@ void NetServer::processQueue() {
       case GETPLAYERMODE: snprintf(wsbuf, sizeof(wsbuf), "{\"playermode\": \"%s\"}", config.getMode()==PM_SDCARD?"modesd":"modeweb"); break;
       case SEARCH_DONE:   snprintf(wsbuf, sizeof(wsbuf), "{\"search_done\":true}"); break;
       case SEARCH_FAILED: snprintf(wsbuf, sizeof(wsbuf), "{\"search_failed\":true}"); break;
-      case PLAYLISTREADY: snprintf(wsbuf, sizeof(wsbuf), "{\"playlistready\":true}"); break;
+      // One message, two meanings, so a page never has to guess: "false" is the card being walked (blank the
+      // list, spin, and refuse to load) and "true" is that walk being over (unlock and fetch).  The flag lives in
+      // the file manager, so a client that connects mid-walk is answered from the same source.
+      case PLAYLISTREADY:
+        #ifdef USE_SD
+          snprintf(wsbuf, sizeof(wsbuf), "{\"playlistready\":%s}", filemanager.rebuilding() ? "false" : "true");
+        #else
+          snprintf(wsbuf, sizeof(wsbuf), "{\"playlistready\":true}");
+        #endif
+        break;
       case CURATED_INDEX_DONE: snprintf(wsbuf, sizeof(wsbuf), "{\"curated_index_done\":true}"); break;
       case CURATED_PLAYLIST_DONE: snprintf(wsbuf, sizeof(wsbuf), "{\"curated_playlist_done\":true}"); break;
       case CURATED_FAILED: snprintf(wsbuf, sizeof(wsbuf), "{\"curated_failed\":true}"); break;

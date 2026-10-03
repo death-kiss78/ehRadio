@@ -36,7 +36,7 @@ Most modules have onboard regulators anyway.
 It is recommended to use a minimum of 470µF 10V capacitor somewhere in your circuit across the `5V` and `GND` (attach negative to `GND`).
 It helps to stablize the system during boot and smooth out the sudden power draw during operations like initializing the decoder, screen, wi-fi, etc.
 The capacitor should be as near as possible to the ESP's `5V` and `G` pins, so it's easiest to just solder the capacitor directly to the dev board.
-If that's a problem, it's not catastrophic to put elsewhere on the 5V rail. The SD Card Reader and display's 5V pins may be used.
+If that's a problem, it's not catastrophic to put elsewhere on the 5V rail. The SD card Reader and display's 5V pins may be used.
 You may size up either number, but µF is the only number that matters.  To be extra safe, use a 1000 µF capacitor.
 There is no benefit to using a higher volt rating like 16V or 25V or 250V. So, use what's convenient.
 
@@ -384,14 +384,22 @@ IR receivers like the VS1838 are cheap and work well.  You may need a pullup res
 
 ---
 
-## SD Card Reader
+## SD card reader
 
-An SD card reader may be added to the build. It is recommended to be wary of SD readers built onto displays.
-Although some may work, it is well-known that some may be lacking proper resistors or will interfere with display because it is forced onto the same SPI bus.
+An SD card reader may be added to the build. It is recommended to be wary of SPI SD readers built onto displays.
+Although some may work, it is well-known that some may be lacking proper resistors or will get signal interferance because it is forced onto the same SPI bus as the display.
 
-### SPI SD Card Module
+### Special Note Regarding `/ehradio.data`
 
-It is highly recommended to use an SD card reader with a power regulator and a 74VHCT125A buffer for simplicity and reliability.
+This folder contains special index files to enable faster file-seeking during playback.
+
+If needing to move your files from one SD card to another (or re-formatting), remove this folder.
+
+### SPI SD card module
+
+Although these modules (with a power regulator and a 74VHCT125A buffer) are better-suited when sharing the SPI bus with another device,
+it may become troublesome if you plan on using the SD File Manager to upload files.
+
 If needing to make this type fit with a case, the excess PCB around the slot may be cut off carefully with a knife, sandpaper, or grinding tool.
 Wear a mask if filing or grinding! Fiberglass is bad for your lungs!
 
@@ -399,34 +407,80 @@ Wear a mask if filing or grinding! Fiberglass is bad for your lungs!
 
 This type of module with a 74VHCT125A or similar level-shifter can not be used in SDIO/SDMMC mode.
 
-### SDIO SD Card Module (Only with ESP32-S3)
+### SDIO SD card module (Only with ESP32-S3)
 
-If using this type of simpler-looking SD card reader on SPI, you may see random, unsolvable issues.
-Do not use this type as SPI if on the same SPI bus as other devices.
+If using this type of simpler-looking SD card reader using SPI, you may see random, unsolvable issues.
+
+Do not use this type as SPI if on the same SPI bus as other peripherals.
+The peripherals will interfere with each other and you will hear random pops and clicks.
 
 ![image](images/hardware/sdreader2.jpg)
 
-SDMMC does not use an SPI bus at all which frees the bus for other devices and is faster than SPI.
+An SDMMC module has major advantages:
+- It does not use an SPI bus at all which frees SPI buses for other peripherals.
+- It is faster and more reliable than SPI (uploads are faster).
+- It is less picky about what kind of SD cards can be used.
+
 There must be pull-ups on `CMD` and `D0`.
 
 If the card has been used in SPI mode, you must fully power-cycle the board if you switch the firmware to use SDMMC.
 An SD card latches its interface mode at powerup and only a full power cycle re-runs that detection.
 Reflashing or rebooting is not enough and you will see `sdmmc_init_ocr: send_op_cond ... returned 0x107` in the log.
 
+### SD Cards
+
+Certain brands are known to work better than others: Sandisks are highly recommended for both speed and reliability, especially if using SPI.
+They do not have to be high-end.
+
+"Class 10" or "UHS-I U1" cards are known to work better and be faster for both read and write.
+
+Smaller sizes (32GB and smaller) may also work better and be faster to navigate.
+
+### SD Card Format
+
+#### Filesystem
+
+Always format the SD card with FAT32.
+
+#### Cluster Size
+
+Although you may have no issues playing files from an SD card,
+if encountering issues with uploads (especially with an SPI-based module), there may be an easy fix available.
+
+Format the SD card using Use a 512-byte cluster as the "allocation unit size" (cluster size).
+
+When uploading files, they are written to SD as quickly as possibly, ***in 512-byte chunks.***
+A card formatted with the Windows default (8 KB or larger cluster sizes) may seemingly work for a bit,
+then refuse almost every chunk afterwards.
+
+If you check the serial log, you will see `errno 5` short writes of a few hundred bytes,
+a card that is "a few KB behind" on every attempt, and eventually a file that cannot advance at all.
+card formatted with 512-byte allocation units uploads cleanly, one attempt per file, with nothing to recover.
+
+When switching to SD File Manager you can see which your SD card has:
+```
+Open (SPI transport, SD mounted, type 3, 15279 MB, Allocation unit size: 512 bytes)
+```
+
+The official "SD Card Formatter" utility uses a larger cluster size by default, so it this utility is not
+a recommended method of preparing your card for use.
+
+Windows disk format may object to formatting larger SD cards with FAT-32 but the command line
+`format Z: /A:512 /FS:FAT32 /X /Q` will work (change `Z` to the drive letter).
+
+Most Sandisk SD cards do not seem to experience issues regarding cluster size and do not require this type of formatting.
+
+#### Other SD Issues
+
+If still having problems after using 512-byte clusters, or experiencing random problems with the SD card,
+try a different SD card, preferably from a different brand.
+
+### File Encoding
+
 It is recommended to encode files on SD card using MP3 at a constant bit rate of 256kbps or less
 to avoid system stress and get maximum compatibility with the decoders.
 ABR and CBR encoding may work (mostly) but may also result in pops and clicks.
 Errors/bugs could happen if you use other codecs or too-high bitrates or other codecs.
-
-### SD Cards
-
-SD cards on these cheap SD readers can be pretty finicky.
-Certain brands are known to work better than others: Sandisks and Samsungs are recommended.
-Make sure it's "Class 10" or "UHS-I U1" and formatted FAT32.
-Smaller sizes (32GB and smaller) may also work better.
-Windows disk format does not like formatting larger SD cards but the command line `format /FS:FAT32 X: /Q` will work for larger sizes.
-
-When in doubt or experiencing problems, try a different SD card.
 
 ### SD Offline Mode
 

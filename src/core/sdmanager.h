@@ -38,15 +38,33 @@ class SDManager : public SDMAN_FS_BASE {
     bool ready = false;
   public:
     SDManager(fs::FSImplPtr impl) : SDMAN_FS_BASE(impl) {}
-    bool start();
+    // Mount at `freq` (the SPI bus clock; the SDMMC path takes its clock from the driver config and ignores it) and
+    // remember what it mounted at.  Discards every open handle, so it may only be called with nothing holding the card.
+    bool start(uint32_t freq = SDSPISPEED);
     void stop();
+    /* Mount if needed, and REMOUNT if the clock asked for is not the one in use.  This is the whole of the
+       manager-session speed switch: a session opens at SDSPISPEED_MANAGER because writes are what it does, and the
+       configured speed comes back when the session ends so the player's reads are unaffected. */
+    bool ensureSpeed(uint32_t freq);
+    uint32_t mountedFreq() const { return _freq; }
+    /* THE CARD'S ALLOCATION UNIT (cluster) size in bytes, or 0 when it could not be read - read once per mount.
+       This is the number whose absence cost us months of chasing: a cheap 16 GB card formatted with the 8 KB default
+       took an upload only while it was empty and failed on everything afterwards, and the SAME card at 512 bytes
+       takes everything at 94-198 KB/s with zero refusals.  FATFS knows the figure (csize, in sectors) but nothing
+       ever printed it, so a mis-formatted card was invisible in every log we collected.  It is reported, never acted
+       on: the fix is to reformat the card, not to change our writes. */
+    uint32_t allocationUnit() const { return _auBytes; }
     bool cardPresent();
     bool listSD(File &plSDfile, File &plSDindex, const char * dirname, uint8_t levels);
     void indexSDPlaylist();
     uint32_t countAudioFiles();
     void trySdRemount();  // attempt SD mount + re-index (called from controls in SDOFFLINE mode)
   private:
+    uint32_t _freq = SDSPISPEED;   // the clock the card is mounted at, see mountedFreq()
+    uint32_t _auBytes = 0;         // allocation unit (cluster) size in bytes, 0 = unknown; see allocationUnit()
     uint32_t _sdFCount = 0;
+    bool _mount(uint32_t freq);    // the mount retry ladder; start() wraps it so the AU is read after a success
+    void _readAllocationUnit();    // asks FATFS for csize once per mount; never allowed to fail a mount
     uint32_t _countAudioFilesRecursive(const char* dirname, uint8_t levels);
     bool _checkNoMedia(const char* path);
     bool _endsWith (const char* base, const char* str);

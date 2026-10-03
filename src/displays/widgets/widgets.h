@@ -80,6 +80,11 @@ class TextWidget: public Widget {
     virtual void setText(const char* txt);
     virtual void setText(int val, const char *format);
     virtual void setText(const char* txt, const char *format);
+    /* Paints the CURRENT text again, whether or not it has changed.  setText() deliberately does nothing when the
+       string it is handed is the one already up, which is right for a value that only moves on events and wrong for
+       a line something else may paint over: the blank of the SD manager's countdown was issued once and never
+       repeated, so the old value stayed on the panel. */
+    void repaint();
     bool uppercase() { return _uppercase; }
   protected:
     char *_text = nullptr;
@@ -89,6 +94,7 @@ class TextWidget: public Widget {
     uint8_t _charWidth = 0;
     uint16_t  _buffsize = 0, _textwidth = 0, _oldtextwidth = 0, _oldleft = 0, _textheight = 0;
   protected:
+    void _paint();
     void _draw();
     uint16_t _realLeft(bool w_fb=false);
     void _charSize(uint8_t textsize, uint8_t& width, uint16_t& height);

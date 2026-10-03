@@ -10,7 +10,7 @@
 // Display: ILI9341 (SPI 320x240 TFT)
 // Audio Decoder: ES8311 (PCM I2S Mono Decoder)
 // SPI Bus A: ILI9341 (SPI 320x240 TFT)
-// SPI Bus B: SD Card Reader
+// SPI Bus B: SD card reader
 //
 //  Pin  Function
 //  ---  --------

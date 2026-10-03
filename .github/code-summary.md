@@ -835,7 +835,7 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
 - Coupling:
   - consumed by config/player for SD mode.
 
-## `src/core/filemanager.h` / `filemanager.cpp` (SD Card Manager mode)
+## `src/core/filemanager.h` / `filemanager.cpp` (SD card manager mode)
 - Runtime-only browse/edit mode for the SD card, compiled under `#ifdef USE_SD`. The header owns `SDMAN_AUTO_EXIT_MS`
   (default 180000) and `SDMAN_CARD_GONE_STRIKES` (3); the timeout is guarded by `#ifndef` there rather than added to
   `options.h` (Rule #3), so a `myoptions.h` can still override it.
@@ -874,6 +874,14 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   back to `PLAYER`. A session of a hundred deletes therefore costs one walk instead of a hundred, the walk is visible on
   the counting screen, and no request handler blocks the AsyncTCP task on it. If the card left the slot in the meantime
   the bit is simply dropped.
+- **The walk announces itself, and that announcement is a boolean - the player page never has to guess.** `PLAYLISTREADY`
+  used to mean only "the list is settled"; it now carries `filemanager.rebuilding()`, so one message covers both ends of
+  a build. `FileManager::loop()` sets `_rebuilding = true` and sends the request *before* the first flash write and
+  clears it with a second request at the end of the block - so the page blanks the list, spins and locks on the first
+  and unlocks and fetches on the second. The client-connect notice hands out the same value from the same flag, which is
+  what makes a tab that connects mid-walk behave like the tab that started it. A build that runs while the page is
+  open can no longer be watched by playing from the list, because the list is not there to play from; and the request
+  at the end is sent even when the build *failed*, because a page must never wait for a build to succeed.
 - **The pair is validated together on the way in.** `initSDPlaylist()` already compares the index's footer count with
   `sdman.countAudioFiles()`; it now also looks at the playlist beside it, because a valid index with a truncated or empty
   CSV is exactly what a mutation - or a re-index interrupted by a mode close - used to leave behind. A row is written as
@@ -995,6 +1003,440 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   open itself rather than by the close - the reason the free-space figure is taken afterwards. And deleting while
   walking a directory advances the position under the removal and skips entries, so child names are collected
   before anything is removed.
+- **A short chunk is never mistaken for a whole file, and a cut-off upload is named.** `onUploadChunk()` now checks
+  the result of `_upFile.write(data, len)` and answers 500 `write_failed` when fewer bytes landed than the request
+  carried, so a full card is reported instead of a silently truncated track being called uploaded. It also stamps
+  `filemanager.touch()` **and** `sdFeedWatchdog()` on every chunk, because this handler runs in the AsyncTCP task and
+  that task is subscribed to the watchdog: a slow SPI-SD write was able to reset the device mid-file with no
+  application line to say why. The cut-off case keeps its own evidence - when a new file begins while `_upFile` is
+  still open, the log names the previous target and the byte count it stopped at before closing it. `hUploadDone()`
+  closes a still-open handle the same way and answers 409 `cut_off` rather than reporting success for a multipart
+  stream that ended early. On the page side (`sdmanager.html`) a network-level failure on one file is retried once and
+  the batch continues, because the old `xhr.onerror` abandoned every remaining file in the selection.
+- **A write's RETURN VALUE is how many bytes the stream ACCEPTED, not how many reached the card - so the upload is
+  measured after the fact.** On FATFS a write lands in a newlib stream buffer and reports its full length, and the
+  flush behind it can fail later, silently. That is the mechanism behind three separate looking symptoms in one
+  session: an upload that reported `uploaded (490496 bytes)` for a file that was never on the card, `short write at
+  ... (46 of 1436 bytes)` when a buffer boundary happened to flush mid-`fwrite`, and `indexing did not finish
+  (250 files, 0 index bytes)` - 250 rows whose four writes each returned their full length, and an index file of zero
+  bytes, because `listSD()` counts a file only when all four writes report, and none of them had reached the medium.
+  `hUploadDone()` therefore re-opens the target by name, compares `size()` against `_upBytes`, and answers 500
+  `write_failed` with the file removed when they differ. **Rule for new code**: never report a write as done on the
+  strength of its return value alone; measure the file.
+- **OBSERVED ON HARDWARE: mid-write `errno 5` (EIO) - and it follows the UPLOAD PATH, not the card.** The first
+  reading of this was wrong, so the evidence is recorded in full. `errno 5` is `EIO`, not `ENOSPC` (28) or `EBADF`
+  (9), and beneath it is FATFS's `FR_DISK_ERR`; it arrives in 5-8 ms, so it is a reject, not a slow card.
+  - Old card: `short write at ... (0 / 276 / 178 of 1436 bytes, errno 5, after 6-8 ms)`, and one file died after
+    **3537920 bytes**.
+  - **A brand new Sandisk High Endurance 8 GB failed the same way** - `96` and `361` of 1436 bytes - while one file
+    in the same batch uploaded **8673949 bytes with `0 chunk(s) retried`** and passed the landed-size check. A card
+    that can take 8.6 MB cleanly is not a failing card, and two very different cards cannot share a card fault.
+  - Mount, listing and `usedBytes` are perfect on both.
+  - **Every new-card failure is PARTIAL** (`0 < wrote < len`): the transport stops mid-sector. That is the shape of
+    interference during a write, not of a medium error.
+- **SUSPECT FOUND (and fixed): the presence probe was hammering the SD bus during uploads.** `FileManager::loop()`
+  called `sdman.cardPresent()` on every main-loop iteration - about 60 times a second - and the SPI implementation
+  of that probe issues a **raw `readRAW()` sector read** through `diskio_impl`, bypassing FATFS. So the main loop
+  was sending card commands continuously while AsyncTCP wrote a file to the same card, and through every delete.
+  Nothing was left of the three-strike debounce either: at 60 Hz the three strikes were spent inside 50 ms.
+  The probe is now skipped entirely while an upload is open or a delete batch is running (a transfer in progress is
+  itself the proof that the card is present) and is otherwise limited to **once a second** by `_lastCardCheckMs`.
+  **Rule for new code**: the SD bus is shared, so anything that touches the card from outside the operation that
+  owns it must be gated on that operation and rate-limited, however cheap the call looks.
+- **The card probe is still the fallback suspect if `errno 5` returns.** If mid-write EIO survives this change on a
+  known-good card, the next levers are the SPI clock (`SDSPISPEED`) and the transport itself - SDMMC on the S3 -
+  not more code in this module.
+- **A transfer is verified every `SDMAN_UPLOAD_VERIFY_BYTES` (256 KB), not only at the end.** `flush()` then `size()`
+  is the only pair that tells the truth about the medium, and checking it once at close meant a card that accepts
+  into the stream buffer and discards it surfaced megabytes later - **4815872 bytes** into one file. Early
+  verification turns that into a failure within a quarter of a megabyte.
+- **Rescues are budgeted by SIZE, and a BURST of refusals is treated as a different failure entirely.** A flat count
+  conflated two things the field showed in the same week, and it cost a real upload: a 10 MB file reached
+  **10029827 bytes - 24225 short of its 10054052 - and the ninth isolated refusal met a flat cap of 8**, so a file
+  that was 99.76% written was thrown away by a constant rather than by the card. Meanwhile a card that was genuinely
+  failing refused 17 chunks in a row. So there are two rules now:
+  - `SDMAN_UPLOAD_RETRY_BURST` (4) consecutive refusals with no successful chunk between them fails the file at
+    once - a card that is not coming back, which no budget can help;
+  - otherwise the budget grows with the transfer: `SDMAN_UPLOAD_RETRY_FLOOR` (8) plus one per
+    `SDMAN_UPLOAD_RETRY_PER_BYTES` (**64 KB**) written - deliberately generous, so this is a sanity ceiling and never
+    the thing that ends a transfer. The divisor was 512 KB until the 14-file batch showed Stars wanting 11 rescues in
+    2.08 MB (one per 190 KB) where the 10 MB file wanted one per 1.25 MB: no divisor is right for both, and a
+    transfer that is landing, however grudgingly, should be allowed to land.
+  Both kinds of refusal are named in the log line (`burst - the card is not recovering` / `rescue budget reached`),
+  because they mean opposite things. Only the FIRST rescue is logged per file and the rest are counted: a card that
+  is merely flaky rescues many chunks, and a line each flooded the log badly enough that logging had to be switched
+  off to read anything.
+- **A retry waits `SDMAN_UPLOAD_RETRY_DELAY_MS` (2 ms) first.** The refusal being answered is
+  `0 of 1436 bytes, errno 5, after 0ms` - zero bytes accepted and no bus time at all, which is the card declining
+  the next write while it is still programming the previous block. That is a timing failure and time is the remedy;
+  retrying instantly only asks the same question again. It also makes `SDSPISPEED` a *mechanism* rather than a guess:
+  a slower clock is the same remedy by another route, so it is the next thing to try if the refusal rate is
+  unchanged, and SDMMC (which bypasses sdspi altogether) after that.
+- **The upload stall window depends on whether the transfer can still succeed.** `SDMAN_UPLOAD_STALL_MS` (120 s)
+  applies while it can; `SDMAN_UPLOAD_STALL_FAILED_MS` (10 s) applies once a chunk has failed, because the file is
+  lost, nothing is being waited for, and the manager - and the whole WebUI - must not stay locked for two minutes
+  the way it did when a card started refusing writes.
+- **Both failure shapes are rescued, and the PARTIAL one is the interesting case.** `wrote == 0` means nothing was
+  accepted, so the stream has not moved and re-issuing the same bytes cannot duplicate or skip any - and with the
+  field evidence above, discarding a finished multi-megabyte file over one 8 ms reject is the wrong trade.
+  A short write of `0 < wrote < len` used to be fatal on the grounds that "how many bytes reached the medium is
+  unknowable". That was wrong: after `flush()`, `size()` IS the medium, and when it has not fallen behind `_upBytes`
+  the missing bytes are the TAIL of the current chunk, still in `data`. So the stream is `seek()`ed to the card's own
+  figure and that tail is re-sent. That is safer than failing the file, not merely kinder - the position comes from
+  the card rather than from our bookkeeping, so the two cannot drift apart, and nothing is re-sent that might
+  duplicate or skip a byte. Only when the shortfall reaches back past `_upBytes` are those bytes gone from our side
+  too, and only then is the file failed. Both counters (`_upRetries` for refused chunks, `_upPartialRescues` for
+  repaired ones) are named in the per-request line, so a file that landed because of rescues says so.
+- **The 14-file batch that settled the rest: 9 landed, and the 5 failures split 3 partial / 2 budget.** Worth
+  keeping because it is counter-intuitive - **every file that landed needed ZERO rescues**, not one of the nine,
+  while the failures were the files that hit refusals over and over (Stars spent 11 rescues in 2.08 MB, one per
+  190 KB, against the 10 MB file's one per 1.25 MB). The condition is per-transfer, not a steady rate: a file either
+  flows or it fights. That is why no per-size budget can be tuned right, why the divisor is now generous enough to
+  never be the limiter, and why the burst rule is the only correct give-up test.
+- **A "rescued" write is not a rescued write: the medium is the only truth.** The follow-up batch showed the rescue
+  counter lying. Infinity logged **26 rescues**, Stars **53**, and both failed - and `_upPartialRescues` stayed **0**,
+  which is what gave it away: the partial-write recovery needs `onCard >= _upBytes`, so a zero meant the card was
+  BEHIND our count, not level with it. The retry line reads `the retry wrote it (1436 bytes in 0ms)`, and 1436 bytes
+  of SPI in 0 ms is not a card write - it went into the stream buffer. So `_upBytes` counts bytes the stream
+  *accepted*, the buffer hides the loss, and the count drifts ahead of the medium until a flush fails and the
+  shortfall reaches back past bytes we no longer hold. **Rule**: never treat a write's return value as evidence that
+  data landed; `flush()` then `size()` is the only instrument here, and it is worth running often.
+- **When the card falls behind, the transfer is over - fail it at once and let the browser send the file again.**
+  The periodic `size()` check now runs every `SDMAN_UPLOAD_VERIFY_BYTES` (64 KB, was 256 KB) and a shortfall fails
+  the file immediately with its own reason, **`card_lagging`**, logging how far behind the card was. Grinding 53
+  rescues into a transfer that has already lost bytes helps nobody: it costs the card's time and it buries the
+  cause. The reason is distinct because of what the PAGE does with it: `card_lagging` (with `write_failed` and
+  `cut_off`) is retryable, and the page now **sends the whole file again from the start**, up to `MAX_FILE_TRIES`
+  (2) attempts, naming the attempt on screen. That is the only recovery that can work here - **the device cannot
+  re-supply bytes it no longer holds, but the browser still has them**, and the failures are per-transfer (nine
+  files landed with zero rescues while three needed 26, 53 and 26), so a fresh attempt has a real chance where
+  patching bytes does not.
+- **Both ends of the SPI clock have now been tested and it is not the variable.** The last two batches ran at
+  10 MHz and behaved exactly like the earlier ones at 20 MHz: the same per-transfer refusals, the same one-per-47-KB
+  rate on a bad transfer. It is back at `SDSPISPEED 20000000` for speed. Do not spend another round on the
+  frequency; the remaining levers are the transport itself (SDMMC, which takes `sdspi` out of the path) and, if the
+  rate is ever worth attacking again, coalescing reads/writes - **and note the C library already buffers stream
+  writes into multi-chunk flushes** (the partial returns of 46-404 bytes are the proof), so a hand-rolled 16 KB
+  buffer would buy a few times fewer card writes, not the eleven times it looks like, and it would mean rewriting
+  the most delicate function in `filemanager.cpp`.
+  **SUPERSEDED for the manager session - see "THE CLOCK *IS* THE VARIABLE, AND THE DISPLAY BOARD IS THE REASON".**
+  The two batches above were both run on a unit whose display does not compete for the SPI bus. The conclusion still
+  holds for throughput ("the clock buys no speed") and still holds as "do not tune `SDSPISPEED` globally"; what it
+  missed is the ERROR RATE, which is a different variable and which does depend on the clock when the display shares
+  the bus. Session entry now lowers the clock to `SDSPISPEED_MANAGER` and exits restore `SDSPISPEED`.
+- **RESULT: 14 of 14 uploaded. Ten landed first time and four failed and landed on the second attempt** - the
+  whole-file retry is what closed this out, and the four failures are the ones that used to be lost files. Infinity,
+  the 10 MB file that was 24225 bytes short two rounds earlier, went up **complete at 10054052 bytes** on its second
+  attempt; Hot Like Fire was caught by `card_lagging` (the card fell 49511 bytes behind) instead of being ground
+  down, and landed on the retry. Every final upload reports `0 refused chunk(s) rescued, 0 partial(s) recovered` -
+  the first attempts are the only refusals, and they no longer cost a file.
+- **What a retry COSTS, measured: it restarts the file from byte 0, and that is about 18% overhead on a batch.**
+  `abortUpload()` removes the partial on purpose, so the browser re-sends everything. In that batch: 96 MB of files,
+  17.7 MB of discarded partials and four full re-sends, so roughly 114 MB moved for 96 MB of audio. Cheap in
+  aggregate; **expensive for the file it happens to** - Night Time reached **97.9%** (6817792 of 6965338 bytes,
+  discarded) and then cost about twice its size, and Infinity threw away 3.6 MB of a 10 MB file. Worth knowing
+  before reaching for a bigger batch or a slower link.
+- **Resumable retry is the fix for that cost, and it is deliberately NOT built yet.** Three levels, recorded so the
+  choice is explicit rather than accidental:
+  1. **Resume on retry (the one to build if it is ever needed).** The verification already knows a *trusted*
+     position - the last 64 KB checkpoint - so truncate the partial to it instead of deleting it, return `landed: N`
+     with the failure, and have the page re-send only `f.slice(N)` with an `offset=N`; the device appends and refuses
+     an offset that does not match its verified size. Night Time would have sent its last 147546 bytes rather than
+     6.97 MB. No continuous chunking, so the happy path stays one fast stream.
+  2. **General browser-driven chunking** - many small verified pieces, a failed piece retried alone. More robust,
+     more machinery, and it slows the path that currently works.
+  3. **Do nothing.** ~18% overhead and the batch completes.
+  The ordering matters: run the **40 MHz** test first. If a faster clock reduces the refusal count then resume is
+  complexity for nothing, and if refusals rise, this 18% figure is what says whether Level 1 earns its keep.
+- **A retry notice must be CLEARED when the file lands.** The message slot holds its text until another message
+  replaces it, and the batch summary only speaks up when something FAILED - so `sending it again: <file>` sat on
+  screen describing a file that was already on the card, which made a clean 14-of-14 batch look like it had gone
+  wrong. The notice is now informational rather than error-styled, and `finish()` clears it when a retried file
+  lands. **Rule**: any message that describes a state must be withdrawn when that state ends, or it becomes a lie.
+- **BUG FOUND AND FIXED: nothing created `/data` ON THE SD CARD, so a card without it could never build an index.**
+  `startup.cpp`'s `LittleFS.mkdir("/data")` is for the FLASH filesystem - a different filesystem with the same
+  folder name - and FATFS cannot create a file inside a directory that does not exist. `indexSDPlaylist()` opened
+  `/data/plsd.csv.tmp`, failed, and **returned without a word**, so the index was never built and SD mode reported
+  `no playable station (playlist length 0)` for ever. Uploads kept working throughout, because they only need the
+  folder they write into, which is exactly what hid it. `indexSDPlaylist()` now creates the folder, says so when it
+  does, and logs plainly if it cannot - the folder name is one `static const char SD_DATA_DIR[]` so the planned
+  rename to `/ehradio.data` has a single place to change.
+- **A diagnostic must never read through a handle it has already decided is invalid.** The same line printed
+  `playlist open 0 with 1495441367 bytes` - a 1.5 GB "size" for a handle the `?:` had just called invalid, on a
+  7.9 GB card - and it sent a whole round of diagnosis in the wrong direction. The line now names WHICH condition
+  failed (`the index file could not be created` / `the walk stopped at a refused write` / `the row count does not
+  match the file count`) and reads sizes only from handles known to be open.
+- **Per-file transfer timing is logged on success and on failure.** `uploaded <file> (N bytes on the card in Mms,
+  K KB/s)`, and the refusal line carries its own time and byte count. The point is comparison - 20000000 against
+  40000000, or SPI against SDMMC - decided on throughput rather than on a feeling, and **the failure cost is
+  included because that is where the minutes actually go**. A clock can be good for reading and bad for writing, so
+  this is read together with the listing's own `walked N entries in M ms`.
+- **THE SPI CLOCK DOES NOT AFFECT THROUGHPUT - measured, three ways.** A 14-file, ~96 MB batch at **20000000,
+  30000000 and 40000000** all landed at about **135 KB/s** (131-161, 113-139, 123-190), so 20 MHz is if anything the
+  best of the three and doubling the clock buys nothing. **Do not tune `SDSPISPEED` again**: it has no advantage to
+  trade against an error rate. 135 KB/s works out at roughly **4 ms per 512-byte sector**, far slower than 20 MHz SPI
+  could write a sector, which points at the card's own programming latency (or the network path) rather than the bus
+  - so the ~20 minutes a batch takes was never winnable through the clock either.  (Throughput only: the ERROR rate is
+  the clock's business after all - see "THE CLOCK *IS* THE VARIABLE, AND THE DISPLAY BOARD IS THE REASON".)
+- **THE CLOCK *IS* THE VARIABLE, AND THE DISPLAY BOARD IS THE REASON - and it is a per-SESSION clock, not a global
+  one.** The 2x2 that found this used two boards and two cards, same firmware:
+    - `sh1106_vs1053_3buttons` + the good card: excellent, every file first attempt.
+    - `sh1106_vs1053_3buttons` + the budget card: the usual refusals, rescue, ~4 KB behind, resume.
+    - `ili9488_pcm_1button_full` + the good card: about FIFTY failed transfers on a batch the sh1106 unit landed clean.
+    - `ili9488_pcm_1button_full` + the budget card: the worst of the four.
+  Both boards mount the SD card on `SD_SPI 'B'` (checked in `myoptions.h`), so the BUS is identical; the only
+  difference is the DISPLAY - a 128x64 I2C OLED against a 480x320 SPI panel. The old theory ("the 1 s release window
+  caused it") was wrong and was withdrawn: the same firmware is clean on one unit and dirty on the other, which points
+  at TIMING MARGIN - the panel's SPI traffic takes margin away from `sdspi`, and a budget card has the least margin to
+  lose. Lowering the clock gives it back.
+  - **T1, the good card on the ili9488 unit: `SDSPISPEED 10000000` fixed it COMPLETELY** - 10 of 10 files first
+    attempt, zero refusals, and **170-238 KB/s, i.e. exactly as fast as the best 20 MHz runs** (226 KB/s measured at
+    10 MHz). That is the second time the card has been shown to be the throughput limit at ANY clock, so nothing is
+    traded away for the reliability. Below 2.5 MHz the BUS would finally become the limit and uploads really would
+    slow down.
+  - **The budget card still fails at 10 MHz** (refusal, rescue, ~4 KB behind, resume, at 15-76 KB/s), so halving
+    helps but does not finish the job - which is why the step-down below exists rather than a single fixed number.
+  - **The mechanism is a REMOUNT, because the frequency is a MOUNT PARAMETER.** `SDManager::start(freq)` now takes the
+    clock, `ensureSpeed(freq)` remounts only when the card is not already at that clock (`SD.end()` + `begin(cs, spi,
+    freq)`), and `mountedFreq()` reports it. **A remount discards every open handle**, so it may ONLY happen at a mode
+    boundary or from the main loop - never inside a request handler. That is why `enter()` sets it and `loop()` steps
+    it, and nothing else touches it.
+  - **`SDSPISPEED_MANAGER` (10000000) is the session clock; `SDSPISPEED` is the player's.** `enter()` applies the
+    manager clock; `leave()` puts `SDSPISPEED` back before the card is handed to playback, so the player's reads keep
+    the high clock. **The manager runs at that ONE clock for the whole session** - browsing, listing, deletes and
+    uploads - because a speed change means a REMOUNT (the frequency is a mount parameter) and a remount discards every
+    open handle. Listing is therefore slower than it would be at `SDSPISPEED`; that is accepted: safety over speed.
+  - **THE AUTOMATIC STEP-DOWN WAS BUILT, TESTED AND REMOVED - do not rebuild it.** It halved the session clock on
+    every transfer that needed resuming, down to a 156250 Hz floor, on the theory that the refusals were a
+    time-between-writes problem a slower bus would cure. The field test killed it outright: a budget card froze at the
+    SAME byte offset with the SAME ~5 KB deficit at 10, 5, 2.5, 1.25, 0.625, 0.3125 AND 0.15625 MHz - a **64x range
+    with no change in behaviour** - while a 10 MB file went through untouched at 10 MHz in the same session. The
+    clock is not the variable, and every step it took cost a remount plus a permanently slower session. The macros
+    `SDMAN_SPEED_FLOOR` and `SDMAN_SPEED_STRIKES` went with it. Its three defects are still worth remembering, because
+    they were real faults and two of the lessons stayed:
+    1. Its strike was raised in only ONE of the two paths that can end an attempt. It lived in `hUploadDone()`, but
+       most failures are released by the STALL branch (`abortUpload()`), after which the page aborts and
+       `hUploadDone()` never runs - so a session whose files needed five and seven resumes never moved the clock.
+    2. Applying it from `loop()` RACED the request handler. `ensureSpeed()` is a `stop()`/`start()` pair and the
+       page's next request arrives on the AsyncTCP task, so seen mid-remount it read `ready == false` and answered
+       `no_card` at `0 bytes in 0.00s`, abandoning a 5.8 MB partial. **A mid-session remount is not safe here** -
+       which is exactly why the manager now has only one, at the mode boundary.
+    3. A failed remount left the card UNMOUNTED, and then every path answered `no_card`. `ensureSpeed()` now falls
+       back to the clock that DID work and keeps the card mounted, logging the fallback. That guard is KEPT.
+  - **A STALLING CARD COULD NOT CONVERGE, AND THAT IS WHAT ACTUALLY LOST FILES.** On `card_lagging` the retry resumed
+    from `_upVerified` - the last CHECKPOINT that passed - which can be far behind what the card holds: the field
+    resumed a 6.9 MB file at **766 bytes** when the card held **29696**, so every attempt re-sent the same ~29 KB into
+    the same wall, never advanced, spent the retry budget and was discarded (`Discarded the abandoned partial ...`).
+    The card's own `size()` after `flush()` is a LOWER bound on what is committed - the same instrument the verify
+    already trusts - so `_upVerified` is now set to that figure (floored to a sector by `resumeFloor()`), and the
+    retry continues from where the card truly stopped.
+  - **The manager ALWAYS hands back to SD mode.** `leave()` used to pick its resume target from `config.getMode()`,
+    i.e. whatever the device was last in, so a session opened while a web stream was playing resumed the WEB stream
+    on exit. It now forces `play_mode = PM_SDCARD` + `syncSDFS()` (when the card is mounted) BEFORE the resume
+    decision, and the web branch is gone: this mode exists to edit the CARD, so it returns to the card.
+  - ***** THE ANSWER WAS THE CARD'S ALLOCATION UNIT SIZE - THIS SUPERSEDES EVERY THEORY IN THIS SECTION. *****
+    A cheap 16 GB card that had failed here for months, at EVERY clock, was **formatted with 512-byte allocation
+    units** and then took everything: 14 files, 1 attempt each, 0 refusals, 0 partials, 186-198 KB/s - and then a
+    deliberate fragmentation stress run (upload, delete, re-upload, a 12 MB `.exe` and a 12 MB `.zip`) with the same
+    perfect result.  The unit that broke it is what EVERY formatter picks by default for a card that size: **8 KB**,
+    i.e. sixteen sectors.  Note that the "SD card Formatter" utility also uses the large default, so a card freshly
+    formatted with the recommended tool can still be the broken one.
+    **IT IS A WEAK-CARD MALADY, NOT A LAW ABOUT LARGE UNITS, AND NOT A SHORTCUT PAST DIAGNOSIS.**  The unit does not
+    break a card by itself - it decides whether a MARGINAL card can cope.  Measured on the same cheap card: **16 KB**
+    landed every file but slowly (18, 11 and 13 attempts on the three, 73-86 KB/s - without resume-on-retry those are
+    three lost files, with it they are three slow ones), **8 KB** lost files outright, and **512 B** was clean at
+    90-95 KB/s.  A branded Sandisk at **16 KB**, though, was FLAWLESS - every file, 1 attempt, up to 199 KB/s even in
+    a deliberately fragmented run.  So the large unit is a risk factor a good card shrugs off and a cheap one cannot,
+    and the ladder is a property of the CARD as much as of the format.  That is why the page's response to slow
+    uploads on a large-unit card is the WARNING below and never a refusal: a slow card is still a working card.
+    The mechanism fits every symptom collected over months: with an 8 KB unit, a stream of ~1436-byte chunks makes
+    FATFS rewrite the SAME cluster and the SAME FAT and directory sectors over and over, and this card refuses those
+    read-modify-write patterns - a partial write with `errno 5`, the file's size a few KB short and never catching up,
+    and eventually a byte offset that cannot be passed at all.  It also accounts for the shape we kept noticing and
+    could not explain: **the FIRST file after a format always lands and the ones after it do not**, because only the
+    first write goes into clean, contiguous, never-programmed space.
+    **So before blaming a card, a reader, a clock or this firmware, CHECK THE ALLOCATION UNIT.**  The manager now
+    prints it in its `Open (...)` line (`Allocation unit size: 512 bytes`) and tells the user on screen when it is
+    wrong.  (For the record, the SDMMC transport tolerated the large unit on this same card - every file, 1 attempt,
+    0 refusals at 109-196 KB/s - a real difference between the two paths, but no reason to leave a card mis-formatted.)
+  - **What the refusal actually is.** The card accepts 0-307 of 1436 bytes and refuses in 0-13 ms with no bus time at
+    all, i.e. it is declining the NEXT command while it is still programming the previous block.  That looked exactly
+    like a time-between-writes problem, which is why a slower bus was tried - and the **64x clock test REFUTED that
+    cure**.  The real cause turned out to be the allocation unit above, so the SHAPE was right and the remedy was
+    wrong: whatever the card is waiting for, it is not more time between commands, and it is not the display either
+    (its own bus, and the same board with a good card is flawless).
+  - **THE REFUTED 512-BYTE WRITE-ALIGNMENT EXPERIMENT WAS ALIGNING TO THE WRONG UNIT, and the lesson is NOT that
+    alignment does not matter.** `SDMAN_WRITE_SECTOR = 512` rounded every write up to a whole SECTOR - while the
+    allocation unit on the card it was tested against was **8 KB, sixteen sectors**.  Aligning to 512 therefore could
+    not change how FATFS programs a cluster, so its measured "no benefit" was inevitable and reading it as "alignment
+    is irrelevant" drew the wrong conclusion from a correct measurement.  The narrower, useful statement: **aligning to
+    the sector is not alignment - the unit that matters is the CLUSTER.**  Cluster-aligned writes have never been
+    tested, and on a card formatted with 512-byte units they are unnecessary; this is only worth revisiting if a
+    large-unit card ever has to be supported AS-IS rather than reformatted.
+  - **HOW TO SEE IT: the allocation unit is now REPORTED, never acted on.**  `SDManager::allocationUnit()` reads
+    `fs->csize` (in SECTORS, so bytes = `csize * ssize`) from the volume `f_getfree()` hands back, once per mount, and
+    the manager prints it in its `Open (...)` line as `Allocation unit size: 512 bytes` / `8KB` on BOTH transports -
+    which is why `ff.h` is included unconditionally rather than only on the SPI path (the MMC path does not pull in
+    `diskio_impl.h`, which is what carries it there).  `0` means it could not be read, and that is reported as
+    `unknown` rather than guessed.  `/sdman/info` carries the same figure so the PAGE can decide whether the
+    "format with 512-byte allocation units" sentence belongs in the notice.  **Reading it never changes what we write:
+    the fix for a bad unit is to reformat the card.**
+  - **THE PAGE WARNS BEFORE IT WOULD EVER BLOCK, and the trigger is the RESUMES, not a setting.**  A card whose
+    allocation unit is not 512 bytes is told to reformat on screen once the page has had to RESUME `AU_WARN_RESUMES`
+    (3) attempts in one session - in the SAME slot, style and persistence as the marker banner and with the same
+    hardware URL, because the two are one voice, and never as a refusal: the card is slow, not dead.  Three is the
+    line because every clean run ever measured needed ZERO resumes, so three is already well past normal, and the
+    16 KB cheap card this was written for spent resumes on nearly every file it took.  It is raised only when `state.au`
+    is known AND is not 512: a card already at 512 has a different problem, and the advice would be wrong.
+  - **WHY THE FIRST FILE ALWAYS LANDS AND THE ONES AFTER IT DO NOT.** After a format the first file goes into a clean,
+    contiguous, never-written region: almost no FAT work, and its directory entry is written once, at close.  Every
+    file after it makes the filesystem REWRITE sectors it has already programmed - the same FAT sector and the same
+    directory sector, read-modify-write, over and over.  **A card that fails on rewrites of already-programmed sectors
+    therefore passes the first file perfectly and fails everything after it**, which is exactly the observed shape,
+    and it is why a format "fixes" it for precisely one file.  (This was written as a hypothesis and is now the
+    mechanism confirmed by the allocation-unit finding above: the rewrite granularity IS the cluster size.)
+  - **A HOPELESS FILE NOW ENDS THE BATCH, deliberately.** The page allows a few no-progress retries
+    (`MAX_STALLED_TRIES` is 3) and then, when the reason blames the CARD (`CARD_FAULT`), abandons the whole batch with a message that the
+    card looks faulty. A card that cannot finish one file will not finish the next thirteen, and the field runs showed
+    precisely that - file after file, each burning its budget and discarding a partial, with nothing gained. A refusal
+    the page caused itself (a bad name, a protected path) is NOT in `CARD_FAULT`: those are skipped and the batch
+    carries on.
+  - **THE SD CARD'S data FOLDER IS `/ehradio.data`, and it is NOT the LittleFS `/data`.** Two different filesystems
+    used the same folder name, which made them impossible to tell apart in a log, a listing or a bug report.
+    `SD_DATA_DIR` in `config.h` is now the ONE place the SD name is written, and `PLAYLIST_SD_PATH`, `INDEX_SD_PATH`
+    and their `.tmp` twins are derived from it by string concatenation. **The five LittleFS paths beside them
+    (`PLAYLIST_PATH`, `SSIDS_PATH`, `VERSION_PATH`, `TMP_PATH`, `INDEX_PATH`) did NOT move**: they are the web
+    endpoints the browser fetches, and changing them would break every one of those URLs. An existing card keeps its
+    old `/data` until the new folder is created and the index rebuilt - **nothing migrates it and nothing deletes it,
+    and `/data` is NOT protected**: it is ordinary clutter the user may clear from the UI, and the log line that
+    announced the new folder used to add a parenthetical about the old one, which only invited the question of what
+    happens to it. The PAGE has its own copy of the name (`sdmanager.html`'s lock test) and it does not move with the
+    macro.
+  - **THE SPI UPLOAD MARKER - a card that cannot be uploaded to over SPI says so itself.** `SDMAN_SPI_MARKER` is
+    `SD_DATA_DIR "/spi_upload.txt"`; its text is plain English, because it is a card artefact a person may open in a PC
+    text editor, not UI - the first line, then the REMEDY but only when the card's allocation unit is not 512 bytes
+    (`Format this card with 512-byte allocation units.`), then the hardware URL, then `Delete this file to enable
+    uploads.`  It is written by the page (`POST /sdman/spimarker`) when a batch is
+    abandoned for a card-side reason, and while it is present `onUploadChunk` refuses EVERY upload with
+    **`spi_blocked`** - that refusal is the real guard, ahead of `protected` and `in_use` in the chain, so a
+    hand-made request cannot write to a card that has already failed this way. The page's half is `state.spiBlocked`
+    from `/sdman/info`, which dims the two Upload labels **card-wide** but deliberately does NOT dim New Folder or
+    Delete: the device still allows those, and dimming them would be the page telling a lie. The user-facing message
+    is one locale key (`msg_spi_upload_marker`) with the URL appended, used in the banner AND as the batch-abandonment
+    notice, so the explanation is the same whether they hit it now or meet the card again. **NOTHING OF IT EXISTS ON
+    SDMMC:** `spiUploadBlocked()` returns false, the marker route answers ok without writing, and `/sdman/info` says
+    `spi:false` so the page never offers to mark a card for a reader it is not plugged into.
+  - **NEVER REMOUNT THE CARD WHILE ANYTHING CAN STILL HOLD A HANDLE FROM IT - and stopping the player is part of
+    that.** `FileManager::enter()` QUEUED a `PR_STOP` and remounted the card one line later, because the session clock
+    is `SDSPISPEED_MANAGER` and the player's is `SDSPISPEED`. A queued stop only ASKS the player task to stop, so the
+    audio's file handle outlived the filesystem it came from and closing it afterwards produced
+    `CORRUPT HEAP: Bad head at 0x... / assert failed: multi_heap_free ... (head != NULL)` and a reboot. It happened
+    EVERY time the manager was opened while PLAYING FROM THE CARD, and never from a web stream - a web stream holds no
+    SD handle, which is the tell. The fix is one call: `player.stopSync()`, which is `_stop()` -> `stopSong()` and
+    closes the audio file there and then. **This is the pattern the codebase already used**: `config.cpp`'s
+    `changeMode()` unmounts the card with `player.stopSync()` and THEN `sdman.stop()`, with a comment saying exactly
+    why. `_wasPlaying` must be read BEFORE the stop, because the stop clears it.
+    The same rule applies on the way OUT: `leave()` now closes `_listDir` before it remounts back to `SDSPISPEED`,
+    because a listing keeps its directory open across the whole walk and a listing the user abandoned can still be
+    open when the mode closes. **Rule: a remount is a mode boundary, and every handle the boundary's OWN side owns
+    must be closed before it - the ones it does not own (the player's) must be closed by the owner, synchronously.**
+  - **A REFUSED MODE SWITCH NOW ENDS THE WAIT.** Switching to SD mode with **no card** used to leave the page locked
+    on its spinner for the whole 3-minute backstop: `config.changeMode()` logs `SD card not found`, sends a
+    `GETPLAYERMODE` report and returns WITHOUT changing the mode, and the page only acted on a mode report it could
+    see had CHANGED. It now also acts on the report where it did NOT change, but only while a switch is outstanding
+    (`_switching`): that combination IS the refusal. The FIRST report after a page load is the one that must not be
+    mistaken for it, which is what `_modeKnown` is for, and the mode the page ASKED for (`_switchWanted`) is compared
+    rather than assumed - asking for the mode we are already in is a no-op, not a failure, and must never raise "no
+    SD card". The wait ends, the list is refetched and the user is told.
+  - **THREE SMALL UI FIXES, and the rule they follow.** (1) A plain `input[type=checkbox]` - the only control the
+    browser still drew for itself, used by the SD manager's Select All and the editor's per-row flags - is themed with
+    one `accent-color` rule, which colours the box AND the tick and follows the theme because it reads the same custom
+    property everything else does. (2) A list NOTICE is ONE ROW: `.sdnotice` carried 18px of padding and `.plloader`
+    40px around a 40px spinner, so an empty-folder message or the listing spinner measured about three rows and pushed
+    the row after it out of step. (3) The listing spinner is now the page's own spinner scaled to a list row rather
+    than a size of its own, so there is one spinner treatment in the UI, not two.  SCALING IT DOWN REQUIRES DECLARING
+    ITS PADDING, and that was a follow-up field bug: the manager's loader is spans INSIDE a `.pleitem`, so it inherits
+    `.pleitem span`'s `padding: 0 8px` and `--odd-bg-color` box, and with the universal `box-sizing: border-box` an
+    18px box cannot hold 16px of padding plus a 6px ring - the browser widens the border-box to about 22px while the
+    height stays 18px, so the ring renders as an ELLIPSE (round at the player's 40px, oval here, from identical rules).
+    The manager's markup is the difference: player.html's loader is a DIV outside any `.pleitem` (`script.js`), the
+    manager's is spans in an `li.pleitem`.  The notice row is now `background: transparent` with no wrapper border, and
+    the ring declares its own padding and full border shorthand.  **The general rule: anything inside a `.pleitem`
+    inherits a 40px-wide, 8px-padded, 1px-bordered span box - override every one of those or the element will not be
+    the size that was asked for.**
+  - **THE WEB FILES ARE NOT IN THE FIRMWARE BINARY.** `board_build.filesystem = littlefs` and the gzip scripts run
+    ONLY for filesystem targets, so `pio run -e <env>` builds the FIRMWARE and nothing else - an edit to
+    `data/www/*.html`, `*.js` or `*.css` is invisible until `-t buildfs` (and `uploadfs` to flash it). The two are a
+    pair and are flashed separately. A build that reports no compilation and an unchanged flash size after a web edit
+    is telling you the web edit is not in it.
+  - **A retry cadence note, measured, so it is not re-derived:** the log's `No chunks for ~1005ms - releasing` is
+    `SDMAN_UPLOAD_STALL_FAILED_MS` (1000 ms), but it is NOT what sets the time between attempts. The page's upload
+    watcher runs every **2000 ms** and `waitForRelease()` polls `/sdman/info?up=1` every **1000 ms**, so the PAGE
+    gates the cycle; shortening the device's window to 250 ms would buy nothing (it was tried on paper and dropped).
+    If the retry cycle ever needs to be faster, the levers are the watcher's 2000 ms interval and `waitForRelease`'s
+    1000 ms - and both add cardless `/sdman/info?up=1` requests to the SAME AsyncTCP task that writes the chunks, so
+    that is a trade to measure, not to assume.
+- **EVERY RETRY HAS SUCCEEDED, in every run (4/4, 3/3, 1/1, 5/5, 3/3).** Combined with the refusals arriving in
+  0-1 ms with almost nothing accepted, the shape is a card declining a command while it is busy and being perfectly
+  happy a moment later. **Zero FAILED FILES is therefore achievable; zero FAILURES is not something we can promise
+  without the mechanism**, and the clock cannot deliver it. Absorbing the failures is the lever that removes them
+  from the outcome.
+- **RESUME ON RETRY - the protocol, and why it is small.** The device keeps a partial file when the CARD ended the
+  transfer (`write_failed`, `card_lagging`, `stalled`) and answers with **`landed: N`**, where N is the last position
+  the 64 KB verification PROVED is on the card - never the raw accepted byte count, because that is the number a
+  buffered write lies with. The page remembers `landed` per file and sends **`f.slice(landed)`** with
+  **`offset=landed`** on the next attempt. The device accepts the offset only when it equals the value it advertised
+  for the same path, opens with **`r+` (no truncate)**, seeks there and continues, letting the incoming remainder
+  overwrite the stale tail. A mismatch is refused and the file restarts - slower, never wrong.
+  - That is the whole protocol: **one request parameter and one response field**, because `Blob.slice()` happens in
+    the browser. The file still goes up as ONE request - no piece boundaries, no ordering, no reassembly. (The
+    general chunked-upload design that would need all three was considered and rejected as a far bigger protocol
+    for no extra benefit.)
+  - What it saves: a file that fails at 97.9% costs its last **147546 bytes** instead of re-sending 6.97 MB, and a
+    10 MB file no longer throws away 3.6 MB. Before this, one batch moved 114 MB for 96 MB of files and the worst
+    single file cost about twice its size.
+  - **A partial is kept only when a verified position exists.** Anything else - no space, a protected name, the mode
+    closing - removes it, because a truncated track under a name the page has listed is worse than no track. `leave()`
+    clears the record too: nothing may resume into a mode that has ended.
+- **RESUME WORKS, and the first run of it landed all 14.** Resumed attempts took 5830 ms, 9478 ms, 9715 ms and
+  13931 ms against 35-50 s for a full re-send - that is where the minutes come back.
+- **BUG IT EXPOSED: `_upBytes` starts at the resume offset, so it is the FILE POSITION, not the bytes moved.** The
+  timing line divided the whole file size by the time the tail took and reported **1086 KB/s** for a transfer that
+  actually ran at 172. Any figure used for comparison has to measure the same thing on both sides, so the line now
+  reports `_upBytes - _upResumedFrom` and says `bytes moved`. It also prints **seconds** (`33.25s`) - every figure
+  here is read by eye, and `33253ms` takes work to read.
+- **BUG IT EXPOSED: a kept partial was LEFT ON THE CARD when the page gave up.** The device keeps a partial so the
+  page can resume, but nothing removed it if the page never came back - and a field run left a **9.25 MB truncated
+  file** on the card after the page stopped at `MAX_FILE_TRIES`, which the listing then counted as a track. That is
+  precisely what the no-truncated-track rule exists to prevent. `discardResume()` now forgets the record **and
+  deletes the file**, and it is called when a different file starts and from `leave()`. **Rule**: a file kept for a
+  resume is a loan, not a gift - it must be reclaimed on every path where the page will not come back for it.
+- **KEEPING A FILE FOR A RESUME CHANGES WHAT `exists()` MEANS FOR THAT NAME, so every check that treats "already
+  there" as a reason to refuse has to know about it.** `Skip Existing` did not, and it cost **five of fourteen files
+  in one batch**: the partial kept for the resume IS the file that "already exists", so each retry was answered with
+  `upload skipped, name already present` and then `discardResume()` deleted the partial - the file lost twice over,
+  to a rule that was working exactly as written. A resume the page offers now **takes precedence** over Skip
+  Existing on both sides: `canResume` is computed before the refusal chain in `onUploadChunk` and gates the skip
+  branch, and the page's own pre-check is bypassed for a file it holds a `landed` offset for. **Rule for new code**:
+  when this module keeps a file on purpose, list every other test that asks whether the name is taken and decide what
+  each one should do about it.
+- **The countdown is drawn only below `SDMAN_COUNTDOWN_FROM_MS` (2 minutes), and `idleRemainingMs()` is ONE clock
+  again - the user's.** It had been answering with the upload's own deadline while a transfer was open, which put a
+  number on the display nobody asked for, and because every chunk restamps the clock that number sat still: first a
+  frozen 2:59, then a frozen 1:59. The deadline is still ENFORCED by the stall branch in `loop()`; whether it is
+  worth SHOWING is decided where the showing happens. During an upload or a delete the clock stays near the top of
+  its range and the line is **blank**, so what remains reads as what it is: a two-minute no-activity timer.
+- **CORRECTION - the SPI sweep measured WRITES only.** 20, 30 and 40 MHz all write at ~135 KB/s, but the clock does
+  affect READS, and high-bitrate FLAC streaming needs that headroom. So do not lock in 20000000: **resume is what
+  makes a higher write-error rate affordable**, which is the trade to make - keep 40 MHz if playback needs the read
+  speed and let the resume path absorb the write failures.
+- **The stall branch prints the quiet time it TESTED, and `abortUpload()` never overwrites a reason that is already
+  set.** Both were field bugs. Reading `uploadIdleMs()` again inside the `FUNCTIONLOG` let a chunk arriving from the
+  AsyncTCP task between the test and the print turn 30 s of silence into `upload quiet for 0ms`, a log line denying
+  the action it had just taken; and because `abortUpload()` assigned `_upReason` unconditionally, the resulting
+  `stalled` replaced the `write_failed` that was the actual cause, so every stalled transfer had really been a short
+  write first. `SDMAN_UPLOAD_STALL_MS` also went from 30 s to 120 s: it had been firing the instant a chunk
+  arrived, which proves the browser had merely paused mid-file and the device abandoned a live transfer.
 - **Delete** takes the whole selection as a newline-separated body and walks it once. Refusals (protected or in use)
   and failures (missing, rmdir failed) share one `failed` counter in the response
   (`{"ok":<bool>,"deleted":N,"failed":M}`) because the page has a single message for "this stayed"; the serial log
@@ -1002,6 +1444,215 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   directory walk advances the position under the removal and skips entries.
 - The `isPlaying()` refusals in rename, delete and upload stay as a backstop even though entering the mode stops the
   player and `Player::_play()` refuses new playback: nothing may touch a file the player is reading.
+- **An upload HOLDS the mode open, and a STALLED upload is the only thing that can release it early.** The idle
+  branch in `FileManager::loop()` is guarded by `!uploadOpen()`, so the 180 s user clock cannot close over a live
+  transfer, and a second branch - `uploadOpen() && uploadIdleMs() >= SDMAN_UPLOAD_STALL_MS` - abandons a transfer
+  which has gone quiet (`filemanager.h`: 120 s while it can still succeed, 3 s once a chunk has failed, overridable).
+  Before this the 180 s user clock was what closed a *live* upload: the mode went at the moment a chunk was slow to
+  return, `leave()` removed the half-written file by design, and every remaining file of the batch answered
+  `not_active` - a batch destroyed by our own timer, with the log naming an idle timeout that had not happened.
+  `hDone()` had always refused to close over an upload; the timer did not, and that asymmetry was the bug.
+- **The one close allowed over an open upload is guarded by `_upInWrite`.** Closing a `File` another task is inside
+  is the cross-task hazard the log ring was fixed for, so the stall branch does nothing while a write is executing -
+  it marks the reason (`stalled`) so the transfer ends deterministically at its next step, and a genuinely wedged
+  write is left to the task watchdog, which `sdFeedWatchdog()` feeds *outside* the write and which will therefore
+  reset the device by itself. A locked manager is the better failure there; a corrupted handle is not.
+- **`abortUpload()` is the single owner of an upload that will not finish** - the stall branch, `leave()`, and any
+  later path all call it, so the reason is always set before the close and the partial file is always removed. Its
+  line names the byte count, because `490496 bytes` and `0 bytes` are the same failure until you can see how far the
+  transfer got.
+- **Log lines must print the values they TESTED, not re-read them while formatting.** The old idle line read
+  `millis()` and `_lastActivity` in its argument list, so a `touch()` from the AsyncTCP task landing between the test
+  and the print produced `idle for 180000ms, closing (now 94441, base 94440, elapsed 1)` - a report of a timeout that
+  branch had not seen, and the reason a stalled upload's close was misread as an idle timeout for two rounds of
+  diagnosis. The values are now copied out first.
+- **A hidden widget's blank has to be RE-ASSERTED, not issued once.** `TextWidget::setText()` returns early when the
+  string it is handed equals the one already up, and that early return is what makes it cheap - but the SD manager's
+  countdown blanks to an empty string and then stays empty for minutes, so the one clear it performed on the way
+  there was the only one it ever got: from then on the comparison matched, nothing was painted again, and the digits
+  sat at their last value (a field report of a line "stuck" at 0:29 that reappeared as 2:00 the moment the string
+  changed). `TextWidget::repaint()` paints the current text unconditionally and `Display::sdmanCountdown()` calls it
+  every tick while the line is hidden; the two transitions are logged with the remaining time, which is what tells
+  "the value stopped changing" apart from "the paint was never re-issued".
+- **The page is TOLD the moment a transfer is lost, instead of finding out when it ends.** `/sdman/info?up=1`
+  answers `open`, `lost`, `up` and `landed`, and the uploader's own 2-second progress watchdog polls it while a file
+  is going up. It is a separate shape from the figures body because that one walks the FAT for `usedBytes()` - card
+  reads issued while a chunk is being written - and this one touches no card at all. `lost` is tied to an OPEN
+  handle rather than to the reason, because a reason outlives the transfer it describes and a stale `lost` would
+  abort the next file's request.
+- **The retry WAITS for the device to let go, and that wait is what makes the resume legal.** A failed transfer keeps
+  its handle until the stall branch closes it, and closing it is also when `abortUpload()` records `_upResumeAt`. A
+  retry sent before that is taken as a FRESH file: the target is truncated and the page's tail slice is written at
+  position zero. So the page asks `open` and sends nothing until it is false - which is also what let
+  `SDMAN_UPLOAD_STALL_FAILED_MS` drop from 10 s to 3 s, since the batch no longer waits out a window written for a
+  browser that was never coming back. `hUploadDone()` had to learn to LEAVE that record alone as well: the aborted
+  request can outlive the release, and its failure path used to zero `_upResumeAt`/`_upResumePath`, refusing the very
+  retry the partial had been kept for.
+- **An offset the device cannot vouch for is REFUSED (`resume_refused`), never written.** A request carrying
+  `offset=N` is a slice, not a file: the old fallback ("starting it again") truncated the target and put the tail at
+  position zero, producing a corrupt track reported as a successful upload. The page treats it as retryable, drops
+  its figure and sends the whole file.
+- **The upload bar counts the FILE, not the request, and the per-file notices are gone.** A resumed attempt is a
+  slice, so its own `loaded/total` starts at nothing while the file is already part way there: progress is
+  `from + loaded` over `f.size`, and a device-detected loss freezes it at `landed / f.size` - the figure the retry
+  then continues from - so the bar never lies about what the card holds. Nothing is written to the message slot
+  during a batch for a failure that is about to be resumed: the file name and the bar carry that, and the slot keeps
+  its one line for the batch summary.
+- **WHOLE-SECTOR WRITES: TRIED, MEASURED, REFUTED - and left in place as an off-by-default path.** The theory was
+  that a 1436-byte chunk (a TCP segment, not a multiple of the card's sector) made the file system read-modify-write
+  a PARTIAL SECTOR through the driver programming the previous block, which is a plausible mechanism for the `errno 5`
+  refusals that arrive 4 ms in after the stream buffer has accepted a few hundred bytes.  The same 14-file, 96 MB
+  batch on the same card says no: **aligned 12 then 17 failed transfers at about 7.3 minutes, as-it-arrives 7 then 7
+  at about 5.0-5.8 minutes.**  The trend points the OPPOSITE way - a longer unbroken burst of sector programs is
+  refused more readily - so a 4096-byte payload was never worth trying.  The machinery itself works exactly as
+  designed (every resumed offset in the aligned run is a multiple of 512, so `resumeFloor()` and the assembly both
+  did their jobs); it is the hypothesis underneath that failed.  `SDMAN_WRITE_SECTOR` therefore defaults to **0**,
+  the code and its measurements are kept beside the macro so the instinct to try it again meets the numbers first,
+  and the cost when enabled is one `SDMAN_WRITE_SECTOR + 1536` byte buffer plus `sdFlushTail()` at the end of the
+  stream and before the final size check (`_upBytes` follows the WRITE, not the arrival).
+- **A short FINAL size check now keeps the file, exactly as `card_lagging` does.** It is the same loss reaching us by
+  another route - this check reads the file, that one reads it at a checkpoint - so it reports `landed` from the last
+  verified position and leaves the partial in place.  It used to remove the file and send no figure, so the retry sent
+  the whole thing: Teardrops landed 7332954 of 7381237 bytes and the next attempt sent all 7381237 again, when 48 KB
+  would have finished it.  **Rule**: every path where the card came up short is a resume opportunity, and only a path
+  with nothing verified may delete anything.
+- **A DIAGNOSTIC THAT ASKS A CLOSED HANDLE IS A DIAGNOSTIC THAT LIES.** `indexSDPlaylist()`'s failure line asked
+  `index ? "open" : "NOT open"` AFTER it had closed the handle, so it blamed "the index file could not be created" on
+  every failure whatever the truth was - and printed `rows 1936875874` and `playlist 1070244108 bytes`, memory
+  contents rather than sizes, from handles that had already been committed.  The open result is now captured at the
+  open, each failure carries its `errno`, the walk counts what it SAW (`_walkEntries`, `_walkDirs`) beside the files
+  it counted, and both temp files are re-opened by name for a size that came from the card (`sdFileSize()`) - the
+  only second opinion there is.  The one real signal in that log was `of 0`: `_sdFCount * 4`, so the walk counted no
+  files while `walked` said yes and neither "Failed to open directory" nor "SD write failed" appeared - a folder
+  skipped or a listing that came back empty, with nothing to say which.  **Rule**: a closed handle answers false, so
+  capture what is needed while it is open, and never print a number that did not come from a handle known to be
+  valid.  This is the second time this module has been misled that way; the 1.5 GB "sizes" figure was the first.
+- **PROVE THE STREAM RIGHT AFTER ANY RESCUE, not at the next checkpoint.** Both rescue paths - the partial-write repair
+  and the refused-chunk rescue - now set `_upNextCheck = _upBytes + wrote`, so the existing flush-plus-`size()` check
+  runs on the chunk that needed rescuing instead of waiting for the next 64 KB boundary.  The field pattern was
+  refusal, rescue accepted, and then the card silently SWALLOWING the whole next window: `fell 28765 bytes behind`,
+  `fell 49553`, `fell 53760` - one checkpoint's worth every time, so every byte written between the rescue and the
+  next check was written for nothing and the transfer was failed 30 to 66 KB later than it had to be.  Measured
+  effect: the reported shortfalls became **4303** and **4437** bytes, and the batch's recovery cost fell from 466 KB
+  to **114 KB, 0.12 percent of a 96 MB set**, with each failure ending sooner and `_upVerified` left as high as it can
+  be.  A rescue is the moment a transfer is most likely to be already lost, and that is where the proof belongs.
+  Note the distinction this settled: a REFUSAL (`errno 5`, nothing accepted) is repaired in 0 ms and costs one chunk
+  of tail, while the SWALLOWING (writes accepted, file not growing) is the expensive one - and it is caught by the
+  checkpoint, which is why the checkpoint cadence, not the write granularity, is the knob that matters.
+- **A BUDGET CARD BREAKS THE DESIGN'S ASSUMPTIONS, and the lag check now separates the two possible truths.** A cheap
+  16 GB card refuses one chunk in about 180 (one per ~256 KB) where a good card refuses essentially never, so a file
+  needs 20 to 40 attempts: the resume path held - recovery stayed at ~4 KB per failure - but the PAGE abandoned at a
+  flat 8 attempts with megabytes still to send (Infinity at 2.78 MB, Shelter at 3.04, Intro at 4.04, and 7/14 landed),
+  and every failure also cost the 3 s failed-stall window.  So: the attempt ceiling now SCALES with the file
+  (`max(8, size / 256 KB)`, bounded by a hard 200) while `MAX_STALLED_TRIES` stays the size-independent guard;
+  `SDMAN_UPLOAD_STALL_FAILED_MS` is 1 s; and the retry pause GROWS with consecutive refusals (2, 4, 8, 16, 32, 50 ms)
+  instead of a flat 2 ms, because a card that is still programming needs time rather than the same question again.
+  **The lag check asks whether the card is behind or the READING IS EARLY**: the size is read, the card is given
+  `SDMAN_UPLOAD_LAG_SETTLE_MS` (50 ms) to settle, and it is read AGAIN - if it catches up the transfer continues and
+  one line per file says so; only a shortfall that survives the pause fails the file, with both readings in the line.
+  That single measurement decides whether a budget card's failures are real (a lost write - so back off in the write
+  path) or an artefact of measuring mid-program (so read twice and never fail on the first number).
+- **PER-FILE ACCOUNTING, because an attempt is not a file.** The page sends one file over several requests, so every
+  figure in the per-attempt lines belonged to the LAST attempt: a file that took minutes and thirty attempts reported
+  "657001 bytes moved in 3.23s, 172 KB/s, 0 rescued".  The device now accumulates `_filePath`, `_fileStartedMs`,
+  `_fileMoved`, `_fileAttempts`, `_fileRetries`, `_filePartialRescues` across attempts - folding each attempt in when
+  it ends, resetting when the path changes - and the success line is
+  `Finished Upload <file> (N bytes moved in T, R KB/s, A attempt(s), X refused chunk(s) rescued, Y partial(s)
+  recovered)`: the file's wall clock and totals, which is what a comparison run is actually comparing.  Renamed from
+  `Uploaded` so it does not read like the `Upload ...` lines beside it.
+- **AN ATTEMPT CAN END THREE WAYS, SO IT IS FOLDED FROM BOTH ENDS.** A response (`hUploadDone`), a stall release
+  (`abortUpload`), or a cut-off - and two of them DO run for the same attempt. Folding only in `hUploadDone` missed
+  every attempt the stall branch released, and the field caught it: `Finished Upload ... 1465995 bytes moved in
+  85.33s, 16 KB/s` on a file that had run over 8.6 MB. `fileFoldAttempt()` is one guarded static (`_fileFolded`)
+  called at the TOP of both, while `_upPath` is still set (which is what tells a retry of the same file from the
+  start of a different one), and `_upBytes` is deliberately NOT zeroed by `abortUpload()` for the same reason.
+- **The upload bar and its percentage only move FORWARD, per file.** A retry resumes from the figure the device
+  vouched for, which is at or below the highest the bar already drew - so drawing it walked the bar backwards and
+  read as lost progress. The device-poll path used to do exactly that deliberately; the page now keeps a per-NAME
+  high-water mark and a lower figure is simply not drawn, so the figure freezes at the last good value and carries on
+  when the retry climbs past it. Reset by `busy()` and whenever the file name changes, so the next file starts at 0.
+- **TRANSPORT VERDICT: SPI and SDMMC write at the same speed; only SPI refuses.** Same card, same 14-file 96 MB batch:
+  SPI at 20/30/40 MHz landed 5 to 8 files per batch with 114-466 KB of recovery; **4-bit SDMMC and 1-bit SDMMC both
+  landed 14 of 14 with ZERO refusals, zero partial writes and nothing to recover** (167-255 KB/s per file, ~7.65
+  minutes for the batch; SPI's fastest clean session was ~6.5 min, its slowest ~7.9).  The spread between sessions is
+  wider than the difference between the transports, so the throughput figures do not choose between them - what
+  chooses is that `errno 5` never appears on SDMMC.  That settles what the SPI logs kept implying: the refusals are
+  the SPI TRANSPORT's (sdspi issues a command round trip per sector), not the card's and not the write granularity's.
+  **(QUALIFIED LATER - see the allocation-unit entry above: the WRITE GRANULARITY does matter, and it is what decides
+  whether those per-sector round trips can cope.  The transport verdict stands as measured on cards formatted the
+  same way; what it must not be read as is "the format is irrelevant".)**
+  Recommendation for a board with a choice: **SDMMC if the pins can be dedicated** (4-bit where the slot provides it,
+  1-bit otherwise - same write performance, no refusals, and it frees the SPI bus for display/audio), with SPI kept as
+  the universal fallback whose refusals now cost 0.12 percent of a batch.  Caveat measured on the es3c28p: SDMMC
+  sessions report main-loop stalls of 628-1896 ms that the SPI build does not, worst stage sometimes `controls`, so
+  investigate that before recommending it without qualification.  The one intermittent index-build failure we saw was
+  on the SPI transport right after a session full of refusals; both SDMMC sessions built the index normally.
+- **THE MAIN-LOOP STALLS ARE *NOT* THE ALLOCATION UNIT, and the field data says so three ways.**  The tempting theory
+  was that a large unit makes the card queue programmed data before finalising a cluster, so the bus goes quiet and
+  starves the loop.  It does not survive the measurements: the stalls appear on a card formatted at **512 B** as well;
+  they are ABSENT from the cheap card's **16 KB** run, where every file was slow; and they are PRESENT in the good
+  Sandisk's 16 KB run, which landed everything perfectly.  What that last run also had, and what the clean runs lacked,
+  was `ESPFileUpdater` writing `timezones.json`/`rb_srvrs.json` to LittleFS flash DURING an upload - a flash write and
+  a card write overlapping.  The stalls were also first recorded as a delete-burst symptom (1.2-2.4 s, with a
+  `playerQueue overflow`), i.e. with no upload running at all, so the shape that fits everything is **contention on the
+  shared flash/write paths, not the card's format** (the Part 1 "H2" line of investigation).  NOT FIXED - recorded so
+  nobody re-derives that the unit is innocent here.  The fix shape already exists in this codebase: defer a flash write
+  while an upload is open, the way the manager already defers its re-index.
+- **`playerQueue overflow` DURING A DELETE BURST IS THE SAME STARVATION, and `hDelete` now drains the queue.**
+  `Player::sendCommand()` drops a command and logs its type when the 10-slot `playerQueue` is still full after
+  `PLQ_SEND_DELAY` (100 ms); the number printed is `request.type` (1 PLAY, 2 STOP, 3 PREV, 4 NEXT, 5 VOL, 6 CHECKSD,
+  7 VUTONUS, 8 BURL, 9 TOGGLE).  The ONLY drain is `player.loop()` in `loop()`, gated on
+  `status == CONNECTED || SDOFFLINE`, plus the two opportunistic calls in `SDManager::listSD()`.  The producers are the
+  1 Hz `ctimer.attach(1, ticks)` (the "1ms" comment in `startup.cpp` is stale - `attach()` takes SECONDS) with `divrssi`
+  halving it, so `PR_CHECKSD` and `PR_VUTONUS` arrive about once per two seconds; a whole-card burst that blocks the
+  main loop on the shared bus for seconds per file therefore fills the queue and starts dropping ticks.  The delete
+  batch loop now calls `player.loop()` once per item, exactly as the index walk does, and the commands execute in that
+  task exactly as they already do there.  **Still open and NOT fixed: `SOFT_AP` and `FAILED` are outside the drain
+  gate, while `ticks()` is not gated on status at all - so in AP mode commands accumulate, get dropped, and a stale one
+  can sit in the queue until the status changes to `CONNECTED` and then fire.  `config.changeMode()`'s
+  `player.resetQueue()` is the existing answer to that hazard.**
+- **Log conventions in `filemanager.cpp`, settled in the field.** (1) `ERRORLOG` is for a LOSS only - a failure with
+  nothing vouchable and no partial kept - because that is the only thing the user has to act on; every recoverable
+  failure is an ordinary `FUNCTIONLOG` line, which is what stopped a batch of fully-recovered transfers reading as a
+  list of failed files.  (2) ONE line per upload: the request-finished line prints only when it says something the
+  outcome cannot (the handle still open, or a transfer already failing), with its counters otherwise folded into
+  `Uploaded <file> (N bytes moved in T, R KB/s, A rescued, B recovered)` - the pair of them made a 14-file batch 28
+  lines.  (3) ONE line per close: `leave()` takes a `why` string and names the reason beside the four conditions,
+  where the idle timeout and the Done button each printed their own line above and below it.  (4) The first word is
+  capitalised on every line, so the left edge can be scanned.  (5) A line that reports a measurement reads the value
+  ONCE and prints what it tested - and if that value is the subtraction of two clocks, it must be CLAMPED:
+  `millis() - stamp` wraps to 4294967289 ms when the stamp is written by the AsyncTCP task between the two reads, and
+  the stall branch read that as forty-nine days of silence and released a live transfer with 6.4 MB in - which also
+  opens the door to a retry writing the same file as the request it superseded.
+- **A superseded request's chunks are DROPPED, by multipart index.** The index restarts at 0 for every request, so a
+  chunk whose index is below the highest this transfer has seen cannot belong to it: it is the tail of a request the
+  page already gave up on, still in flight.  Writing one would splice two transfers together, and reporting one gave
+  lines about an empty path and a card that was never asked anything (`the rescue of a refused chunk at  was refused
+  too`).  Dropped before the clock is stamped - a dead request is not activity.
+- **THE RETRY BUDGET COUNTS ATTEMPTS THAT WENT NOWHERE, NOT ATTEMPTS - resume changed what a failure means.** An
+  attempt that advanced the verified position did real work and the next one continues from there, so failing the
+  file at that point throws the progress away. A field run lost the last file of a batch exactly there: 2.85 MB, then
+  3.43 MB, then 6.47 MB of a 6,965,338-byte file - the third attempt ending 490 KB from the end - and that third
+  failure spent a budget of two retries which says nothing about how far the file got. Teardrops survived the same
+  shape of run only by having had one fewer retry. The page now counts per name: `PROGRESS_BYTES` (32 KB) of forward
+  movement makes a retry FREE, less than that spends one of `MAX_STALLED_TRIES` (2) - the file that cannot get off
+  the starting blocks - and `MAX_ATTEMPTS` (8) is the ceiling over both. A failure arriving with no `landed` at all
+  (a dropped socket) counts as having gone nowhere. **Rule for new code**: a budget on a path that RESUME makes
+  incremental must be spent by lack of progress, or it will fail the files that are nearly done.
+- **What the wasted tail costs, measured from the 40 MHz run.** A failure ends the transfer but not the request: the
+  browser pushes the rest of the file while the device drops every byte of it. Comparing the bytes the device
+  actually moved against the file sizes gives ~19.4 MB wasted across the 14-file set at 20 MHz against ~55.5 MB at
+  40 MHz - roughly 7.8 against 10.1 minutes of batch time - which is why the abort was worth building before
+  settling `SDSPISPEED` on throughput alone.
+- **One walker at a time, and the handlers that would start a second one refuse instead.** `/sdman/list` builds its
+  answer with a chunked response whose filler (`sdmanListFiller`) keeps the directory handle in module-static state
+  between callbacks, but a second request over the same handler starts the walk again and closes the handle the first
+  one is still using - the 7-14 s walks and the "listing failed" flakiness after the first one. `hList()` therefore
+  answers 409 `busy` while a listing is in flight (`_listDir` open, `_listDone` clear, and within
+  `SDMAN_LIST_ABANDON_MS` = 5000 ms of its start) and 409 `uploading` while an upload holds `_upFile`, and the page
+  retries those quietly instead of showing an error - that is what makes a refresh during an upload wait for the upload
+  rather than tear it down. The walk is also fed to the watchdog every eight entries, and the driver's own
+  `_listT0`/`_listDone` guard is the reason a torn-down response does not wedge the next one.
 - **Entry works in AP mode.** The `network.status != CONNECTED` guard was removed because it protected nothing:
   `_switchMode()` refuses every mode change while the status is neither `CONNECTED` nor `SDOFFLINE`, so the AP screen
   (SSID, password, address) is never taken over, and the card stays reachable as plain storage on a device with no
@@ -1033,6 +1684,25 @@ thinks the radio forgot everything. The loader-side wait (`plans/network-recover
   touches the clock. A click is the *only* signal a file picker leaves - the dialog is native, so neither a chosen file
   nor a cancel reaches the page, and the countdown simply keeps running while it is open; the click that opened it
   bought the 180 s, and clicking again is how a cancelled picker is recovered.
+- **The idle redirect is judged when it FIRES, and held for the whole batch.** `scheduleIdleReload()` tested
+  `state.uploading` only at the moment it armed the timer - and the delay it arms is the device's entire idle
+  window, so a timer set on the page's first `/sdman/info` could expire in the middle of a running batch and
+  navigate to "/", aborting the upload in flight. The device sees that as a perfectly healthy upload going silent
+  for its whole stall window, which is exactly what a field log showed, and it is why a batch ended after one file.
+  The test now happens inside the timer callback, against a batch-level flag (`state.batch`) rather than the
+  per-file `state.uploading` that `finish()` clears between files; `keepAlive()` respects it too, and only `done()`
+  clears it.
+- **The page watches upload PROGRESS, because nothing else can see a transfer that has stopped moving.** There is no
+  event for it: the device answers nothing until the last byte, so `xhr.timeout` cannot fire, and a browser that
+  stops sending produces no callback at all. A 20 s interval (`UPLOAD_STALL_MS`) aborts a file whose
+  `xhr.upload.onprogress` has not moved, and `onabort` gives it the same single retry as a dropped connection before
+  dropping it and carrying on with the batch. That is the difference between one bad file and a lost batch: the old
+  behaviour left the device waiting out its own deadline for a browser that had stopped sending.
+- **The on-screen countdown shows the upload's deadline only once a chunk has FAILED.** In that state the file is
+  already lost and the mode is about to be released, so the number is counting down to something real (the 10 s
+  `SDMAN_UPLOAD_STALL_FAILED_MS`). While the transfer is healthy the same number would be restamped by every chunk
+  and sit at a frozen 1:59, which reads as a stopped clock - so the ordinary idle clock is shown instead. The
+  deadline is still enforced by the stall branch in `loop()`; the display simply stops advertising it.
 - **Every close now names its cause, and the Done button is refused mid-upload.** Three things end the mode and
   `leave()` alone cannot tell them apart, so each says so before calling it: `hDone()` logs `closing on request
   (Done button)`, the idle branch logs `idle for <N>ms, closing (now, base, elapsed)`, and the card-gone branch
